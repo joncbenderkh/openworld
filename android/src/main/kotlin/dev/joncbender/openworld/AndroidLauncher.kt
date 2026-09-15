@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.backends.android.AndroidApplication
 import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
@@ -89,6 +90,32 @@ class AndroidLauncher : AndroidApplication() {
                 }
             },
         )
+
+        layout.addView(
+            TextView(this).apply {
+                text = "Resource density"
+                setTextColor(Color.WHITE)
+            },
+        )
+        val densityRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf("Sparse" to 0.08f, "Normal" to 0.12f, "Abundant" to 0.20f).forEach { (label, value) ->
+            densityRow.addView(
+                Button(this).apply {
+                    text = label
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    // Changing density only matters for tiles rolled at generation time,
+                    // so apply it by regenerating immediately rather than waiting for a
+                    // separate "new world seed" tap the player might not think to make.
+                    setOnClickListener {
+                        Gdx.app.postRunnable {
+                            screen.resourceDensity = value
+                            screen.regenerateWorld()
+                        }
+                    }
+                },
+            )
+        }
+        layout.addView(densityRow)
 
         layout.addView(
             Button(this).apply {

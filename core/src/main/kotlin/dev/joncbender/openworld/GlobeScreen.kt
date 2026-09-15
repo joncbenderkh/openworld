@@ -21,7 +21,11 @@ import com.badlogic.gdx.math.Vector3
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     private val frequency = 40 // total tiles = 10*frequency^2 + 2 (~10x the original 1442)
-    private var world = WorldGenerator(seed = System.nanoTime()).generate(frequency)
+
+    /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
+    var resourceDensity = WorldGenerator.DEFAULT_RESOURCE_DENSITY
+
+    private var world = WorldGenerator(seed = System.nanoTime()).generate(frequency, resourceDensity)
 
     /** Reverses the sense of one- and two-finger drag gestures. Settable from outside (the Android settings menu). */
     var navigationFlipped = false
@@ -98,7 +102,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     /** Regenerates the world with a fresh random seed and rebuilds the terrain mesh. Called from the settings menu. */
     fun regenerateWorld() {
-        world = WorldGenerator(seed = System.nanoTime()).generate(frequency)
+        world = WorldGenerator(seed = System.nanoTime()).generate(frequency, resourceDensity)
         mesh.dispose()
         mesh = buildMesh()
     }
