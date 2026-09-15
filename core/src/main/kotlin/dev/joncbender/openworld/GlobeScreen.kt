@@ -89,12 +89,21 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     }
 
     private fun updateCameraPosition() {
-        val x = distance * MathUtils.sin(phi) * MathUtils.cos(theta)
-        val y = distance * MathUtils.cos(phi)
-        val z = distance * MathUtils.sin(phi) * MathUtils.sin(theta)
-        camera.position.set(x, y, z)
-        camera.up.set(0f, 1f, 0f)
-        camera.lookAt(0f, 0f, 0f)
+        val sinPhi = MathUtils.sin(phi)
+        val cosPhi = MathUtils.cos(phi)
+        val sinTheta = MathUtils.sin(theta)
+        val cosTheta = MathUtils.cos(theta)
+
+        camera.position.set(distance * sinPhi * cosTheta, distance * cosPhi, distance * sinPhi * sinTheta)
+        camera.direction.set(camera.position).scl(-1f).nor()
+        // The sphere's local "north" tangent at the camera's longitude/latitude -
+        // this is always orthogonal to `direction` by construction (it's the
+        // spherical-coordinate basis vector for decreasing colatitude), including
+        // exactly at the poles, unlike a fixed (0,1,0) world-up hint fed through
+        // lookAt(): that degenerates (zero cross product) whenever the view
+        // direction is parallel to it, i.e. exactly when looking at a pole - which
+        // is what forced the old code to clamp phi away from the poles at all.
+        camera.up.set(-cosPhi * cosTheta, sinPhi, -cosPhi * sinTheta)
         camera.normalizeUp()
     }
 
@@ -106,7 +115,14 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     override fun pan(x: Float, y: Float, deltaX: Float, deltaY: Float): Boolean {
         theta -= deltaX * ROTATE_SPEED
-        phi = (phi - deltaY * ROTATE_SPEED).coerceIn(POLE_MARGIN, MathUtils.PI - POLE_MARGIN)
+        // No clamping or reflecting: sin/cos are already smooth and continuous
+        // for any real angle, including past a pole and negative values, so
+        // letting phi accumulate freely and feeding it straight into those
+        // formulas carries the camera over a pole correctly on its own. An
+        // earlier attempt manually reflected phi into [0, PI] and flipped theta
+        // by 180° to fake this - but that reconstruction gets the "up" vector's
+        // sign backwards at the crossing, flipping the view upside-down.
+        phi -= deltaY * ROTATE_SPEED
         return true
     }
 
@@ -138,7 +154,6 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     companion object {
         private const val VERTEX_SIZE = 7 // position(3) + color(4)
         private const val ROTATE_SPEED = 0.005f
-        private const val POLE_MARGIN = 0.05f
 
         private const val VERTEX_SHADER = """
             attribute vec4 a_position;
