@@ -1,23 +1,107 @@
 package dev.joncbender.openworld
 
+import android.app.AlertDialog
+import android.graphics.Color
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.widget.Button
+import android.widget.CheckBox
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.backends.android.AndroidApplication
 import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
 
 class AndroidLauncher : AndroidApplication() {
+
+    private lateinit var game: OpenWorldGame
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val config = AndroidApplicationConfiguration().apply {
             useAccelerometer = false
             useCompass = false
         }
-        initialize(OpenWorldGame(), config)
+        game = OpenWorldGame()
+        // initializeForView (rather than initialize) skips setContentView so the
+        // GL surface can be embedded alongside the settings button overlay below.
+        val gameView = initializeForView(game, config)
+
+        val root = FrameLayout(this)
+        root.addView(
+            gameView,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
+        )
+        root.addView(buildSettingsButton())
+        setContentView(root)
+
         goEdgeToEdge()
+    }
+
+    private fun buildSettingsButton(): View {
+        val density = resources.displayMetrics.density
+        val button = Button(this).apply {
+            text = "⚙"
+            textSize = 20f
+            setBackgroundColor(Color.argb(140, 0, 0, 0))
+            setTextColor(Color.WHITE)
+            setOnClickListener { showSettingsDialog() }
+        }
+        button.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            val margin = (16 * density).toInt()
+            topMargin = margin
+            rightMargin = margin
+        }
+        return button
+    }
+
+    private fun showSettingsDialog() {
+        val screen = game.globeScreen
+        val density = resources.displayMetrics.density
+        val padding = (24 * density).toInt()
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, padding)
+        }
+
+        // A Switch rendered invisible against this dialog on-device (twice, even
+        // with explicit tint colors) - probably the app's old, non-Material base
+        // theme (Theme.NoTitleBar.Fullscreen) failing to resolve its track/thumb
+        // drawables. CheckBox has much simpler, more universally reliable
+        // rendering across themes, so use that instead.
+        layout.addView(
+            CheckBox(this).apply {
+                text = "Flip navigation direction"
+                setTextColor(Color.WHITE)
+                isChecked = screen.navigationFlipped
+                setOnCheckedChangeListener { _, isChecked ->
+                    Gdx.app.postRunnable { screen.navigationFlipped = isChecked }
+                }
+            },
+        )
+
+        layout.addView(
+            Button(this).apply {
+                text = "New world seed"
+                setOnClickListener { Gdx.app.postRunnable { screen.regenerateWorld() } }
+            },
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Settings")
+            .setView(layout)
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     /**
