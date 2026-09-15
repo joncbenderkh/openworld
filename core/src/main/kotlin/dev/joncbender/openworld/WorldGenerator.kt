@@ -5,18 +5,18 @@ import dev.joncbender.openworld.geo.GeodesicSphere
 import kotlin.math.abs
 import kotlin.random.Random
 
-/** The generated world: a geodesic sphere where every face has one biome and an optional resource. */
+/** The generated world: a geodesic sphere where every face has one biome and zero or more resources. */
 class SphereWorld(val faces: List<Face>, private val biomes: Array<Biome>) {
-    private val resources = arrayOfNulls<Resource>(biomes.size)
+    private val resources = Array<List<Resource>>(biomes.size) { emptyList() }
 
     operator fun get(faceIndex: Int): Biome = biomes[faceIndex]
     operator fun set(faceIndex: Int, biome: Biome) {
         biomes[faceIndex] = biome
     }
 
-    fun resourceAt(faceIndex: Int): Resource? = resources[faceIndex]
-    fun setResource(faceIndex: Int, resource: Resource?) {
-        resources[faceIndex] = resource
+    fun resourcesAt(faceIndex: Int): List<Resource> = resources[faceIndex]
+    fun setResources(faceIndex: Int, value: List<Resource>) {
+        resources[faceIndex] = value
     }
 }
 
@@ -32,7 +32,7 @@ class WorldGenerator(private val seed: Long) {
     private val moistureNoise = Noise3D(seed xor 0x9E3779B97F4A7C15UL.toLong())
 
     companion object {
-        const val DEFAULT_RESOURCE_DENSITY = 0.12f
+        const val DEFAULT_RESOURCE_DENSITY = 0.18f
     }
 
     fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY): SphereWorld {
@@ -82,14 +82,20 @@ class WorldGenerator(private val seed: Long) {
         return world
     }
 
-    /** Rolls a resource for a fraction of tiles, drawn from whatever their (post-hydrology) biome allows. */
+    /**
+     * Rolls each of a tile's (post-hydrology) biome's possible resources
+     * independently at `density` odds, rather than one roll picking at most
+     * one resource per tile - a tile can end up with several (e.g. a forest
+     * tile with both wood and game), and biomes with more resource options
+     * naturally read as richer without needing a separate density knob per
+     * biome.
+     */
     private fun assignResources(world: SphereWorld, density: Float) {
         val rng = Random(seed xor 0xC2B2AE3D27D4EB4FUL.toLong())
         for (i in world.faces.indices) {
-            if (rng.nextFloat() >= density) continue
             val options = BIOME_RESOURCES[world[i]] ?: continue
-            if (options.isEmpty()) continue
-            world.setResource(i, options[rng.nextInt(options.size)])
+            val rolled = options.filter { rng.nextFloat() < density }
+            if (rolled.isNotEmpty()) world.setResources(i, rolled)
         }
     }
 

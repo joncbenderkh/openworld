@@ -209,7 +209,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         if (!Intersector.intersectRaySphere(localRay, Vector3.Zero, 1f, hit)) return false
 
         val faceIndex = nearestFace(hit.nor())
-        onTileSelected?.invoke(TileInfo(faceIndex, world[faceIndex], world.resourceAt(faceIndex)))
+        onTileSelected?.invoke(TileInfo(faceIndex, world[faceIndex], world.resourcesAt(faceIndex)))
         return true
     }
 
