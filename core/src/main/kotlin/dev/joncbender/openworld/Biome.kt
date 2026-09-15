@@ -1,0 +1,18 @@
+package dev.joncbender.openworld
+
+import com.badlogic.gdx.graphics.Color
+
+/**
+ * Placeholder representation: each biome is a flat color until tile art exists.
+ */
+enum class Biome(val color: Color) {
+    OCEAN(Color(0.11f, 0.29f, 0.55f, 1f)),
+    RIVER(Color(0.25f, 0.55f, 0.80f, 1f)),
+    LAKE(Color(0.20f, 0.45f, 0.75f, 1f)),
+    DESERT(Color(0.87f, 0.75f, 0.42f, 1f)),
+    SAVANNAH(Color(0.76f, 0.70f, 0.30f, 1f)),
+    PLAINS(Color(0.62f, 0.78f, 0.38f, 1f)),
+    FOREST(Color(0.16f, 0.45f, 0.20f, 1f)),
+    SWAMP(Color(0.30f, 0.40f, 0.28f, 1f)),
+    MOUNTAIN(Color(0.55f, 0.53f, 0.50f, 1f)),
+}

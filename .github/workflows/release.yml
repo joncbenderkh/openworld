@@ -1,0 +1,37 @@
+name: Release (unsigned)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-unsigned-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # No release keystore is configured yet, so this produces an unsigned
+      # APK. Once ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD /
+      # ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD secrets exist, add a signing
+      # config to android/build.gradle.kts that reads them and sign here.
+      - name: Assemble unsigned release APK
+        run: ./gradlew :android:assembleRelease --console=plain
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/build/outputs/apk/release/*.apk
+          generate_release_notes: true
