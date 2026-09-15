@@ -42,12 +42,41 @@ android {
     }
 }
 
+val natives: Configuration by configurations.creating
+
 dependencies {
     implementation(project(":core"))
-
     implementation("com.badlogicgames.gdx:gdx-backend-android:$gdxVersion")
-    implementation("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-armeabi-v7a")
-    implementation("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-arm64-v8a")
-    implementation("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-x86")
-    implementation("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-x86_64")
+
+    natives("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-armeabi-v7a")
+    natives("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-arm64-v8a")
+    natives("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-x86")
+    natives("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-x86_64")
 }
+
+// gdx-platform natives are plain jars with .so files at their root - AGP only
+// merges native libs it finds under a jniLibs source dir, so extract them there.
+val copyAndroidNatives by tasks.registering {
+    val abiOutputDirs = mapOf(
+        "natives-armeabi-v7a" to "armeabi-v7a",
+        "natives-arm64-v8a" to "arm64-v8a",
+        "natives-x86" to "x86",
+        "natives-x86_64" to "x86_64",
+    )
+    doFirst {
+        abiOutputDirs.values.forEach { abi -> file("libs/$abi").mkdirs() }
+        natives.files.forEach { jar ->
+            val abi = abiOutputDirs.entries.firstOrNull { jar.name.contains(it.key) }?.value
+            if (abi != null) {
+                copy {
+                    from(zipTree(jar))
+                    into(file("libs/$abi"))
+                    include("*.so")
+                }
+            }
+        }
+    }
+}
+
+tasks.matching { it.name.contains("merge") && it.name.contains("JniLibFolders") }
+    .configureEach { dependsOn(copyAndroidNatives) }
