@@ -17,7 +17,7 @@ object BiomeTextures {
 
     private const val CELL_SIZE = 32
     private const val COLS = 5
-    private const val ROWS = 2
+    private const val ROWS = 3 // 14 biomes + 1 reserved white cell = 15 = 5*3
 
     // Corners sit this far from a face's center, as a fraction of one atlas
     // cell - small enough that neighboring cells' patterns never bleed in.
@@ -78,8 +78,13 @@ object BiomeTextures {
             Biome.SAVANNAH -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.8f), lighten(base, 0.2f)), 0.08f, rng)
             Biome.PLAINS -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.85f), lighten(base, 0.2f)), 0.12f, rng)
             Biome.FOREST -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.6f), darken(base, 0.8f)), 0.28f, rng)
+            Biome.JUNGLE -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.6f), lighten(base, 0.3f)), 0.32f, rng)
+            Biome.DEEP_FOREST -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.5f), darken(base, 0.75f)), 0.35f, rng)
+            Biome.TAIGA -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.7f), lighten(base, 0.15f)), 0.20f, rng)
             Biome.SWAMP -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.7f), Color(0.24f, 0.22f, 0.12f, 1f)), 0.18f, rng)
             Biome.MOUNTAIN -> cracks(pixmap, x0, y0, base, darken(base, 0.6f), lighten(base, 0.25f), rng)
+            Biome.TUNDRA -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.75f), lighten(base, 0.25f)), 0.06f, rng)
+            Biome.ARCTIC -> cracks(pixmap, x0, y0, base, darken(base, 0.85f), Color.WHITE, rng)
         }
     }
 
