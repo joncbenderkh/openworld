@@ -11,8 +11,10 @@ import com.badlogic.gdx.graphics.VertexAttribute
 import com.badlogic.gdx.graphics.VertexAttributes
 import com.badlogic.gdx.graphics.glutils.ShaderProgram
 import com.badlogic.gdx.input.GestureDetector
+import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Matrix4
 import com.badlogic.gdx.math.Quaternion
+import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.math.Vector3
 
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
@@ -30,6 +32,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private val minDistance = 1.6f
     private val maxDistance = 6f
     private var zoomStartDistance: Float? = null
+    private var twistStartRotation: Quaternion? = null
+    private var twistStartAngleDeg: Float? = null
 
     // The globe's orientation, spun by drag gestures. The camera itself never
     // moves except straight along its own view axis for zoom - there is no
@@ -135,8 +139,33 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         return true
     }
 
+    override fun pinch(
+        initialPointer1: Vector2,
+        initialPointer2: Vector2,
+        pointer1: Vector2,
+        pointer2: Vector2,
+    ): Boolean {
+        // Two-finger twist: rotate around the camera's own view axis (Z) by
+        // however much the angle between the two fingers has changed. Same
+        // cumulative-since-gesture-start shape as zoom() above, and for the
+        // same reason - the "initial" pointers stay fixed at gesture start
+        // while the live ones keep updating, so re-deriving from a snapshot
+        // of `rotation` each callback avoids compounding the same twist
+        // repeatedly instead of applying it once.
+        val start = twistStartRotation ?: Quaternion(rotation).also { twistStartRotation = it }
+        val startAngle = twistStartAngleDeg ?: angleDeg(initialPointer1, initialPointer2).also { twistStartAngleDeg = it }
+        val currentAngle = angleDeg(pointer1, pointer2)
+        rotation.set(start).mulLeft(Quaternion(Vector3.Z, currentAngle - startAngle))
+        return true
+    }
+
+    private fun angleDeg(a: Vector2, b: Vector2): Float =
+        MathUtils.atan2(b.y - a.y, b.x - a.x) * MathUtils.radiansToDegrees
+
     override fun touchDown(x: Float, y: Float, pointer: Int, button: Int): Boolean {
         zoomStartDistance = null
+        twistStartRotation = null
+        twistStartAngleDeg = null
         return false
     }
 
