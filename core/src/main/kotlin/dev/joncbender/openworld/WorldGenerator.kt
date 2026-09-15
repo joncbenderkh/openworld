@@ -55,7 +55,7 @@ class WorldGenerator(private val seed: Long) {
                 latitude >= 0.88f -> Biome.ARCTIC
                 m > 0.75f && e < seaLevel + 0.08f && latitude < 0.75f -> Biome.SWAMP
                 latitude >= 0.75f -> if (m > 0.40f) Biome.TAIGA else Biome.TUNDRA
-                latitude < 0.35f && m < 0.30f -> Biome.DESERT
+                latitude < 0.40f && m < 0.42f -> Biome.DESERT
                 latitude < 0.35f && m > 0.65f -> Biome.JUNGLE
                 latitude < 0.55f && m < 0.50f -> Biome.SAVANNAH
                 m > 0.75f -> Biome.DEEP_FOREST
