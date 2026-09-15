@@ -115,7 +115,14 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     override fun pan(x: Float, y: Float, deltaX: Float, deltaY: Float): Boolean {
         theta -= deltaX * ROTATE_SPEED
-        phi = (phi - deltaY * ROTATE_SPEED).coerceIn(0f, MathUtils.PI)
+        // No clamping or reflecting: sin/cos are already smooth and continuous
+        // for any real angle, including past a pole and negative values, so
+        // letting phi accumulate freely and feeding it straight into those
+        // formulas carries the camera over a pole correctly on its own. An
+        // earlier attempt manually reflected phi into [0, PI] and flipped theta
+        // by 180° to fake this - but that reconstruction gets the "up" vector's
+        // sign backwards at the crossing, flipping the view upside-down.
+        phi -= deltaY * ROTATE_SPEED
         return true
     }
 
