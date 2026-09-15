@@ -52,4 +52,25 @@ class GeodesicSphereTest {
             }
         }
     }
+
+    @Test
+    fun `holds up at the frequency the game actually uses`() {
+        // Regression test: at freq=40, boundary points shared by adjacent icosahedron
+        // faces were occasionally computed with a ~1 ULP float difference between the
+        // two faces, landing on opposite sides of the vertex-merge quantization
+        // boundary. That left a stray unmerged vertex, which made an edge belong to
+        // only one triangle instead of two and crashed buildDual() with
+        // NoSuchElementException when walking the dual polygon around it.
+        val freq = 40
+        val faces = GeodesicSphere.generate(freq)
+
+        assertEquals(10 * freq * freq + 2, faces.size)
+        assertEquals(12, faces.count { it.corners.size == 5 })
+        for ((i, face) in faces.withIndex()) {
+            assertEquals(face.corners.size, face.neighbors.size)
+            for (n in face.neighbors) {
+                assertTrue(i in faces[n].neighbors, "face $n does not list $i back as a neighbor")
+            }
+        }
+    }
 }

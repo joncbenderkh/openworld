@@ -49,10 +49,16 @@ object GeodesicSphere {
         val keyToIndex = HashMap<Long, Int>()
 
         fun keyOf(v: Vector3): Long {
-            // Quantize so points shared by adjacent icosahedron faces merge into one vertex.
-            val qx = Math.round(v.x * 100000f).toLong() and 0x1FFFFF
-            val qy = Math.round(v.y * 100000f).toLong() and 0x1FFFFF
-            val qz = Math.round(v.z * 100000f).toLong() and 0x1FFFFF
+            // Quantize so points shared by adjacent icosahedron faces merge into one
+            // vertex. A shared boundary point is computed independently by each of its
+            // two faces via different operand orderings (e.g. v0*(1-t)+v1*t vs the
+            // mirrored v1*(1-t')+v0*t'), which can differ by ~1 float32 ULP - too coarse
+            // a scale here lets that noise flip which side of a rounding boundary the
+            // point lands on, silently producing two vertices instead of one. 1e3 stays
+            // far below real inter-vertex spacing even at high subdivision frequencies.
+            val qx = Math.round(v.x * 1000f).toLong() and 0x1FFFFF
+            val qy = Math.round(v.y * 1000f).toLong() and 0x1FFFFF
+            val qz = Math.round(v.z * 1000f).toLong() and 0x1FFFFF
             return qx or (qy shl 21) or (qz shl 42)
         }
 
