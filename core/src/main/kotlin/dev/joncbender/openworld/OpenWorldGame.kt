@@ -3,7 +3,11 @@ package dev.joncbender.openworld
 import com.badlogic.gdx.Game
 
 class OpenWorldGame : Game() {
+    lateinit var globeScreen: GlobeScreen
+        private set
+
     override fun create() {
-        setScreen(GlobeScreen())
+        globeScreen = GlobeScreen()
+        setScreen(globeScreen)
     }
 }

@@ -20,7 +20,10 @@ import com.badlogic.gdx.math.Vector3
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     private val frequency = 40 // total tiles = 10*frequency^2 + 2 (~10x the original 1442)
-    private val world = WorldGenerator(seed = System.currentTimeMillis()).generate(frequency)
+    private var world = WorldGenerator(seed = System.nanoTime()).generate(frequency)
+
+    /** Reverses the sense of one- and two-finger drag gestures. Settable from outside (the Android settings menu). */
+    var navigationFlipped = false
 
     private val camera = PerspectiveCamera(60f, 1f, 1f).apply {
         near = 0.1f
@@ -86,6 +89,13 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         return mesh
     }
 
+    /** Regenerates the world with a fresh random seed and rebuilds the terrain mesh. Called from the settings menu. */
+    fun regenerateWorld() {
+        world = WorldGenerator(seed = System.nanoTime()).generate(frequency)
+        mesh.dispose()
+        mesh = buildMesh()
+    }
+
     private fun appendVertex(data: FloatArray, offset: Int, pos: Vector3, color: Color): Int {
         var o = offset
         data[o++] = pos.x; data[o++] = pos.y; data[o++] = pos.z
@@ -122,8 +132,9 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         // axis is always the one the viewer is currently looking along,
         // regardless of how the globe has already been spun - exactly how
         // spinning a ball with a finger works, with no special axis anywhere.
-        rotation.mulLeft(Quaternion(Vector3.Y, -deltaX * ROTATE_SPEED_DEG))
-        rotation.mulLeft(Quaternion(Vector3.X, -deltaY * ROTATE_SPEED_DEG))
+        val sign = if (navigationFlipped) -1f else 1f
+        rotation.mulLeft(Quaternion(Vector3.Y, -deltaX * sign * ROTATE_SPEED_DEG))
+        rotation.mulLeft(Quaternion(Vector3.X, -deltaY * sign * ROTATE_SPEED_DEG))
         return true
     }
 
