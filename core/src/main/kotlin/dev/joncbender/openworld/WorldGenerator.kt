@@ -75,6 +75,7 @@ class WorldGenerator(private val seed: Long) {
         for (i in world.faces.indices) {
             val e = elevation[i]
             if (e < seaLevel || e > lakeBand) continue
+            if (world[i] == Biome.ARCTIC) continue // permanent ice, not liquid water
             val isBasin = world.faces[i].neighbors.all { elevation[it] >= e }
             if (isBasin) world[i] = Biome.LAKE
         }
@@ -91,6 +92,7 @@ class WorldGenerator(private val seed: Long) {
             while (steps < 200) {
                 val e = elevation[current]
                 if (e < seaLevel || world[current] == Biome.OCEAN || world[current] == Biome.LAKE) break
+                if (world[current] == Biome.ARCTIC) break // rivers don't flow across permanent ice
                 if (world[current] != Biome.MOUNTAIN) world[current] = Biome.RIVER
 
                 val next = world.faces[current].neighbors.minByOrNull { elevation[it] } ?: break
