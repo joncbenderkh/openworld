@@ -7,9 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 **openworld** — a procedurally generated Android game world rendered as an
 actual 3D globe: a geodesic sphere (dual of a subdivided icosahedron —
 hexagonal tiles plus exactly 12 pentagons, since a sphere can't be tiled by
-hexagons alone) that the player orbits/rotates around. Multiple biomes:
-ocean, desert, river, lake, forest, mountain, swamp, plains, savannah. For now
-biomes are rendered as flat colors — no tile art yet.
+hexagons alone) that the player spins with drag/twist gestures. Multiple
+biomes: ocean, desert, river, lake, forest, mountain, swamp, plains,
+savannah, each with its own procedurally generated tile texture (no external
+art assets or image-gen tool available, so patterns are hand-coded pixel art
+generated at startup — see `BiomeTextures.kt`).
 
 A flat 2D hex map with edge-wrapping was tried first and rejected — no matter
 how the wrap topology worked (cylinder wrap, then pole wrap-over), it read as
@@ -35,7 +37,7 @@ openworld/
     geo/    geodesic sphere geometry (icosahedron subdivision + dual)
     ...     world generation (noise → biomes → rivers/lakes), 3D rendering, biomes
   android/  Android application module (libGDX Android backend)
-  assets/   shared assets (currently none — biomes are solid colors)
+  assets/   shared assets (currently none — tile art is generated at runtime, see BiomeTextures.kt)
 ```
 
 ## Build, test, lint
@@ -74,7 +76,12 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   (steepest-descent walk / local-minima detection) over the sphere's
   face-adjacency graph — no map edges to special-case at all.
 - Rendering (`GlobeScreen.kt`): one static `Mesh` (fan-triangulated per face,
-  flat per-vertex color, no lighting/texturing), a minimal custom shader, and
-  a `PerspectiveCamera` orbiting the sphere at fixed radius (spherical
-  coordinates `theta`/`phi` driven by pan gestures, `distance` by pinch-zoom).
-- Biomes are placeholder solid colors for now — no tile art or blending yet.
+  textured via a small procedural atlas from `BiomeTextures.kt` — each face's
+  corners get UV coords arranged evenly around its biome's atlas cell, no real
+  3D UV unwrapping), a minimal custom shader (texture × vertex color, so
+  non-terrain geometry like the graticule can share it by sampling a reserved
+  white texel and relying on its own vertex color), and a fixed `PerspectiveCamera`:
+  drags accumulate a rotation quaternion applied to the globe's model matrix
+  instead of orbiting the camera (arcball/trackball), which avoids the pole
+  singularities a camera-orbit model runs into.
+- No lighting or biome-color blending at tile boundaries yet.

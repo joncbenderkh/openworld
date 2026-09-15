@@ -7,6 +7,7 @@ import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Mesh
 import com.badlogic.gdx.graphics.PerspectiveCamera
+import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.VertexAttribute
 import com.badlogic.gdx.graphics.VertexAttributes
 import com.badlogic.gdx.graphics.glutils.ShaderProgram
@@ -51,8 +52,10 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private lateinit var mesh: Mesh
     private lateinit var graticule: Mesh
     private lateinit var shader: ShaderProgram
+    private lateinit var biomeTexture: Texture
 
     override fun show() {
+        biomeTexture = BiomeTextures.build()
         mesh = buildMesh()
         graticule = Graticule.build()
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
@@ -68,13 +71,16 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         var p = 0
 
         for ((i, face) in world.faces.withIndex()) {
-            val color = world[i].color
-            val apex = face.center
+            val biome = world[i]
+            val (centerU, centerV) = BiomeTextures.centerUV(biome)
             val corners = face.corners
+            val n = corners.size
             for (c in corners.indices) {
-                p = appendVertex(data, p, apex, color)
-                p = appendVertex(data, p, corners[c], color)
-                p = appendVertex(data, p, corners[(c + 1) % corners.size], color)
+                val (u0, v0) = BiomeTextures.cornerUV(biome, c, n)
+                val (u1, v1) = BiomeTextures.cornerUV(biome, (c + 1) % n, n)
+                p = appendVertex(data, p, face.center, Color.WHITE, centerU, centerV)
+                p = appendVertex(data, p, corners[c], Color.WHITE, u0, v0)
+                p = appendVertex(data, p, corners[(c + 1) % n], Color.WHITE, u1, v1)
             }
         }
 
@@ -84,6 +90,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             0,
             VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
             VertexAttribute(VertexAttributes.Usage.ColorUnpacked, 4, ShaderProgram.COLOR_ATTRIBUTE),
+            VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
         )
         mesh.setVertices(data)
         return mesh
@@ -96,10 +103,11 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         mesh = buildMesh()
     }
 
-    private fun appendVertex(data: FloatArray, offset: Int, pos: Vector3, color: Color): Int {
+    private fun appendVertex(data: FloatArray, offset: Int, pos: Vector3, color: Color, u: Float, v: Float): Int {
         var o = offset
         data[o++] = pos.x; data[o++] = pos.y; data[o++] = pos.z
         data[o++] = color.r; data[o++] = color.g; data[o++] = color.b; data[o++] = color.a
+        data[o++] = u; data[o++] = v
         return o
     }
 
@@ -113,8 +121,10 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         modelMatrix.idt().rotate(rotation)
         mvpMatrix.set(camera.combined).mul(modelMatrix)
 
+        biomeTexture.bind(0)
         shader.bind()
         shader.setUniformMatrix("u_projViewTrans", mvpMatrix)
+        shader.setUniformi("u_texture", 0)
         mesh.render(shader, GL20.GL_TRIANGLES)
         graticule.render(shader, GL20.GL_TRIANGLES)
     }
@@ -187,19 +197,23 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         mesh.dispose()
         graticule.dispose()
         shader.dispose()
+        biomeTexture.dispose()
     }
 
     companion object {
-        private const val VERTEX_SIZE = 7 // position(3) + color(4)
+        private const val VERTEX_SIZE = 9 // position(3) + color(4) + texCoord(2)
         private const val ROTATE_SPEED_DEG = 0.3f
 
         private const val VERTEX_SHADER = """
             attribute vec4 a_position;
             attribute vec4 a_color;
+            attribute vec2 a_texCoord0;
             uniform mat4 u_projViewTrans;
             varying vec4 v_color;
+            varying vec2 v_texCoord;
             void main() {
                 v_color = a_color;
+                v_texCoord = a_texCoord0;
                 gl_Position = u_projViewTrans * a_position;
             }
         """
@@ -209,8 +223,10 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             precision mediump float;
             #endif
             varying vec4 v_color;
+            varying vec2 v_texCoord;
+            uniform sampler2D u_texture;
             void main() {
-                gl_FragColor = v_color;
+                gl_FragColor = texture2D(u_texture, v_texCoord) * v_color;
             }
         """
     }

@@ -10,13 +10,15 @@ import com.badlogic.gdx.math.Vector3
 
 /**
  * Latitude/longitude reference lines drawn as thin bands sitting just above
- * the sphere's surface (own mesh, same position+color vertex layout and
- * shader as the terrain), so they read as crisp lines independent of tile
- * resolution rather than following jagged tile edges.
+ * the sphere's surface (own mesh, same vertex layout and shader as the
+ * terrain), so they read as crisp lines independent of tile resolution
+ * rather than following jagged tile edges. Every vertex samples the biome
+ * atlas's reserved white texel, so its actual color comes from the vertex
+ * color channel, same as before texturing was added to the terrain mesh.
  */
 object Graticule {
 
-    private const val VERTEX_SIZE = 7 // position(3) + color(4)
+    private const val VERTEX_SIZE = 9 // position(3) + color(4) + texCoord(2)
     private const val LINE_RADIUS = 1.004f // just proud of the terrain sphere (radius 1)
     private const val PARALLEL_SEGMENTS = 128
     private const val MERIDIAN_SEGMENTS = 64
@@ -64,6 +66,7 @@ object Graticule {
             0,
             VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
             VertexAttribute(VertexAttributes.Usage.ColorUnpacked, 4, ShaderProgram.COLOR_ATTRIBUTE),
+            VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
         )
         mesh.setVertices(floatArray)
         return mesh
@@ -103,7 +106,9 @@ object Graticule {
     }
 
     private fun appendVertex(out: MutableList<Float>, pos: Vector3, color: Color) {
+        val (u, v) = BiomeTextures.whiteUV()
         out.add(pos.x); out.add(pos.y); out.add(pos.z)
         out.add(color.r); out.add(color.g); out.add(color.b); out.add(color.a)
+        out.add(u); out.add(v)
     }
 }
