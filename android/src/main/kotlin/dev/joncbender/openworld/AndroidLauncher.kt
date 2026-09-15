@@ -31,7 +31,7 @@ class AndroidLauncher : AndroidApplication() {
         game = OpenWorldGame()
         // Set before initializeForView() so it's already there by the time
         // create() runs on the GL thread and constructs globeScreen.
-        game.onTileSelected = { info -> runOnUiThread { showTileInfoDialog(info) } }
+        game.onTileSelected = { info -> runOnUiThread { showTileInfo(info) } }
         // initializeForView (rather than initialize) skips setContentView so the
         // GL surface can be embedded alongside the settings button overlay below.
         val gameView = initializeForView(game, config)
@@ -42,6 +42,7 @@ class AndroidLauncher : AndroidApplication() {
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
         )
         root.addView(buildSettingsButton())
+        root.addView(buildTileInfoPanel())
         setContentView(root)
 
         goEdgeToEdge()
@@ -134,33 +135,65 @@ class AndroidLauncher : AndroidApplication() {
             .show()
     }
 
-    /** Extend this layout with more views/buttons here once actions (e.g. harvest, build) exist. */
-    private fun showTileInfoDialog(info: TileInfo) {
+    private lateinit var tileInfoPanel: LinearLayout
+    private lateinit var tileBiomeText: TextView
+    private lateinit var tileResourceText: TextView
+
+    /**
+     * A small non-blocking panel docked to the bottom of the screen, instead
+     * of a modal dialog: tapping a tile is going to be a frequent, repeated
+     * action, and having to dismiss a "Close" button every single time was
+     * tedious. This just updates in place on every subsequent tap and stays
+     * out of the way (the globe underneath remains fully pannable/zoomable)
+     * until explicitly dismissed with the X. Extend this layout with more
+     * views/buttons here once actions (e.g. harvest, build) exist.
+     */
+    private fun buildTileInfoPanel(): View {
         val density = resources.displayMetrics.density
-        val padding = (24 * density).toInt()
+        val padding = (16 * density).toInt()
 
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(padding, padding, padding, padding)
+        tileBiomeText = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 16f
         }
-        layout.addView(
-            TextView(this).apply {
-                text = "Biome: ${info.biome.name.toDisplayName()}"
-                setTextColor(Color.WHITE)
-            },
-        )
-        layout.addView(
-            TextView(this).apply {
-                text = "Resource: ${info.resource?.name?.toDisplayName() ?: "none"}"
-                setTextColor(Color.WHITE)
-            },
-        )
+        tileResourceText = TextView(this).apply { setTextColor(Color.WHITE) }
 
-        AlertDialog.Builder(this)
-            .setTitle("Tile")
-            .setView(layout)
-            .setPositiveButton("Close", null)
-            .show()
+        val closeButton = Button(this).apply {
+            text = "✕"
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(Color.WHITE)
+            setOnClickListener { tileInfoPanel.visibility = View.GONE }
+        }
+
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(tileBiomeText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(closeButton)
+        }
+
+        tileInfoPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.argb(190, 0, 0, 0))
+            setPadding(padding, padding, padding, padding)
+            visibility = View.GONE
+            addView(headerRow)
+            addView(tileResourceText)
+        }
+        tileInfoPanel.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.BOTTOM
+            val margin = (16 * density).toInt()
+            bottomMargin = margin
+        }
+        return tileInfoPanel
+    }
+
+    private fun showTileInfo(info: TileInfo) {
+        tileBiomeText.text = "Biome: ${info.biome.name.toDisplayName()}"
+        tileResourceText.text = "Resource: ${info.resource?.name?.toDisplayName() ?: "none"}"
+        tileInfoPanel.visibility = View.VISIBLE
     }
 
     private fun String.toDisplayName(): String =
