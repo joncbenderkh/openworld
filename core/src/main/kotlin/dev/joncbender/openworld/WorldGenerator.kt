@@ -5,11 +5,18 @@ import dev.joncbender.openworld.geo.GeodesicSphere
 import kotlin.math.abs
 import kotlin.random.Random
 
-/** The generated world: a geodesic sphere where every face has one biome. */
+/** The generated world: a geodesic sphere where every face has one biome and an optional resource. */
 class SphereWorld(val faces: List<Face>, private val biomes: Array<Biome>) {
+    private val resources = arrayOfNulls<Resource>(biomes.size)
+
     operator fun get(faceIndex: Int): Biome = biomes[faceIndex]
     operator fun set(faceIndex: Int, biome: Biome) {
         biomes[faceIndex] = biome
+    }
+
+    fun resourceAt(faceIndex: Int): Resource? = resources[faceIndex]
+    fun setResource(faceIndex: Int, resource: Resource?) {
+        resources[faceIndex] = resource
     }
 }
 
@@ -24,7 +31,11 @@ class WorldGenerator(private val seed: Long) {
     private val elevationNoise = Noise3D(seed)
     private val moistureNoise = Noise3D(seed xor 0x9E3779B97F4A7C15UL.toLong())
 
-    fun generate(frequency: Int): SphereWorld {
+    companion object {
+        const val DEFAULT_RESOURCE_DENSITY = 0.12f
+    }
+
+    fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY): SphereWorld {
         val faces = GeodesicSphere.generate(frequency)
         val biomes = Array(faces.size) { Biome.OCEAN }
         val elevation = FloatArray(faces.size)
@@ -67,7 +78,19 @@ class WorldGenerator(private val seed: Long) {
         val world = SphereWorld(faces, biomes)
         carveLakes(world, elevation, seaLevel)
         carveRivers(world, elevation, seaLevel)
+        assignResources(world, resourceDensity)
         return world
+    }
+
+    /** Rolls a resource for a fraction of tiles, drawn from whatever their (post-hydrology) biome allows. */
+    private fun assignResources(world: SphereWorld, density: Float) {
+        val rng = Random(seed xor 0xC2B2AE3D27D4EB4FUL.toLong())
+        for (i in world.faces.indices) {
+            if (rng.nextFloat() >= density) continue
+            val options = BIOME_RESOURCES[world[i]] ?: continue
+            if (options.isEmpty()) continue
+            world.setResource(i, options[rng.nextInt(options.size)])
+        }
     }
 
     private fun carveLakes(world: SphereWorld, elevation: FloatArray, seaLevel: Float) {
