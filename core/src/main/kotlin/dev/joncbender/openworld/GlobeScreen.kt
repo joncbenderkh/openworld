@@ -16,7 +16,7 @@ import com.badlogic.gdx.math.Vector3
 
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
-    private val frequency = 12 // total tiles = 10*frequency^2 + 2
+    private val frequency = 40 // total tiles = 10*frequency^2 + 2 (~10x the original 1442)
     private val world = WorldGenerator(seed = System.currentTimeMillis()).generate(frequency)
 
     private val camera = PerspectiveCamera(60f, 1f, 1f).apply {
@@ -28,6 +28,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private val maxDistance = 6f
     private var theta = 0f
     private var phi = MathUtils.PI / 2f // colatitude from +Y: 0 = north pole, PI = south pole
+    private var zoomStartDistance: Float? = null
 
     private lateinit var mesh: Mesh
     private lateinit var shader: ShaderProgram
@@ -110,9 +111,20 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     }
 
     override fun zoom(initialDistance: Float, distance: Float): Boolean {
+        // initialDistance is fixed for the whole pinch gesture (finger separation
+        // when it started) while distance keeps updating, so initialDistance/distance
+        // is the *cumulative* zoom ratio since the gesture began - applying it against
+        // a start-of-gesture camera distance, not against the live one, avoids
+        // compounding the same ratio again on every callback.
+        val start = zoomStartDistance ?: this.distance.also { zoomStartDistance = it }
         val ratio = initialDistance / distance
-        this.distance = (this.distance * ratio).coerceIn(minDistance, maxDistance)
+        this.distance = (start * ratio).coerceIn(minDistance, maxDistance)
         return true
+    }
+
+    override fun touchDown(x: Float, y: Float, pointer: Int, button: Int): Boolean {
+        zoomStartDistance = null
+        return false
     }
 
     override fun pause() {}
