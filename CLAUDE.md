@@ -4,11 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## Project
 
-**openworld** — a 2D Android game with a procedurally generated, top-down open
-world on a hexagonal grid that wraps around like a globe (east-west wrap at
-minimum; pole handling TBD once the projection is chosen). Multiple biomes:
+**openworld** — a procedurally generated Android game world rendered as an
+actual 3D globe: a geodesic sphere (dual of a subdivided icosahedron —
+hexagonal tiles plus exactly 12 pentagons, since a sphere can't be tiled by
+hexagons alone) that the player orbits/rotates around. Multiple biomes:
 ocean, desert, river, lake, forest, mountain, swamp, plains, savannah. For now
 biomes are rendered as flat colors — no tile art yet.
+
+A flat 2D hex map with edge-wrapping was tried first and rejected — no matter
+how the wrap topology worked (cylinder wrap, then pole wrap-over), it read as
+a "conveyor belt," not a globe, because a flat grid can't show curvature. The
+3D sphere fixes that at the source.
 
 ## Decisions
 
@@ -25,7 +31,9 @@ biomes are rendered as flat colors — no tile art yet.
 
 ```
 openworld/
-  core/     platform-independent game logic (world gen, hex grid, rendering, biomes)
+  core/     platform-independent game logic
+    geo/    geodesic sphere geometry (icosahedron subdivision + dual)
+    ...     world generation (noise → biomes → rivers/lakes), 3D rendering, biomes
   android/  Android application module (libGDX Android backend)
   assets/   shared assets (currently none — biomes are solid colors)
 ```
@@ -53,15 +61,20 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   ask the user before ever generating a signing key, since losing it is
   unrecoverable.
 
-## World generation notes (for future work)
+## World generation notes
 
-- Hex grid: axial or cube coordinates; a wrapping world needs the grid's
-  horizontal extent to tile seamlessly (column `x` wraps mod width) — this
-  affects noise sampling (must be seamless/periodic in that direction) and
-  neighbor lookups at the seam.
-- Biome assignment: derive from procedural noise fields, most likely
-  elevation + moisture (+ temperature/latitude for savannah vs. forest vs.
-  desert splits), thresholded into the nine biomes. Rivers/lakes likely need
-  a separate hydrology pass (flow accumulation from elevation) rather than
-  pure noise thresholding.
+- Sphere geometry (`geo/GeodesicSphere.kt`): subdivide a regular icosahedron
+  (frequency `n` → `20n²` triangles), then take the dual — every subdivided
+  vertex becomes a face (hexagon), except the original 12 icosahedron
+  vertices (pentagons). Total tiles = `10n² + 2`. Sampling noise directly at
+  each face's 3D center has no seams to stitch, unlike a flat wrapped map.
+- Biome assignment: elevation + moisture 3D fBm noise (`Noise3D.kt`), plus
+  latitude from the sphere's Y coordinate, thresholded into the nine biomes
+  (`WorldGenerator.kt`). Rivers/lakes are a separate hydrology pass
+  (steepest-descent walk / local-minima detection) over the sphere's
+  face-adjacency graph — no map edges to special-case at all.
+- Rendering (`GlobeScreen.kt`): one static `Mesh` (fan-triangulated per face,
+  flat per-vertex color, no lighting/texturing), a minimal custom shader, and
+  a `PerspectiveCamera` orbiting the sphere at fixed radius (spherical
+  coordinates `theta`/`phi` driven by pan gestures, `distance` by pinch-zoom).
 - Biomes are placeholder solid colors for now — no tile art or blending yet.

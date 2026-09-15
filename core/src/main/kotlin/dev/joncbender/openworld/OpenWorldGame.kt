@@ -4,6 +4,6 @@ import com.badlogic.gdx.Game
 
 class OpenWorldGame : Game() {
     override fun create() {
-        setScreen(WorldScreen())
+        setScreen(GlobeScreen())
     }
 }
