@@ -29,6 +29,9 @@ class AndroidLauncher : AndroidApplication() {
             useCompass = false
         }
         game = OpenWorldGame()
+        // Set before initializeForView() so it's already there by the time
+        // create() runs on the GL thread and constructs globeScreen.
+        game.onTileSelected = { info -> runOnUiThread { showTileInfoDialog(info) } }
         // initializeForView (rather than initialize) skips setContentView so the
         // GL surface can be embedded alongside the settings button overlay below.
         val gameView = initializeForView(game, config)
@@ -130,6 +133,38 @@ class AndroidLauncher : AndroidApplication() {
             .setPositiveButton("Close", null)
             .show()
     }
+
+    /** Extend this layout with more views/buttons here once actions (e.g. harvest, build) exist. */
+    private fun showTileInfoDialog(info: TileInfo) {
+        val density = resources.displayMetrics.density
+        val padding = (24 * density).toInt()
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, padding)
+        }
+        layout.addView(
+            TextView(this).apply {
+                text = "Biome: ${info.biome.name.toDisplayName()}"
+                setTextColor(Color.WHITE)
+            },
+        )
+        layout.addView(
+            TextView(this).apply {
+                text = "Resource: ${info.resource?.name?.toDisplayName() ?: "none"}"
+                setTextColor(Color.WHITE)
+            },
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Tile")
+            .setView(layout)
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun String.toDisplayName(): String =
+        lowercase().split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
 
     /**
      * Dragging toward a pole naturally drags toward the top/bottom screen edge,

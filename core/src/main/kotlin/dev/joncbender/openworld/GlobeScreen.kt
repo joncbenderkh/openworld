@@ -12,11 +12,13 @@ import com.badlogic.gdx.graphics.VertexAttribute
 import com.badlogic.gdx.graphics.VertexAttributes
 import com.badlogic.gdx.graphics.glutils.ShaderProgram
 import com.badlogic.gdx.input.GestureDetector
+import com.badlogic.gdx.math.Intersector
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Matrix4
 import com.badlogic.gdx.math.Quaternion
 import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.math.Vector3
+import com.badlogic.gdx.math.collision.Ray
 
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
@@ -29,6 +31,9 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     /** Reverses the sense of one- and two-finger drag gestures. Settable from outside (the Android settings menu). */
     var navigationFlipped = false
+
+    /** Fired from tap() with whatever tile was hit - set by the Android layer to pop up a detail dialog. */
+    var onTileSelected: ((TileInfo) -> Unit)? = null
 
     private val camera = PerspectiveCamera(60f, 1f, 1f).apply {
         near = 0.1f
@@ -186,6 +191,47 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     private fun angleDeg(a: Vector2, b: Vector2): Float =
         MathUtils.atan2(b.y - a.y, b.x - a.x) * MathUtils.radiansToDegrees
+
+    override fun tap(x: Float, y: Float, count: Int, button: Int): Boolean {
+        // GestureDetector only calls tap() for a genuine tap (touch down+up
+        // with little movement) - anything that moves far enough is already
+        // routed to pan()/zoom()/pinch() instead, so no extra drag-vs-tap
+        // threshold is needed here.
+        val worldRay = camera.getPickRay(x, y)
+        // The camera never moves (only the globe's model matrix rotates), so a
+        // pick ray from the camera is in the *unrotated* mesh's coordinate
+        // space rotated backwards - apply the inverse rotation to bring it
+        // into the same local space the mesh data (face centers/corners) live in.
+        val inverse = Quaternion(rotation).conjugate()
+        val localRay = Ray(worldRay.origin.cpy().mul(inverse), worldRay.direction.cpy().mul(inverse).nor())
+
+        val hit = Vector3()
+        if (!Intersector.intersectRaySphere(localRay, Vector3.Zero, 1f, hit)) return false
+
+        val faceIndex = nearestFace(hit.nor())
+        onTileSelected?.invoke(TileInfo(faceIndex, world[faceIndex], world.resourceAt(faceIndex)))
+        return true
+    }
+
+    /**
+     * Nearest face by angular distance to a point on the unit sphere. Not an
+     * exact point-in-polygon test against each face's actual (irregular)
+     * boundary, but a face's corners sit roughly evenly around its center, so
+     * nearest-center is a very close approximation - and cheap enough to just
+     * scan linearly since this only runs once per tap, not per frame.
+     */
+    private fun nearestFace(point: Vector3): Int {
+        var bestIndex = 0
+        var bestDot = -2f
+        for (i in world.faces.indices) {
+            val d = world.faces[i].center.dot(point)
+            if (d > bestDot) {
+                bestDot = d
+                bestIndex = i
+            }
+        }
+        return bestIndex
+    }
 
     override fun touchDown(x: Float, y: Float, pointer: Int, button: Int): Boolean {
         zoomStartDistance = null
