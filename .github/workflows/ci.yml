@@ -19,8 +19,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
+      # ubuntu-latest already ships a full Android SDK (ANDROID_HOME), so no
+      # extra SDK-setup action is needed - android-actions/setup-android@v3
+      # was failing outright trying to install the long-removed 'tools'
+      # package.
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build, test, and lint
