@@ -2,9 +2,7 @@ package dev.joncbender.openworld
 
 import com.badlogic.gdx.graphics.Color
 
-/**
- * Placeholder representation: each biome is a flat color until tile art exists.
- */
+/** Each biome's base color, used both for its procedural tile texture (see BiomeTextures) and as the tint under it. */
 enum class Biome(val color: Color) {
     OCEAN(Color(0.11f, 0.29f, 0.55f, 1f)),
     RIVER(Color(0.25f, 0.55f, 0.80f, 1f)),
