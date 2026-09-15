@@ -11,7 +11,8 @@ import com.badlogic.gdx.graphics.VertexAttribute
 import com.badlogic.gdx.graphics.VertexAttributes
 import com.badlogic.gdx.graphics.glutils.ShaderProgram
 import com.badlogic.gdx.input.GestureDetector
-import com.badlogic.gdx.math.MathUtils
+import com.badlogic.gdx.math.Matrix4
+import com.badlogic.gdx.math.Quaternion
 import com.badlogic.gdx.math.Vector3
 
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
@@ -22,19 +23,31 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private val camera = PerspectiveCamera(60f, 1f, 1f).apply {
         near = 0.1f
         far = 20f
+        direction.set(0f, 0f, -1f)
+        up.set(0f, 1f, 0f)
     }
     private var distance = 3f
     private val minDistance = 1.6f
     private val maxDistance = 6f
-    private var theta = 0f
-    private var phi = MathUtils.PI / 2f // colatitude from +Y: 0 = north pole, PI = south pole
     private var zoomStartDistance: Float? = null
 
+    // The globe's orientation, spun by drag gestures. The camera itself never
+    // moves except straight along its own view axis for zoom - there is no
+    // orbit-around-a-fixed-axis parameterization here, so there's no pole for
+    // rotation to behave specially near (that was the root cause behind three
+    // separate pole bugs: the dead-stop clamp, the up-vector flip, and rotation
+    // degenerating into an in-place spin near the axis).
+    private val rotation = Quaternion()
+    private val modelMatrix = Matrix4()
+    private val mvpMatrix = Matrix4()
+
     private lateinit var mesh: Mesh
+    private lateinit var graticule: Mesh
     private lateinit var shader: ShaderProgram
 
     override fun show() {
         mesh = buildMesh()
+        graticule = Graticule.build()
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         check(shader.isCompiled) { shader.log }
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
@@ -80,31 +93,16 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         Gdx.gl.glClearColor(0.02f, 0.02f, 0.05f, 1f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
-        updateCameraPosition()
+        camera.position.set(0f, 0f, distance)
         camera.update()
 
+        modelMatrix.idt().rotate(rotation)
+        mvpMatrix.set(camera.combined).mul(modelMatrix)
+
         shader.bind()
-        shader.setUniformMatrix("u_projViewTrans", camera.combined)
+        shader.setUniformMatrix("u_projViewTrans", mvpMatrix)
         mesh.render(shader, GL20.GL_TRIANGLES)
-    }
-
-    private fun updateCameraPosition() {
-        val sinPhi = MathUtils.sin(phi)
-        val cosPhi = MathUtils.cos(phi)
-        val sinTheta = MathUtils.sin(theta)
-        val cosTheta = MathUtils.cos(theta)
-
-        camera.position.set(distance * sinPhi * cosTheta, distance * cosPhi, distance * sinPhi * sinTheta)
-        camera.direction.set(camera.position).scl(-1f).nor()
-        // The sphere's local "north" tangent at the camera's longitude/latitude -
-        // this is always orthogonal to `direction` by construction (it's the
-        // spherical-coordinate basis vector for decreasing colatitude), including
-        // exactly at the poles, unlike a fixed (0,1,0) world-up hint fed through
-        // lookAt(): that degenerates (zero cross product) whenever the view
-        // direction is parallel to it, i.e. exactly when looking at a pole - which
-        // is what forced the old code to clamp phi away from the poles at all.
-        camera.up.set(-cosPhi * cosTheta, sinPhi, -cosPhi * sinTheta)
-        camera.normalizeUp()
+        graticule.render(shader, GL20.GL_TRIANGLES)
     }
 
     override fun resize(width: Int, height: Int) {
@@ -114,15 +112,14 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     }
 
     override fun pan(x: Float, y: Float, deltaX: Float, deltaY: Float): Boolean {
-        theta -= deltaX * ROTATE_SPEED
-        // No clamping or reflecting: sin/cos are already smooth and continuous
-        // for any real angle, including past a pole and negative values, so
-        // letting phi accumulate freely and feeding it straight into those
-        // formulas carries the camera over a pole correctly on its own. An
-        // earlier attempt manually reflected phi into [0, PI] and flipped theta
-        // by 180° to fake this - but that reconstruction gets the "up" vector's
-        // sign backwards at the crossing, flipping the view upside-down.
-        phi -= deltaY * ROTATE_SPEED
+        // Rotate the globe, not the camera: each drag applies a small rotation
+        // about the camera's own (fixed) up/right axes, composed on the
+        // *outside* of the accumulated orientation (mulLeft) so the rotation
+        // axis is always the one the viewer is currently looking along,
+        // regardless of how the globe has already been spun - exactly how
+        // spinning a ball with a finger works, with no special axis anywhere.
+        rotation.mulLeft(Quaternion(Vector3.Y, -deltaX * ROTATE_SPEED_DEG))
+        rotation.mulLeft(Quaternion(Vector3.X, -deltaY * ROTATE_SPEED_DEG))
         return true
     }
 
@@ -148,12 +145,13 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     override fun hide() {}
     override fun dispose() {
         mesh.dispose()
+        graticule.dispose()
         shader.dispose()
     }
 
     companion object {
         private const val VERTEX_SIZE = 7 // position(3) + color(4)
-        private const val ROTATE_SPEED = 0.005f
+        private const val ROTATE_SPEED_DEG = 0.3f
 
         private const val VERTEX_SHADER = """
             attribute vec4 a_position;
