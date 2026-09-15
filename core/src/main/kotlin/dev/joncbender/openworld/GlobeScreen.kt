@@ -31,10 +31,12 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private var zoomStartDistance: Float? = null
 
     private lateinit var mesh: Mesh
+    private lateinit var graticule: Mesh
     private lateinit var shader: ShaderProgram
 
     override fun show() {
         mesh = buildMesh()
+        graticule = Graticule.build()
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         check(shader.isCompiled) { shader.log }
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
@@ -86,6 +88,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         shader.bind()
         shader.setUniformMatrix("u_projViewTrans", camera.combined)
         mesh.render(shader, GL20.GL_TRIANGLES)
+        graticule.render(shader, GL20.GL_TRIANGLES)
     }
 
     private fun updateCameraPosition() {
@@ -148,6 +151,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     override fun hide() {}
     override fun dispose() {
         mesh.dispose()
+        graticule.dispose()
         shader.dispose()
     }
 
