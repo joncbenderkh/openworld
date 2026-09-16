@@ -37,6 +37,17 @@ class WorldGenerator(private val seed: Long) {
         // An ocean component smaller than this fraction of the largest one
         // is treated as a landlocked lake instead of part of the ocean.
         private const val LANDLOCKED_OCEAN_THRESHOLD = 0.05f
+
+        // Mountains never actually border the ocean directly - the elevation
+        // gradient always leaves a multi-tile buffer of foothills and lower
+        // terrain in between (empirically, mountains only start appearing
+        // ~5-6 tiles out) - so "coastal" for volcano placement means within
+        // this many hex-hops of the ocean, not direct adjacency.
+        private const val VOLCANO_MAX_OCEAN_DISTANCE = 6
+
+        // Applied on top of the (already small) coastal-mountain pool, so
+        // the final volcano count stays a small fraction of a percent of land.
+        private const val VOLCANO_CHANCE = 0.3f
     }
 
     fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY): SphereWorld {
@@ -101,6 +112,8 @@ class WorldGenerator(private val seed: Long) {
         val world = SphereWorld(faces, biomes)
         reclassifyLandlockedOceans(world)
         perf.lap("reclassifyLandlockedOceans")
+        carveVolcanoes(world)
+        perf.lap("carveVolcanoes")
         carveLakes(world, elevation, seaLevel)
         perf.lap("carveLakes")
         carveRivers(world, elevation, seaLevel)
@@ -155,6 +168,44 @@ class WorldGenerator(private val seed: Long) {
             // the "no lakes in arctic regions" rule applied elsewhere).
             component.forEach {
                 world[it] = if (abs(world.faces[it].center.y) >= 0.88f) Biome.ARCTIC else Biome.LAKE
+            }
+        }
+    }
+
+    /**
+     * Volcanoes are rare and only occur near the coast or on ocean islands -
+     * real ones cluster along subduction zones and oceanic hot spots, both of
+     * which read here as "not far from the ocean." Reclassifies a small,
+     * random fraction of MOUNTAIN tiles within [VOLCANO_MAX_OCEAN_DISTANCE]
+     * hex-hops of an OCEAN tile as VOLCANO. Runs after
+     * [reclassifyLandlockedOceans] so "ocean" here means the real, connected
+     * one, not a landlocked pocket that only looks like it on a map.
+     */
+    private fun carveVolcanoes(world: SphereWorld) {
+        val distanceToOcean = IntArray(world.faces.size) { -1 }
+        val queue = ArrayDeque<Int>()
+        for (i in world.faces.indices) {
+            if (world[i] == Biome.OCEAN) {
+                distanceToOcean[i] = 0
+                queue.add(i)
+            }
+        }
+        while (queue.isNotEmpty()) {
+            val i = queue.removeFirst()
+            for (n in world.faces[i].neighbors) {
+                if (distanceToOcean[n] == -1) {
+                    distanceToOcean[n] = distanceToOcean[i] + 1
+                    queue.add(n)
+                }
+            }
+        }
+
+        val rng = Random(seed xor 0x27D4EB2F165667C5UL.toLong())
+        for (i in world.faces.indices) {
+            if (world[i] != Biome.MOUNTAIN) continue
+            val distance = distanceToOcean[i]
+            if (distance in 1..VOLCANO_MAX_OCEAN_DISTANCE && rng.nextFloat() < VOLCANO_CHANCE) {
+                world[i] = Biome.VOLCANO
             }
         }
     }
@@ -229,7 +280,7 @@ class WorldGenerator(private val seed: Long) {
                 val e = elevation[current]
                 if (e < seaLevel || world[current] == Biome.OCEAN || world[current] == Biome.LAKE) break
                 if (world[current] == Biome.ARCTIC) break // rivers don't flow across permanent ice
-                if (world[current] != Biome.MOUNTAIN) world[current] = Biome.RIVER
+                if (world[current] != Biome.MOUNTAIN && world[current] != Biome.VOLCANO) world[current] = Biome.RIVER
 
                 val next = world.faces[current].neighbors.minByOrNull { elevation[it] } ?: break
                 if (elevation[next] >= e) break
