@@ -94,6 +94,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private lateinit var graticule: Mesh
     private lateinit var shader: ShaderProgram
     private lateinit var biomeTexture: Texture
+    private lateinit var compass: Compass
 
     override fun show() {
         val perf = PerfTimer()
@@ -105,6 +106,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         perf.lap("Graticule.build")
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         check(shader.isCompiled) { shader.log }
+        compass = Compass()
+        compass.resize(Gdx.graphics.width, Gdx.graphics.height)
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
         Gdx.input.inputProcessor = InputMultiplexer(GestureDetector(this))
     }
@@ -183,12 +186,15 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         shader.setUniformi("u_texture", 0)
         mesh.render(shader, GL20.GL_TRIANGLES)
         graticule.render(shader, GL20.GL_TRIANGLES)
+
+        compass.render(rotation)
     }
 
     override fun resize(width: Int, height: Int) {
         camera.viewportWidth = width.toFloat()
         camera.viewportHeight = height.toFloat()
         camera.update()
+        if (::compass.isInitialized) compass.resize(width, height)
     }
 
     override fun pan(x: Float, y: Float, deltaX: Float, deltaY: Float): Boolean {
@@ -295,6 +301,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         graticule.dispose()
         shader.dispose()
         biomeTexture.dispose()
+        compass.dispose()
     }
 
     companion object {
