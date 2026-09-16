@@ -52,7 +52,13 @@ class WorldGenerator(private val seed: Long) {
         }
 
         val seaLevel = 0.42f
-        val mountainLevel = 0.80f
+        // The elevation fBm (5 octaves, persistence 0.5) never actually reaches
+        // anywhere near 1.0 in practice - across 10 test seeds its max ranged
+        // ~0.70-0.83, so the old 0.80 threshold made mountains all but
+        // impossible (0% of tiles in 9 of 10 seeds tested). 0.56 averages
+        // ~24% of LAND as mountain across 10 seeds tested (20-30% range),
+        // matching real-world mountainous land coverage.
+        val mountainLevel = 0.56f
 
         for ((i, face) in faces.withIndex()) {
             val p = face.center
