@@ -48,6 +48,7 @@ class AndroidLauncher : AndroidApplication() {
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
         )
         root.addView(buildSettingsButton())
+        root.addView(buildResetOrientationButton())
         root.addView(buildTileInfoPanel())
         setContentView(root)
 
@@ -71,6 +72,28 @@ class AndroidLauncher : AndroidApplication() {
             val margin = (16 * density).toInt()
             topMargin = margin
             rightMargin = margin
+        }
+        return button
+    }
+
+    /** Spins the globe back to its starting orientation - a standalone button, not a settings option. */
+    private fun buildResetOrientationButton(): View {
+        val density = resources.displayMetrics.density
+        val button = Button(this).apply {
+            text = "⟲"
+            textSize = 20f
+            setBackgroundColor(Color.argb(140, 0, 0, 0))
+            setTextColor(Color.WHITE)
+            setOnClickListener { Gdx.app.postRunnable { game.globeScreen.resetOrientation() } }
+        }
+        button.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            val margin = (16 * density).toInt()
+            topMargin = margin
+            leftMargin = margin
         }
         return button
     }
