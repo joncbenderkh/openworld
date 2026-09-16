@@ -54,7 +54,27 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         preferences.flush()
     }
 
-    private var world = WorldGenerator(seed).generate(frequency, resourceDensity)
+    // Gdx.files.local resolves to the app's private files directory on
+    // Android - a plain on-disk cache of the generated world (see
+    // WorldCache) so a launch with an unchanged seed/density can load it
+    // instead of paying generation's cost (upwards of ten seconds at the
+    // game's current tile count) all over again.
+    private val worldCacheFile = Gdx.files.local("world_cache.bin")
+
+    private var world = run {
+        val perf = PerfTimer()
+        val cached = WorldCache.load(worldCacheFile, frequency, seed, resourceDensity)
+        if (cached != null) {
+            perf.lap("world: loaded from cache")
+            cached
+        } else {
+            val generated = WorldGenerator(seed).generate(frequency, resourceDensity)
+            perf.lap("world: generated")
+            WorldCache.save(worldCacheFile, generated, frequency, seed, resourceDensity)
+            perf.lap("world: saved to cache")
+            generated
+        }
+    }
 
     /** Reverses the sense of one- and two-finger drag gestures. Settable from outside (the Android settings menu). */
     var navigationFlipped = preferences.getBoolean(PREF_NAVIGATION_FLIPPED, false)
@@ -193,6 +213,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         preferences.flush()
         inventory.clear()
         world = WorldGenerator(seed).generate(frequency, resourceDensity)
+        WorldCache.save(worldCacheFile, world, frequency, seed, resourceDensity)
         meshes.forEach { it.dispose() }
         meshes = buildMeshes()
     }
