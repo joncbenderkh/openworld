@@ -22,7 +22,7 @@ import com.badlogic.gdx.math.collision.Ray
 
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
-    private val frequency = 40 // total tiles = 10*frequency^2 + 2 (~10x the original 1442)
+    private val frequency = 89 // total tiles = 10*frequency^2 + 2 (~5x the previous 16002)
 
     /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
     var resourceDensity = WorldGenerator.DEFAULT_RESOURCE_DENSITY
