@@ -24,17 +24,42 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     private val frequency = 89 // total tiles = 10*frequency^2 + 2 (~5x the previous 16002)
 
+    // Gdx.app.getPreferences is libGDX's own cross-platform settings store
+    // (backed by SharedPreferences on Android) - using it here instead of an
+    // Android-specific API keeps this platform-independent core module free
+    // of Android imports.
+    private val preferences = Gdx.app.getPreferences("dev.joncbender.openworld.settings")
+
     /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
-    var resourceDensity = WorldGenerator.DEFAULT_RESOURCE_DENSITY
+    var resourceDensity = preferences.getFloat(PREF_RESOURCE_DENSITY, WorldGenerator.DEFAULT_RESOURCE_DENSITY)
+        set(value) {
+            field = value
+            preferences.putFloat(PREF_RESOURCE_DENSITY, value)
+            preferences.flush()
+        }
 
     /** The seed behind the current world - readable so the settings menu can show/copy it. */
-    var seed: Long = System.nanoTime()
+    var seed: Long = preferences.getLong(PREF_SEED, System.nanoTime())
         private set
+
+    init {
+        // getLong's fallback (a fresh System.nanoTime()) only exists in memory
+        // until something writes it back - without this, a first-ever launch
+        // (or any launch that happens to fall back) would pick a new random
+        // seed every time instead of settling on one to persist.
+        preferences.putLong(PREF_SEED, seed)
+        preferences.flush()
+    }
 
     private var world = WorldGenerator(seed).generate(frequency, resourceDensity)
 
     /** Reverses the sense of one- and two-finger drag gestures. Settable from outside (the Android settings menu). */
-    var navigationFlipped = false
+    var navigationFlipped = preferences.getBoolean(PREF_NAVIGATION_FLIPPED, false)
+        set(value) {
+            field = value
+            preferences.putBoolean(PREF_NAVIGATION_FLIPPED, value)
+            preferences.flush()
+        }
 
     /** Fired from tap() with whatever tile was hit - set by the Android layer to pop up a detail dialog. */
     var onTileSelected: ((TileInfo) -> Unit)? = null
@@ -121,6 +146,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
      */
     fun regenerateWorld(newSeed: Long = System.nanoTime()) {
         seed = newSeed
+        preferences.putLong(PREF_SEED, seed)
+        preferences.flush()
         world = WorldGenerator(seed).generate(frequency, resourceDensity)
         mesh.dispose()
         mesh = buildMesh()
@@ -267,6 +294,10 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     companion object {
         private const val VERTEX_SIZE = 9 // position(3) + color(4) + texCoord(2)
         private const val ROTATE_SPEED_DEG = 0.3f
+
+        private const val PREF_SEED = "seed"
+        private const val PREF_RESOURCE_DENSITY = "resource_density"
+        private const val PREF_NAVIGATION_FLIPPED = "navigation_flipped"
 
         private const val VERTEX_SHADER = """
             attribute vec4 a_position;
