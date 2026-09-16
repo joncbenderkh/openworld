@@ -30,6 +30,9 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     // of Android imports.
     private val preferences = Gdx.app.getPreferences("dev.joncbender.openworld.settings")
 
+    /** What the player has collected - persists across restarts, but is reset whenever a new world is generated. */
+    val inventory = Inventory(preferences)
+
     /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
     var resourceDensity = preferences.getFloat(PREF_RESOURCE_DENSITY, WorldGenerator.DEFAULT_RESOURCE_DENSITY)
         set(value) {
@@ -142,12 +145,15 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     /**
      * Regenerates the world and rebuilds the terrain mesh. Called from the
      * settings menu, either with a fresh random seed ("New world seed") or a
-     * specific one the player typed in.
+     * specific one the player typed in. A new world means whatever the player
+     * collected no longer corresponds to anything on the map, so the
+     * inventory resets along with it.
      */
     fun regenerateWorld(newSeed: Long = System.nanoTime()) {
         seed = newSeed
         preferences.putLong(PREF_SEED, seed)
         preferences.flush()
+        inventory.clear()
         world = WorldGenerator(seed).generate(frequency, resourceDensity)
         mesh.dispose()
         mesh = buildMesh()
