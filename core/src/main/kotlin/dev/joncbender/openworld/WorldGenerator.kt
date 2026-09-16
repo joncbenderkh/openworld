@@ -33,6 +33,10 @@ class WorldGenerator(private val seed: Long) {
 
     companion object {
         const val DEFAULT_RESOURCE_DENSITY = 0.18f
+
+        // An ocean component smaller than this fraction of the largest one
+        // is treated as a landlocked lake instead of part of the ocean.
+        private const val LANDLOCKED_OCEAN_THRESHOLD = 0.05f
     }
 
     fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY): SphereWorld {
@@ -91,10 +95,60 @@ class WorldGenerator(private val seed: Long) {
         }
 
         val world = SphereWorld(faces, biomes)
+        reclassifyLandlockedOceans(world)
         carveLakes(world, elevation, seaLevel)
         carveRivers(world, elevation, seaLevel)
         assignResources(world, resourceDensity)
         return world
+    }
+
+    /**
+     * "Ocean" should mean the one connected global body of water, the way a
+     * player would read the map - not merely "any tile below sea level."
+     * Below-sea-level depressions fully enclosed by land (an endorheic basin
+     * like the real Caspian Sea) got the same OCEAN classification as the
+     * actual ocean purely because of their elevation, even when they're a
+     * tiny, clearly landlocked puddle miles from the coast. Reclassifies any
+     * connected OCEAN component much smaller than the largest one as LAKE
+     * instead (or, this close to a pole, as ARCTIC ice rather than a lake -
+     * a landlocked pocket of water doesn't make sense there either) - a
+     * relative threshold rather than an absolute size, since a world can
+     * legitimately have several comparably large, separate oceans.
+     */
+    private fun reclassifyLandlockedOceans(world: SphereWorld) {
+        val visited = BooleanArray(world.faces.size)
+        val components = mutableListOf<List<Int>>()
+
+        for (start in world.faces.indices) {
+            if (visited[start] || world[start] != Biome.OCEAN) continue
+
+            val component = mutableListOf<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.add(start)
+            visited[start] = true
+            while (queue.isNotEmpty()) {
+                val i = queue.removeFirst()
+                component.add(i)
+                for (n in world.faces[i].neighbors) {
+                    if (!visited[n] && world[n] == Biome.OCEAN) {
+                        visited[n] = true
+                        queue.add(n)
+                    }
+                }
+            }
+            components.add(component)
+        }
+
+        val largestSize = components.maxOfOrNull { it.size } ?: return
+        for (component in components) {
+            if (component.size >= largestSize * LANDLOCKED_OCEAN_THRESHOLD) continue
+            // A landlocked pocket this close to a pole isn't a lake either -
+            // it reads as permanent ice, same as land would there (matching
+            // the "no lakes in arctic regions" rule applied elsewhere).
+            component.forEach {
+                world[it] = if (abs(world.faces[it].center.y) >= 0.88f) Biome.ARCTIC else Biome.LAKE
+            }
+        }
     }
 
     /**
@@ -114,14 +168,44 @@ class WorldGenerator(private val seed: Long) {
         }
     }
 
+    /**
+     * A lake is a connected region of low-lying tiles that never touches the
+     * ocean - not just a single tile lower than all its neighbors. That
+     * single-tile test used to miss wide, gently-sloped basins entirely (no
+     * individual tile in a nearly-flat depression is strictly lower than
+     * every neighbor), leaving them for carveRivers to walk across and paint
+     * as a broad river-textured blob instead of the lake they visually are.
+     * Flood-filling the whole enclosed low band fixes that regardless of how
+     * flat or wide the basin is.
+     */
     private fun carveLakes(world: SphereWorld, elevation: FloatArray, seaLevel: Float) {
         val lakeBand = seaLevel + 0.06f
-        for (i in world.faces.indices) {
-            val e = elevation[i]
-            if (e < seaLevel || e > lakeBand) continue
-            if (world[i] == Biome.ARCTIC) continue // permanent ice, not liquid water
-            val isBasin = world.faces[i].neighbors.all { elevation[it] >= e }
-            if (isBasin) world[i] = Biome.LAKE
+        val visited = BooleanArray(world.faces.size)
+
+        fun isLakeCandidate(i: Int) = elevation[i] in seaLevel..lakeBand && world[i] != Biome.ARCTIC
+
+        for (start in world.faces.indices) {
+            if (visited[start] || !isLakeCandidate(start)) continue
+
+            val component = mutableListOf<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.add(start)
+            visited[start] = true
+            var enclosed = true
+
+            while (queue.isNotEmpty()) {
+                val i = queue.removeFirst()
+                component.add(i)
+                for (n in world.faces[i].neighbors) {
+                    if (elevation[n] < seaLevel) enclosed = false // drains to the ocean - not a lake
+                    if (!visited[n] && isLakeCandidate(n)) {
+                        visited[n] = true
+                        queue.add(n)
+                    }
+                }
+            }
+
+            if (enclosed) component.forEach { world[it] = Biome.LAKE }
         }
     }
 
@@ -143,6 +227,46 @@ class WorldGenerator(private val seed: Long) {
                 if (elevation[next] >= e) break
                 current = next
                 steps++
+            }
+        }
+
+        depoolRivers(world)
+    }
+
+    /**
+     * Many separate river walks can dead-end in the same inland depression
+     * (a locally flat area with no path further downhill that still doesn't
+     * qualify as a near-sea-level lake), painting it as a wide RIVER blob
+     * instead of the pool it visually is. A real single-tile-wide river path
+     * mostly has at most two RIVER neighbors (three at a rare confluence); a
+     * pool's interior tiles touch many more. Reclassify any connected group
+     * of RIVER tiles that's mostly high-degree like that as LAKE instead.
+     */
+    private fun depoolRivers(world: SphereWorld) {
+        val visited = BooleanArray(world.faces.size)
+        fun riverDegree(i: Int) = world.faces[i].neighbors.count { world[it] == Biome.RIVER }
+
+        for (start in world.faces.indices) {
+            if (visited[start] || world[start] != Biome.RIVER) continue
+
+            val component = mutableListOf<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.add(start)
+            visited[start] = true
+            while (queue.isNotEmpty()) {
+                val i = queue.removeFirst()
+                component.add(i)
+                for (n in world.faces[i].neighbors) {
+                    if (!visited[n] && world[n] == Biome.RIVER) {
+                        visited[n] = true
+                        queue.add(n)
+                    }
+                }
+            }
+
+            val pooledFraction = component.count { riverDegree(it) >= 4 }.toFloat() / component.size
+            if (component.size >= 6 && pooledFraction > 0.15f) {
+                component.forEach { world[it] = Biome.LAKE }
             }
         }
     }
