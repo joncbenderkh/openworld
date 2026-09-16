@@ -114,14 +114,44 @@ class WorldGenerator(private val seed: Long) {
         }
     }
 
+    /**
+     * A lake is a connected region of low-lying tiles that never touches the
+     * ocean - not just a single tile lower than all its neighbors. That
+     * single-tile test used to miss wide, gently-sloped basins entirely (no
+     * individual tile in a nearly-flat depression is strictly lower than
+     * every neighbor), leaving them for carveRivers to walk across and paint
+     * as a broad river-textured blob instead of the lake they visually are.
+     * Flood-filling the whole enclosed low band fixes that regardless of how
+     * flat or wide the basin is.
+     */
     private fun carveLakes(world: SphereWorld, elevation: FloatArray, seaLevel: Float) {
         val lakeBand = seaLevel + 0.06f
-        for (i in world.faces.indices) {
-            val e = elevation[i]
-            if (e < seaLevel || e > lakeBand) continue
-            if (world[i] == Biome.ARCTIC) continue // permanent ice, not liquid water
-            val isBasin = world.faces[i].neighbors.all { elevation[it] >= e }
-            if (isBasin) world[i] = Biome.LAKE
+        val visited = BooleanArray(world.faces.size)
+
+        fun isLakeCandidate(i: Int) = elevation[i] in seaLevel..lakeBand && world[i] != Biome.ARCTIC
+
+        for (start in world.faces.indices) {
+            if (visited[start] || !isLakeCandidate(start)) continue
+
+            val component = mutableListOf<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.add(start)
+            visited[start] = true
+            var enclosed = true
+
+            while (queue.isNotEmpty()) {
+                val i = queue.removeFirst()
+                component.add(i)
+                for (n in world.faces[i].neighbors) {
+                    if (elevation[n] < seaLevel) enclosed = false // drains to the ocean - not a lake
+                    if (!visited[n] && isLakeCandidate(n)) {
+                        visited[n] = true
+                        queue.add(n)
+                    }
+                }
+            }
+
+            if (enclosed) component.forEach { world[it] = Biome.LAKE }
         }
     }
 
@@ -143,6 +173,46 @@ class WorldGenerator(private val seed: Long) {
                 if (elevation[next] >= e) break
                 current = next
                 steps++
+            }
+        }
+
+        depoolRivers(world)
+    }
+
+    /**
+     * Many separate river walks can dead-end in the same inland depression
+     * (a locally flat area with no path further downhill that still doesn't
+     * qualify as a near-sea-level lake), painting it as a wide RIVER blob
+     * instead of the pool it visually is. A real single-tile-wide river path
+     * mostly has at most two RIVER neighbors (three at a rare confluence); a
+     * pool's interior tiles touch many more. Reclassify any connected group
+     * of RIVER tiles that's mostly high-degree like that as LAKE instead.
+     */
+    private fun depoolRivers(world: SphereWorld) {
+        val visited = BooleanArray(world.faces.size)
+        fun riverDegree(i: Int) = world.faces[i].neighbors.count { world[it] == Biome.RIVER }
+
+        for (start in world.faces.indices) {
+            if (visited[start] || world[start] != Biome.RIVER) continue
+
+            val component = mutableListOf<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.add(start)
+            visited[start] = true
+            while (queue.isNotEmpty()) {
+                val i = queue.removeFirst()
+                component.add(i)
+                for (n in world.faces[i].neighbors) {
+                    if (!visited[n] && world[n] == Biome.RIVER) {
+                        visited[n] = true
+                        queue.add(n)
+                    }
+                }
+            }
+
+            val pooledFraction = component.count { riverDegree(it) >= 4 }.toFloat() / component.size
+            if (component.size >= 6 && pooledFraction > 0.15f) {
+                component.forEach { world[it] = Biome.LAKE }
             }
         }
     }
