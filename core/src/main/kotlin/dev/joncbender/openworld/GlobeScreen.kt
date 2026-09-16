@@ -68,6 +68,15 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             perf.lap("world: loaded from cache")
             cached
         } else {
+            // A cache miss here (as opposed to regenerateWorld()'s explicit
+            // reseed) can still mean this is a genuinely different world from
+            // whatever the inventory was tracking - e.g. a stale/missing
+            // cache file, or a frequency bump from an app update changing
+            // the whole tile layout even with the same seed. Clearing keeps
+            // the same "persists between restarts, not between worlds" rule
+            // regenerateWorld() already follows; harmless on a first-ever
+            // launch, where the inventory is already empty.
+            inventory.clear()
             val generated = WorldGenerator(seed).generate(frequency, resourceDensity)
             perf.lap("world: generated")
             WorldCache.save(worldCacheFile, generated, frequency, seed, resourceDensity)
