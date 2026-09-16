@@ -64,9 +64,13 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private lateinit var biomeTexture: Texture
 
     override fun show() {
+        val perf = PerfTimer()
         biomeTexture = BiomeTextures.build()
+        perf.lap("BiomeTextures.build")
         mesh = buildMesh()
+        perf.lap("buildMesh")
         graticule = Graticule.build()
+        perf.lap("Graticule.build")
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         check(shader.isCompiled) { shader.log }
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
@@ -78,18 +82,19 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         for (face in world.faces) floatCount += face.corners.size * 3 * VERTEX_SIZE
         val data = FloatArray(floatCount)
         var p = 0
+        val uvBuffer = FloatArray(6 * 2) // every face has 5 or 6 corners, so 6 is enough for either
 
         for ((i, face) in world.faces.withIndex()) {
             val biome = world[i]
             val (centerU, centerV) = BiomeTextures.centerUV(biome)
             val corners = face.corners
             val n = corners.size
+            BiomeTextures.cornerUVsInto(biome, n, uvBuffer)
             for (c in corners.indices) {
-                val (u0, v0) = BiomeTextures.cornerUV(biome, c, n)
-                val (u1, v1) = BiomeTextures.cornerUV(biome, (c + 1) % n, n)
+                val next = (c + 1) % n
                 p = appendVertex(data, p, face.center, Color.WHITE, centerU, centerV)
-                p = appendVertex(data, p, corners[c], Color.WHITE, u0, v0)
-                p = appendVertex(data, p, corners[(c + 1) % n], Color.WHITE, u1, v1)
+                p = appendVertex(data, p, corners[c], Color.WHITE, uvBuffer[c * 2], uvBuffer[c * 2 + 1])
+                p = appendVertex(data, p, corners[next], Color.WHITE, uvBuffer[next * 2], uvBuffer[next * 2 + 1])
             }
         }
 

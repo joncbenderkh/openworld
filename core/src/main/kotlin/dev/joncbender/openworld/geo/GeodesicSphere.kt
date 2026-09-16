@@ -44,6 +44,13 @@ object GeodesicSphere {
         intArrayOf(4, 9, 5), intArrayOf(2, 4, 11), intArrayOf(6, 2, 10), intArrayOf(8, 6, 7), intArrayOf(9, 8, 1),
     )
 
+    /**
+     * Builds each grid point via raw float barycentric interpolation instead
+     * of chained Vector3.cpy()/scl()/add() calls, and normalizes in place in
+     * addVertex rather than copying first - each grid point (up to ~80k of
+     * them at the game's production frequency) previously cost 3 Vector3
+     * allocations, now costs 1.
+     */
     private fun subdivideIcosahedron(freq: Int): Pair<List<Vector3>, List<IntArray>> {
         val vertices = ArrayList<Vector3>()
         val keyToIndex = HashMap<Long, Int>()
@@ -62,10 +69,12 @@ object GeodesicSphere {
             return qx or (qy shl 21) or (qz shl 42)
         }
 
+        // Takes ownership of v (mutates it in place) - always call with a
+        // freshly constructed Vector3, never a shared/reused instance.
         fun addVertex(v: Vector3): Int {
-            val nv = v.cpy().nor()
-            return keyToIndex.getOrPut(keyOf(nv)) {
-                vertices.add(nv)
+            v.nor()
+            return keyToIndex.getOrPut(keyOf(v)) {
+                vertices.add(v)
                 vertices.size - 1
             }
         }
@@ -81,7 +90,12 @@ object GeodesicSphere {
                 for (j in 0..freq - i) {
                     val a = i.toFloat() / freq
                     val b = j.toFloat() / freq
-                    val p = v0.cpy().scl(1f - a - b).add(v1.cpy().scl(a)).add(v2.cpy().scl(b))
+                    val w0 = 1f - a - b
+                    val p = Vector3(
+                        v0.x * w0 + v1.x * a + v2.x * b,
+                        v0.y * w0 + v1.y * a + v2.y * b,
+                        v0.z * w0 + v1.z * a + v2.z * b,
+                    )
                     grid[i][j] = addVertex(p)
                 }
             }
@@ -102,56 +116,87 @@ object GeodesicSphere {
         return vertices to triangles
     }
 
+    /**
+     * Building each dual face means, for every original vertex v: (1) the
+     * cyclic order of triangles around it (their centroids become the dual
+     * face's corners), and (2) its neighboring vertices (= neighboring dual
+     * faces). The original approach found "the other triangle sharing edge
+     * (v, x)" via one global HashMap<Long, MutableList<Int>> covering every
+     * edge in the whole mesh (~475k entries at the game's production
+     * frequency, each boxing a Long key and allocating an ArrayList) plus a
+     * global Array<LinkedHashSet<Int>> for neighbors - both were the
+     * dominant cost of world generation (measured ~17.5s of a ~19.5s total).
+     *
+     * Since a triangle sharing edge (v, x) must itself be incident to v, that
+     * search only ever needs the small set of triangles already incident to
+     * v (5 or 6 of them) - no global structure is needed, just a per-vertex
+     * linear scan. The neighbor list falls out of the same walk for free
+     * (each step's "other" vertex is exactly one dual-face neighbor), so the
+     * separate neighbor-set pass is gone too.
+     */
     private fun buildDual(vertices: List<Vector3>, triangles: List<IntArray>): List<Face> {
-        val triCentroid = triangles.map { t ->
-            vertices[t[0]].cpy().add(vertices[t[1]]).add(vertices[t[2]]).scl(1f / 3f).nor()
+        val triCentroid = Array(triangles.size) { ti ->
+            val t = triangles[ti]
+            val v0 = vertices[t[0]]
+            val v1 = vertices[t[1]]
+            val v2 = vertices[t[2]]
+            Vector3((v0.x + v1.x + v2.x) / 3f, (v0.y + v1.y + v2.y) / 3f, (v0.z + v1.z + v2.z) / 3f).nor()
         }
 
-        val vertexTriangles = Array(vertices.size) { ArrayList<Int>() }
-        for ((ti, t) in triangles.withIndex()) {
-            for (v in t) vertexTriangles[v].add(ti)
-        }
-
-        fun edgeKey(a: Int, b: Int): Long {
-            val lo = minOf(a, b).toLong()
-            val hi = maxOf(a, b).toLong()
-            return (lo shl 32) or hi
-        }
-        val edgeTriangles = HashMap<Long, MutableList<Int>>()
-        for ((ti, t) in triangles.withIndex()) {
-            edgeTriangles.getOrPut(edgeKey(t[0], t[1])) { ArrayList() }.add(ti)
-            edgeTriangles.getOrPut(edgeKey(t[1], t[2])) { ArrayList() }.add(ti)
-            edgeTriangles.getOrPut(edgeKey(t[2], t[0])) { ArrayList() }.add(ti)
-        }
-
-        fun rotateToStart(t: IntArray, v: Int): IntArray {
-            val i = t.indexOf(v)
-            return intArrayOf(t[i], t[(i + 1) % 3], t[(i + 2) % 3])
-        }
-
-        val neighborSets = Array(vertices.size) { LinkedHashSet<Int>() }
+        // Flat (CSR-style) vertex -> incident-triangle adjacency, built with
+        // plain IntArrays instead of Array<ArrayList<Int>> to avoid boxing.
+        val incidentCount = IntArray(vertices.size)
         for (t in triangles) {
-            neighborSets[t[0]].add(t[1]); neighborSets[t[0]].add(t[2])
-            neighborSets[t[1]].add(t[0]); neighborSets[t[1]].add(t[2])
-            neighborSets[t[2]].add(t[0]); neighborSets[t[2]].add(t[1])
+            incidentCount[t[0]]++; incidentCount[t[1]]++; incidentCount[t[2]]++
+        }
+        val incidentStart = IntArray(vertices.size + 1)
+        for (v in vertices.indices) incidentStart[v + 1] = incidentStart[v] + incidentCount[v]
+        val incidentTriangles = IntArray(incidentStart[vertices.size])
+        val cursor = incidentStart.copyOf()
+        for ((ti, t) in triangles.withIndex()) {
+            for (v in t) {
+                incidentTriangles[cursor[v]] = ti
+                cursor[v]++
+            }
+        }
+
+        fun thirdVertexAfter(t: IntArray, v: Int): Int {
+            val i = t.indexOf(v)
+            return t[(i + 2) % 3]
         }
 
         val faces = ArrayList<Face>(vertices.size)
         for (v in vertices.indices) {
-            val incident = vertexTriangles[v]
-            val startTri = incident[0]
-            val ordered = ArrayList<Vector3>(incident.size)
+            val from = incidentStart[v]
+            val to = incidentStart[v + 1]
+            val degree = to - from
+
+            val corners = ArrayList<Vector3>(degree)
+            val neighbors = ArrayList<Int>(degree)
+            val startTri = incidentTriangles[from]
             var current = startTri
             var guard = 0
             do {
-                ordered.add(triCentroid[current])
-                val rotated = rotateToStart(triangles[current], v)
-                val candidates = edgeTriangles.getValue(edgeKey(v, rotated[2]))
-                current = candidates.first { it != current }
-                guard++
-            } while (current != startTri && guard <= incident.size)
+                corners.add(triCentroid[current])
+                val targetVertex = thirdVertexAfter(triangles[current], v)
+                neighbors.add(targetVertex)
 
-            faces.add(Face(center = vertices[v], corners = ordered, neighbors = neighborSets[v].toIntArray()))
+                var next = -1
+                for (k in from until to) {
+                    val cand = incidentTriangles[k]
+                    if (cand == current) continue
+                    val t = triangles[cand]
+                    if (t[0] == targetVertex || t[1] == targetVertex || t[2] == targetVertex) {
+                        next = cand
+                        break
+                    }
+                }
+                check(next != -1) { "vertex $v: no other triangle shares edge with vertex $targetVertex - malformed mesh" }
+                current = next
+                guard++
+            } while (current != startTri && guard <= degree)
+
+            faces.add(Face(center = vertices[v], corners = corners, neighbors = neighbors.toIntArray()))
         }
         return faces
     }

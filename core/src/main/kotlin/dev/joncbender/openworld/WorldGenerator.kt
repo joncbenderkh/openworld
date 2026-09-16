@@ -40,7 +40,9 @@ class WorldGenerator(private val seed: Long) {
     }
 
     fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY): SphereWorld {
+        val perf = PerfTimer()
         val faces = GeodesicSphere.generate(frequency)
+        perf.lap("GeodesicSphere.generate")
         val biomes = Array(faces.size) { Biome.OCEAN }
         val elevation = FloatArray(faces.size)
 
@@ -54,6 +56,7 @@ class WorldGenerator(private val seed: Long) {
             e = (e - latitude * 0.15f).coerceIn(0f, 1f)
             elevation[i] = e
         }
+        perf.lap("elevation")
 
         // All three thresholds were chosen empirically against a 10-seed
         // sample of this same elevation formula (the fBm's practical range
@@ -94,11 +97,16 @@ class WorldGenerator(private val seed: Long) {
             }
         }
 
+        perf.lap("biomes")
         val world = SphereWorld(faces, biomes)
         reclassifyLandlockedOceans(world)
+        perf.lap("reclassifyLandlockedOceans")
         carveLakes(world, elevation, seaLevel)
+        perf.lap("carveLakes")
         carveRivers(world, elevation, seaLevel)
+        perf.lap("carveRivers+depool")
         assignResources(world, resourceDensity)
+        perf.lap("assignResources")
         return world
     }
 

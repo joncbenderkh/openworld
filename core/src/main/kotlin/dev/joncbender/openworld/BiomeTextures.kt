@@ -48,13 +48,39 @@ object BiomeTextures {
     /** UV at the center of a face, sampling the middle of its biome's cell. */
     fun centerUV(biome: Biome): Pair<Float, Float> = cellCenterUV(biomeIndex.getValue(biome))
 
-    /** UV for one corner of an N-gon face, arranged evenly around its biome cell's center. */
-    fun cornerUV(biome: Biome, cornerIndex: Int, cornerCount: Int): Pair<Float, Float> {
-        val (cu, cv) = cellCenterUV(biomeIndex.getValue(biome))
-        val angle = MathUtils.PI2 * cornerIndex / cornerCount
+    // Precomputed per-corner (cos, sin) offsets for the only two corner counts
+    // a face ever has (pentagons, hexagons) - avoids calling MathUtils.cos/sin
+    // per corner per face, which at the game's production tile count meant
+    // hundreds of thousands of trig calls (each corner's UV was also computed
+    // twice over, once as a triangle-fan's "near" corner and again as the
+    // next triangle's "far" corner - see cornerUVsInto's caller).
+    private val CORNER_OFFSETS: Map<Int, FloatArray> = listOf(5, 6).associateWith(::buildCornerOffsets)
+
+    private fun buildCornerOffsets(cornerCount: Int): FloatArray {
         val ru = CORNER_RADIUS_FRACTION / COLS
         val rv = CORNER_RADIUS_FRACTION / ROWS
-        return (cu + MathUtils.cos(angle) * ru) to (cv + MathUtils.sin(angle) * rv)
+        return FloatArray(cornerCount * 2).also { offsets ->
+            for (c in 0 until cornerCount) {
+                val angle = MathUtils.PI2 * c / cornerCount
+                offsets[c * 2] = MathUtils.cos(angle) * ru
+                offsets[c * 2 + 1] = MathUtils.sin(angle) * rv
+            }
+        }
+    }
+
+    /**
+     * Writes every corner's UV for an N-gon face into [out] as (u0,v0,u1,v1,...)
+     * - computing them all at once, into a caller-owned buffer, avoids both
+     * the redundant per-corner recomputation and the Pair/boxed-Float
+     * allocation a [cornerUV]-per-call approach would cost at face-build time.
+     */
+    fun cornerUVsInto(biome: Biome, cornerCount: Int, out: FloatArray) {
+        val (cu, cv) = cellCenterUV(biomeIndex.getValue(biome))
+        val offsets = CORNER_OFFSETS.getValue(cornerCount)
+        for (c in 0 until cornerCount) {
+            out[c * 2] = cu + offsets[c * 2]
+            out[c * 2 + 1] = cv + offsets[c * 2 + 1]
+        }
     }
 
     /** UV of the reserved solid-white cell, for geometry that just wants its own vertex color. */
