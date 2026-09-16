@@ -1,9 +1,31 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
     kotlin("android")
 }
 
 val gdxVersion = "1.12.1"
+
+// A short git commit hash plus the time of this build - unique per build,
+// unlike versionName/versionCode which only change on a deliberate bump.
+// Useful for telling apart two installs of the same version, e.g. when
+// checking whether a device actually picked up the latest push.
+fun buildId(): String {
+    val sha = try {
+        val process = ProcessBuilder("git", "rev-parse", "--short=8", "HEAD")
+            .directory(rootDir)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText().trim()
+        if (process.waitFor() == 0 && output.isNotBlank()) output else "unknown"
+    } catch (e: Exception) {
+        "unknown"
+    }
+    val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss").format(Date())
+    return "$sha-$timestamp"
+}
 
 android {
     namespace = "dev.joncbender.openworld"
@@ -15,6 +37,11 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "BUILD_ID", "\"${buildId()}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     sourceSets {

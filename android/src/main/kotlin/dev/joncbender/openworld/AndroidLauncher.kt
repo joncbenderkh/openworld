@@ -1,8 +1,9 @@
 package dev.joncbender.openworld
 
-import android.app.AlertDialog
+import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -69,15 +70,69 @@ class AndroidLauncher : AndroidApplication() {
         return button
     }
 
+    private object SettingsPalette {
+        val PANEL_BG = Color.argb(245, 26, 28, 34)
+        val ACCENT = Color.argb(255, 235, 168, 77)
+        val PILL_UNSELECTED = Color.argb(255, 47, 51, 60)
+        const val TEXT_PRIMARY = Color.WHITE
+        val TEXT_SECONDARY = Color.argb(178, 255, 255, 255)
+        val TEXT_FOOTER = Color.argb(120, 255, 255, 255)
+        val DIVIDER = Color.argb(40, 255, 255, 255)
+    }
+
+    private fun dp(value: Float): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun roundedDrawable(fillColor: Int, cornerRadiusDp: Float): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(fillColor)
+            cornerRadius = dp(cornerRadiusDp).toFloat()
+        }
+
+    private fun pillButton(text: String, selected: Boolean, onClick: () -> Unit): Button =
+        Button(this).apply {
+            this.text = text
+            isAllCaps = false
+            setTextColor(if (selected) Color.BLACK else SettingsPalette.TEXT_PRIMARY)
+            background = roundedDrawable(if (selected) SettingsPalette.ACCENT else SettingsPalette.PILL_UNSELECTED, 10f)
+            setPadding(dp(4f), dp(10f), dp(4f), dp(10f))
+            setOnClickListener { onClick() }
+        }
+
+    private fun sectionLabel(text: String): TextView =
+        TextView(this).apply {
+            this.text = text
+            setTextColor(SettingsPalette.TEXT_SECONDARY)
+            textSize = 13f
+            setPadding(0, dp(16f), 0, dp(6f))
+        }
+
+    private fun divider(): View =
+        View(this).apply {
+            setBackgroundColor(SettingsPalette.DIVIDER)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1f)).apply {
+                topMargin = dp(16f)
+            }
+        }
+
     private fun showSettingsDialog() {
         val screen = game.globeScreen
-        val density = resources.displayMetrics.density
-        val padding = (24 * density).toInt()
+        val padding = dp(24f)
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(padding, padding, padding, padding)
+            background = roundedDrawable(SettingsPalette.PANEL_BG, 20f)
         }
+
+        layout.addView(
+            TextView(this).apply {
+                text = "Settings"
+                setTextColor(SettingsPalette.TEXT_PRIMARY)
+                textSize = 20f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            },
+        )
 
         // A Switch rendered invisible against this dialog on-device (twice, even
         // with explicit tint colors) - probably the app's old, non-Material base
@@ -87,52 +142,84 @@ class AndroidLauncher : AndroidApplication() {
         layout.addView(
             CheckBox(this).apply {
                 text = "Flip navigation direction"
-                setTextColor(Color.WHITE)
+                setTextColor(SettingsPalette.TEXT_PRIMARY)
                 isChecked = screen.navigationFlipped
+                setPadding(paddingLeft, dp(16f), paddingRight, 0)
                 setOnCheckedChangeListener { _, isChecked ->
                     Gdx.app.postRunnable { screen.navigationFlipped = isChecked }
                 }
             },
         )
 
-        layout.addView(
-            TextView(this).apply {
-                text = "Resource density"
-                setTextColor(Color.WHITE)
-            },
-        )
+        layout.addView(sectionLabel("Resource density"))
         val densityRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("Sparse" to 0.12f, "Normal" to 0.18f, "Abundant" to 0.28f).forEach { (label, value) ->
+        val densityOptions = listOf("Sparse" to 0.12f, "Normal" to 0.18f, "Abundant" to 0.28f)
+        lateinit var densityButtons: List<Button>
+        densityButtons = densityOptions.map { (label, value) ->
+            pillButton(label, selected = screen.resourceDensity == value) {
+                Gdx.app.postRunnable {
+                    screen.resourceDensity = value
+                    screen.regenerateWorld()
+                }
+                densityButtons.forEachIndexed { i, button ->
+                    val isSelected = densityOptions[i].second == value
+                    button.setTextColor(if (isSelected) Color.BLACK else SettingsPalette.TEXT_PRIMARY)
+                    button.background = roundedDrawable(
+                        if (isSelected) SettingsPalette.ACCENT else SettingsPalette.PILL_UNSELECTED,
+                        10f,
+                    )
+                }
+            }
+        }
+        densityButtons.forEach { button ->
+            val margin = dp(6f)
             densityRow.addView(
-                Button(this).apply {
-                    text = label
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    // Changing density only matters for tiles rolled at generation time,
-                    // so apply it by regenerating immediately rather than waiting for a
-                    // separate "new world seed" tap the player might not think to make.
-                    setOnClickListener {
-                        Gdx.app.postRunnable {
-                            screen.resourceDensity = value
-                            screen.regenerateWorld()
-                        }
-                    }
+                button,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = margin
+                    marginEnd = margin
                 },
             )
         }
         layout.addView(densityRow)
 
+        layout.addView(divider())
+
         layout.addView(
             Button(this).apply {
                 text = "New world seed"
+                isAllCaps = false
+                setTextColor(Color.BLACK)
+                background = roundedDrawable(SettingsPalette.ACCENT, 10f)
                 setOnClickListener { Gdx.app.postRunnable { screen.regenerateWorld() } }
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(16f)
             },
         )
 
-        AlertDialog.Builder(this)
-            .setTitle("Settings")
-            .setView(layout)
-            .setPositiveButton("Close", null)
-            .show()
+        layout.addView(
+            TextView(this).apply {
+                text = "v${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_ID}"
+                setTextColor(SettingsPalette.TEXT_FOOTER)
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(20f), 0, 0)
+            },
+        )
+
+        val margin = dp(24f)
+        val outer = FrameLayout(this).apply {
+            setPadding(margin, margin, margin, margin)
+            addView(layout, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        }
+
+        Dialog(this).apply {
+            requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            setContentView(outer)
+            window?.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+        }.show()
     }
 
     private lateinit var tileInfoPanel: LinearLayout
