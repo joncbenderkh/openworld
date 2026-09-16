@@ -162,6 +162,11 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         mesh = buildMesh()
     }
 
+    /** Spins the globe back to its starting orientation - the world itself is untouched. */
+    fun resetOrientation() {
+        rotation.idt()
+    }
+
     private fun appendVertex(data: FloatArray, offset: Int, pos: Vector3, color: Color, u: Float, v: Float): Int {
         var o = offset
         data[o++] = pos.x; data[o++] = pos.y; data[o++] = pos.z
