@@ -102,7 +102,7 @@ class AndroidLauncher : AndroidApplication() {
             },
         )
         val densityRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("Sparse" to 0.08f, "Normal" to 0.12f, "Abundant" to 0.20f).forEach { (label, value) ->
+        listOf("Sparse" to 0.12f, "Normal" to 0.18f, "Abundant" to 0.28f).forEach { (label, value) ->
             densityRow.addView(
                 Button(this).apply {
                     text = label
@@ -192,7 +192,11 @@ class AndroidLauncher : AndroidApplication() {
 
     private fun showTileInfo(info: TileInfo) {
         tileBiomeText.text = "Biome: ${info.biome.name.toDisplayName()}"
-        tileResourceText.text = "Resource: ${info.resource?.name?.toDisplayName() ?: "none"}"
+        tileResourceText.text = if (info.resources.isEmpty()) {
+            "Resources: none"
+        } else {
+            "Resources: ${info.resources.joinToString(", ") { it.name.toDisplayName() }}"
+        }
         tileInfoPanel.visibility = View.VISIBLE
     }
 
