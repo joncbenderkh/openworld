@@ -1,6 +1,7 @@
 package dev.joncbender.openworld.geo
 
 import com.badlogic.gdx.math.Vector3
+import dev.joncbender.openworld.PerfTimer
 import kotlin.math.sqrt
 
 /** One tile on the sphere: a pentagon (12 of these total) or a hexagon. */
@@ -22,8 +23,12 @@ object GeodesicSphere {
     /** [frequency] controls tile count: total faces = 10*frequency^2 + 2. */
     fun generate(frequency: Int): List<Face> {
         require(frequency >= 1) { "frequency must be >= 1" }
+        val perf = PerfTimer()
         val (vertices, triangles) = subdivideIcosahedron(frequency)
-        return buildDual(vertices, triangles)
+        perf.lap("subdivideIcosahedron")
+        val faces = buildDual(vertices, triangles)
+        perf.lap("buildDual")
+        return faces
     }
 
     private val PHI = ((1.0 + sqrt(5.0)) / 2.0).toFloat()
@@ -52,8 +57,19 @@ object GeodesicSphere {
      * allocations, now costs 1.
      */
     private fun subdivideIcosahedron(freq: Int): Pair<List<Vector3>, List<IntArray>> {
-        val vertices = ArrayList<Vector3>()
-        val keyToIndex = HashMap<Long, Int>()
+        // Both known exactly up front (see the class doc / generate()'s
+        // contract), so pre-sizing avoids the repeated grow-and-copy an
+        // unsized ArrayList does while climbing to ~400k+ elements at the
+        // game's largest tile counts.
+        val expectedVertices = 10 * freq * freq + 2
+        val expectedTriangles = 20 * freq * freq
+        val vertices = ArrayList<Vector3>(expectedVertices)
+        // A plain HashMap<Long, Int> boxes every one of the ~400k+ dedup
+        // lookups below (both the Long key and the Int value, on every
+        // insert), which showed up as measurable cost at the game's largest
+        // tile counts - a flat open-addressing table over primitive arrays
+        // avoids that entirely.
+        val keyToIndex = VertexKeyMap(expectedVertices)
 
         fun keyOf(v: Vector3): Long {
             // Quantize so points shared by adjacent icosahedron faces merge into one
@@ -73,13 +89,13 @@ object GeodesicSphere {
         // freshly constructed Vector3, never a shared/reused instance.
         fun addVertex(v: Vector3): Int {
             v.nor()
-            return keyToIndex.getOrPut(keyOf(v)) {
-                vertices.add(v)
-                vertices.size - 1
-            }
+            val candidateIndex = vertices.size
+            val actualIndex = keyToIndex.getOrPut(keyOf(v), candidateIndex)
+            if (actualIndex == candidateIndex) vertices.add(v)
+            return actualIndex
         }
 
-        val triangles = ArrayList<IntArray>()
+        val triangles = ArrayList<IntArray>(expectedTriangles)
         for (face in BASE_FACES) {
             val v0 = BASE_VERTICES[face[0]]
             val v1 = BASE_VERTICES[face[1]]
@@ -135,6 +151,7 @@ object GeodesicSphere {
      * separate neighbor-set pass is gone too.
      */
     private fun buildDual(vertices: List<Vector3>, triangles: List<IntArray>): List<Face> {
+        val perf = PerfTimer()
         val triCentroid = Array(triangles.size) { ti ->
             val t = triangles[ti]
             val v0 = vertices[t[0]]
@@ -142,6 +159,7 @@ object GeodesicSphere {
             val v2 = vertices[t[2]]
             Vector3((v0.x + v1.x + v2.x) / 3f, (v0.y + v1.y + v2.y) / 3f, (v0.z + v1.z + v2.z) / 3f).nor()
         }
+        perf.lap("buildDual.triCentroid")
 
         // Flat (CSR-style) vertex -> incident-triangle adjacency, built with
         // plain IntArrays instead of Array<ArrayList<Int>> to avoid boxing.
@@ -159,6 +177,7 @@ object GeodesicSphere {
                 cursor[v]++
             }
         }
+        perf.lap("buildDual.csr")
 
         fun thirdVertexAfter(t: IntArray, v: Int): Int {
             val i = t.indexOf(v)
@@ -172,14 +191,21 @@ object GeodesicSphere {
             val degree = to - from
 
             val corners = ArrayList<Vector3>(degree)
-            val neighbors = ArrayList<Int>(degree)
+            // Sized degree+1, matching the do-while's own worst-case bound
+            // below, so a (theoretical, never observed) malformed mesh that
+            // fails to close within `degree` steps still can't overflow this -
+            // a plain IntArray otherwise boxes every one of the ~2.4M+
+            // neighbor values written here (once per Int.add(), again on the
+            // old toIntArray() unboxing pass), which was the single largest
+            // remaining allocation source at the game's largest tile counts.
+            val neighbors = IntArray(degree + 1)
             val startTri = incidentTriangles[from]
             var current = startTri
             var guard = 0
             do {
                 corners.add(triCentroid[current])
                 val targetVertex = thirdVertexAfter(triangles[current], v)
-                neighbors.add(targetVertex)
+                neighbors[guard] = targetVertex
 
                 var next = -1
                 for (k in from until to) {
@@ -195,9 +221,47 @@ object GeodesicSphere {
                 current = next
                 guard++
             } while (current != startTri && guard <= degree)
+            check(guard == degree) { "vertex $v: dual walk closed after $guard steps, expected exactly $degree - malformed mesh" }
 
-            faces.add(Face(center = vertices[v], corners = corners, neighbors = neighbors.toIntArray()))
+            faces.add(Face(center = vertices[v], corners = corners, neighbors = neighbors.copyOf(degree)))
         }
+        perf.lap("buildDual.perVertexWalk")
         return faces
+    }
+
+    /**
+     * Open-addressing long-to-int map used only for [subdivideIcosahedron]'s
+     * vertex dedup - see the call site for why a generic HashMap<Long, Int>
+     * wasn't good enough here. Sized once up front for a target load factor
+     * around 0.5 (good average probe length for linear probing); never
+     * grows, since the exact final entry count is known before it's built.
+     */
+    private class VertexKeyMap(expectedEntries: Int) {
+        private val mask: Int
+        private val keys: LongArray
+        private val values: IntArray
+        private val occupied: BooleanArray
+
+        init {
+            var capacity = 16
+            while (capacity < expectedEntries * 2) capacity = capacity shl 1
+            mask = capacity - 1
+            keys = LongArray(capacity)
+            values = IntArray(capacity)
+            occupied = BooleanArray(capacity)
+        }
+
+        /** Returns the value already stored for [key], or stores and returns [newValue]. */
+        fun getOrPut(key: Long, newValue: Int): Int {
+            var i = (key xor (key ushr 32)).toInt() and mask
+            while (occupied[i]) {
+                if (keys[i] == key) return values[i]
+                i = (i + 1) and mask
+            }
+            occupied[i] = true
+            keys[i] = key
+            values[i] = newValue
+            return newValue
+        }
     }
 }

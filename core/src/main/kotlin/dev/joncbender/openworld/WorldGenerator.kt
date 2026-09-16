@@ -286,8 +286,17 @@ class WorldGenerator(private val seed: Long) {
         val rng = Random(seed xor 0xC2B2AE3D27D4EB4FUL.toLong())
         for (i in world.faces.indices) {
             val options = BIOME_RESOURCES[world[i]] ?: continue
-            val rolled = options.filter { rng.nextFloat() < density }
-            if (rolled.isNotEmpty()) world.setResources(i, rolled)
+            // `options.filter {}` would allocate a list every tile even when
+            // nothing rolls (the common case: e.g. at the default 18% density,
+            // a 3-option biome rolls nothing on ~55% of its tiles) - only
+            // allocate once something has actually been rolled.
+            var rolled: MutableList<Resource>? = null
+            for (option in options) {
+                if (rng.nextFloat() < density) {
+                    (rolled ?: ArrayList<Resource>(options.size).also { rolled = it }).add(option)
+                }
+            }
+            rolled?.let { world.setResources(i, it) }
         }
     }
 
