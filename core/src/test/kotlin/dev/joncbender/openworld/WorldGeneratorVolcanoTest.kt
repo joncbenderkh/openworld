@@ -55,4 +55,46 @@ class WorldGeneratorVolcanoTest {
             }
         }
     }
+
+    @Test
+    fun `standalone ocean island volcanoes occur, across several seeds`() {
+        // Regression test: mountain-elevation-based placement alone can only
+        // ever produce coastal-range volcanoes, never a true standalone
+        // island one - a small (1-15 tile) island never accumulates enough
+        // elevation gradient to reach full MOUNTAIN status, so its highest
+        // point sits barely above sea level no matter what. Counts how many
+        // volcanoes sit on a small landmass surrounded by the ocean, summed
+        // across several seeds since any single seed's small islands are a
+        // random, sometimes-empty draw.
+        var islandVolcanoesAcrossSeeds = 0
+        for (seed in 0L until 8L) {
+            val world = WorldGenerator(seed).generate(frequency = 89)
+            val visited = BooleanArray(world.faces.size)
+            fun isLand(i: Int) = world[i] != Biome.OCEAN && world[i] != Biome.LAKE
+
+            for (start in world.faces.indices) {
+                if (world[start] != Biome.VOLCANO || visited[start]) continue
+
+                val island = mutableListOf<Int>()
+                val queue = ArrayDeque<Int>()
+                queue.add(start)
+                visited[start] = true
+                while (queue.isNotEmpty()) {
+                    val i = queue.removeFirst()
+                    island.add(i)
+                    for (n in world.faces[i].neighbors) {
+                        if (!visited[n] && isLand(n)) {
+                            visited[n] = true
+                            queue.add(n)
+                        }
+                    }
+                }
+                if (island.size <= 15) islandVolcanoesAcrossSeeds++
+            }
+        }
+        assertTrue(
+            islandVolcanoesAcrossSeeds > 0,
+            "expected at least one standalone ocean island volcano across 8 seeds, found none",
+        )
+    }
 }

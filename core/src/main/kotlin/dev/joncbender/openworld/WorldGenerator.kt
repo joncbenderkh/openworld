@@ -48,6 +48,15 @@ class WorldGenerator(private val seed: Long) {
         // Applied on top of the (already small) coastal-mountain pool, so
         // the final volcano count stays a small fraction of a percent of land.
         private const val VOLCANO_CHANCE = 0.3f
+
+        // A standalone landmass this size or smaller is a candidate "hot spot"
+        // island volcano - empirically, real islands of this scale sit only
+        // ~0.01-0.02 above sea level (no real elevation "peak" to speak of),
+        // so island volcano placement can't reuse the mountain-elevation rule.
+        private const val ISLAND_VOLCANO_MAX_SIZE = 15
+
+        // Applied per eligible small island, independent of VOLCANO_CHANCE.
+        private const val ISLAND_VOLCANO_CHANCE = 0.2f
     }
 
     fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY): SphereWorld {
@@ -112,7 +121,8 @@ class WorldGenerator(private val seed: Long) {
         val world = SphereWorld(faces, biomes)
         reclassifyLandlockedOceans(world)
         perf.lap("reclassifyLandlockedOceans")
-        carveVolcanoes(world)
+        carveCoastalMountainVolcanoes(world)
+        carveIslandVolcanoes(world, elevation)
         perf.lap("carveVolcanoes")
         carveLakes(world, elevation, seaLevel)
         perf.lap("carveLakes")
@@ -173,33 +183,23 @@ class WorldGenerator(private val seed: Long) {
     }
 
     /**
-     * Volcanoes are rare and only occur near the coast or on ocean islands -
-     * real ones cluster along subduction zones and oceanic hot spots, both of
-     * which read here as "not far from the ocean." Reclassifies a small,
-     * random fraction of MOUNTAIN tiles within [VOLCANO_MAX_OCEAN_DISTANCE]
-     * hex-hops of an OCEAN tile as VOLCANO. Runs after
-     * [reclassifyLandlockedOceans] so "ocean" here means the real, connected
-     * one, not a landlocked pocket that only looks like it on a map.
+     * Real volcanoes cluster in two very different settings: subduction-zone
+     * coastal mountain ranges (the Andes, the Cascades), and standalone
+     * oceanic hot-spot islands (Hawaii, Iceland). Those need two separate
+     * placement rules here, not one: a genuinely small island never
+     * accumulates enough elevation gradient to reach full MOUNTAIN status (a
+     * 1-15 tile island's high point sits barely above sea level - there's no
+     * "peak" for the elevation noise to have built), so a rule keyed off
+     * MOUNTAIN can only ever produce the coastal-range kind. This handles
+     * that one; [carveIslandVolcanoes] handles standalone islands.
+     *
+     * Reclassifies a small, random fraction of MOUNTAIN tiles within
+     * [VOLCANO_MAX_OCEAN_DISTANCE] hex-hops of an OCEAN tile as VOLCANO. Runs
+     * after [reclassifyLandlockedOceans] so "ocean" here means the real,
+     * connected one, not a landlocked pocket that only looks like it on a map.
      */
-    private fun carveVolcanoes(world: SphereWorld) {
-        val distanceToOcean = IntArray(world.faces.size) { -1 }
-        val queue = ArrayDeque<Int>()
-        for (i in world.faces.indices) {
-            if (world[i] == Biome.OCEAN) {
-                distanceToOcean[i] = 0
-                queue.add(i)
-            }
-        }
-        while (queue.isNotEmpty()) {
-            val i = queue.removeFirst()
-            for (n in world.faces[i].neighbors) {
-                if (distanceToOcean[n] == -1) {
-                    distanceToOcean[n] = distanceToOcean[i] + 1
-                    queue.add(n)
-                }
-            }
-        }
-
+    private fun carveCoastalMountainVolcanoes(world: SphereWorld) {
+        val distanceToOcean = bfsDistanceToOcean(world)
         val rng = Random(seed xor 0x27D4EB2F165667C5UL.toLong())
         for (i in world.faces.indices) {
             if (world[i] != Biome.MOUNTAIN) continue
@@ -208,6 +208,70 @@ class WorldGenerator(private val seed: Long) {
                 world[i] = Biome.VOLCANO
             }
         }
+    }
+
+    /**
+     * Standalone hot-spot island volcanoes - see [carveCoastalMountainVolcanoes]
+     * for why these need their own rule. A small enough connected landmass
+     * (at most [ISLAND_VOLCANO_MAX_SIZE] tiles) that actually borders the
+     * real ocean (not just a small patch of land inside a landlocked lake
+     * deep within a continent) is a candidate island regardless of how
+     * little elevation prominence it has, and with a modest random chance
+     * its highest tile becomes the volcano that (fictionally) built it.
+     */
+    private fun carveIslandVolcanoes(world: SphereWorld, elevation: FloatArray) {
+        fun isLand(i: Int) = world[i] != Biome.OCEAN && world[i] != Biome.LAKE
+
+        val visited = BooleanArray(world.faces.size)
+        val rng = Random(seed xor 0x9E6C63D0676A9A0FUL.toLong())
+        for (start in world.faces.indices) {
+            if (visited[start] || !isLand(start)) continue
+
+            val island = mutableListOf<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.add(start)
+            visited[start] = true
+            while (queue.isNotEmpty()) {
+                val i = queue.removeFirst()
+                island.add(i)
+                for (n in world.faces[i].neighbors) {
+                    if (!visited[n] && isLand(n)) {
+                        visited[n] = true
+                        queue.add(n)
+                    }
+                }
+            }
+
+            if (island.size > ISLAND_VOLCANO_MAX_SIZE) continue
+            // "Island" means surrounded by the real ocean, not just a small
+            // patch of land inside a landlocked lake deep within a continent.
+            val touchesOcean = island.any { i -> world.faces[i].neighbors.any { world[it] == Biome.OCEAN } }
+            if (!touchesOcean) continue
+            if (rng.nextFloat() >= ISLAND_VOLCANO_CHANCE) continue
+            val peak = island.maxByOrNull { elevation[it] } ?: continue
+            world[peak] = Biome.VOLCANO
+        }
+    }
+
+    private fun bfsDistanceToOcean(world: SphereWorld): IntArray {
+        val distance = IntArray(world.faces.size) { -1 }
+        val queue = ArrayDeque<Int>()
+        for (i in world.faces.indices) {
+            if (world[i] == Biome.OCEAN) {
+                distance[i] = 0
+                queue.add(i)
+            }
+        }
+        while (queue.isNotEmpty()) {
+            val i = queue.removeFirst()
+            for (n in world.faces[i].neighbors) {
+                if (distance[n] == -1) {
+                    distance[n] = distance[i] + 1
+                    queue.add(n)
+                }
+            }
+        }
+        return distance
     }
 
     /**
