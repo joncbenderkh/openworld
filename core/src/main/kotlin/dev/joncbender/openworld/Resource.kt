@@ -6,6 +6,7 @@ enum class Resource {
     WOOD, FURS, GAME, GRAIN,
     GOLD, GEMS, ORE, STONE,
     OIL, SPICES, EXOTIC_FRUIT, PEAT, ICE_CRYSTALS,
+    OBSIDIAN, SULFUR,
 }
 
 /**
@@ -27,6 +28,7 @@ val BIOME_RESOURCES: Map<Biome, List<Resource>> = mapOf(
     Biome.SWAMP to listOf(Resource.OIL, Resource.PEAT),
     Biome.MOUNTAIN to listOf(Resource.GOLD, Resource.GEMS, Resource.ORE, Resource.STONE),
     Biome.FOOTHILLS to listOf(Resource.ORE, Resource.STONE, Resource.GAME),
+    Biome.VOLCANO to listOf(Resource.OBSIDIAN, Resource.SULFUR, Resource.GEMS),
     Biome.TUNDRA to listOf(Resource.FURS, Resource.ORE, Resource.STONE),
     Biome.ARCTIC to listOf(Resource.ICE_CRYSTALS),
 )

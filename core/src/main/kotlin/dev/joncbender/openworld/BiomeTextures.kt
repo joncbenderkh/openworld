@@ -16,8 +16,8 @@ import kotlin.random.Random
 object BiomeTextures {
 
     private const val CELL_SIZE = 32
-    private const val COLS = 4
-    private const val ROWS = 4 // 15 biomes + 1 reserved white cell = 16 = 4*4
+    private const val COLS = 5
+    private const val ROWS = 4 // 16 biomes + 1 reserved white cell = 17, fits in 5*4 = 20
 
     // Corners sit this far from a face's center, as a fraction of one atlas
     // cell - small enough that neighboring cells' patterns never bleed in.
@@ -110,6 +110,7 @@ object BiomeTextures {
             Biome.SWAMP -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.7f), Color(0.24f, 0.22f, 0.12f, 1f)), 0.18f, rng)
             Biome.MOUNTAIN -> cracks(pixmap, x0, y0, base, darken(base, 0.6f), lighten(base, 0.25f), rng)
             Biome.FOOTHILLS -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.65f), lighten(base, 0.2f)), 0.22f, rng)
+            Biome.VOLCANO -> cracks(pixmap, x0, y0, base, darken(base, 0.5f), Color(1f, 0.55f, 0.1f, 1f), rng)
             Biome.TUNDRA -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.75f), lighten(base, 0.25f)), 0.06f, rng)
             Biome.ARCTIC -> cracks(pixmap, x0, y0, base, darken(base, 0.85f), Color.WHITE, rng)
         }
