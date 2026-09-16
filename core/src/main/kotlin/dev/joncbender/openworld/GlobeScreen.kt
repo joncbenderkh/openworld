@@ -22,7 +22,7 @@ import com.badlogic.gdx.math.collision.Ray
 
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
-    private val frequency = 89 // total tiles = 10*frequency^2 + 2 (~5x the previous 16002)
+    private val frequency = 199 // total tiles = 10*frequency^2 + 2 (~5x the previous 79212)
 
     // Gdx.app.getPreferences is libGDX's own cross-platform settings store
     // (backed by SharedPreferences on Android) - using it here instead of an
@@ -90,7 +90,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private val modelMatrix = Matrix4()
     private val mvpMatrix = Matrix4()
 
-    private lateinit var mesh: Mesh
+    private var meshes: List<Mesh> = emptyList()
     private lateinit var graticule: Mesh
     private lateinit var shader: ShaderProgram
     private lateinit var biomeTexture: Texture
@@ -100,8 +100,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         val perf = PerfTimer()
         biomeTexture = BiomeTextures.build()
         perf.lap("BiomeTextures.build")
-        mesh = buildMesh()
-        perf.lap("buildMesh")
+        meshes = buildMeshes()
+        perf.lap("buildMeshes")
         graticule = Graticule.build()
         perf.lap("Graticule.build")
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
@@ -112,37 +112,72 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         Gdx.input.inputProcessor = InputMultiplexer(GestureDetector(this))
     }
 
-    private fun buildMesh(): Mesh {
-        var floatCount = 0
-        for (face in world.faces) floatCount += face.corners.size * 3 * VERTEX_SIZE
-        val data = FloatArray(floatCount)
-        var p = 0
+    /**
+     * Builds the terrain as several indexed meshes rather than one big
+     * non-indexed one. The original approach emitted 3 unique vertices per
+     * triangle with no sharing at all (a hexagon's fan needs only 7 distinct
+     * points - 1 center + 6 corners - but was costing 18), which was fine at
+     * the original tile counts but became a single 256MB FloatArray
+     * allocation (and an OutOfMemoryError) at 5x the tile count on top of
+     * the previous 5x bump. Indexing each face's own center+corners cuts
+     * that by more than half; splitting into multiple meshes is needed on
+     * top of that regardless, since GL's 16-bit index buffers can only
+     * address 65536 distinct vertices per mesh - nowhere near enough for
+     * the whole globe at any of the tile counts this project has used.
+     */
+    private fun buildMeshes(): List<Mesh> {
+        val meshes = mutableListOf<Mesh>()
+        val vertexData = FloatArray(MAX_VERTICES_PER_MESH * VERTEX_SIZE)
+        val indexData = ShortArray(MAX_VERTICES_PER_MESH * 3)
+        var vertexFloatPos = 0
+        var vertexCount = 0
+        var indexCount = 0
         val uvBuffer = FloatArray(6 * 2) // every face has 5 or 6 corners, so 6 is enough for either
+
+        fun flush() {
+            if (vertexCount == 0) return
+            val mesh = Mesh(
+                true,
+                vertexCount,
+                indexCount,
+                VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
+                VertexAttribute(VertexAttributes.Usage.ColorUnpacked, 4, ShaderProgram.COLOR_ATTRIBUTE),
+                VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
+            )
+            mesh.setVertices(vertexData, 0, vertexFloatPos)
+            mesh.setIndices(indexData, 0, indexCount)
+            meshes.add(mesh)
+            vertexFloatPos = 0
+            vertexCount = 0
+            indexCount = 0
+        }
 
         for ((i, face) in world.faces.withIndex()) {
             val biome = world[i]
             val (centerU, centerV) = BiomeTextures.centerUV(biome)
             val corners = face.corners
             val n = corners.size
+            if (vertexCount + n + 1 > MAX_VERTICES_PER_MESH) flush()
             BiomeTextures.cornerUVsInto(biome, n, uvBuffer)
-            for (c in corners.indices) {
+
+            val centerIndex = vertexCount
+            vertexFloatPos = appendVertex(vertexData, vertexFloatPos, face.center, Color.WHITE, centerU, centerV)
+            vertexCount++
+
+            val firstCornerIndex = vertexCount
+            for (c in 0 until n) {
+                vertexFloatPos = appendVertex(vertexData, vertexFloatPos, corners[c], Color.WHITE, uvBuffer[c * 2], uvBuffer[c * 2 + 1])
+                vertexCount++
+            }
+            for (c in 0 until n) {
                 val next = (c + 1) % n
-                p = appendVertex(data, p, face.center, Color.WHITE, centerU, centerV)
-                p = appendVertex(data, p, corners[c], Color.WHITE, uvBuffer[c * 2], uvBuffer[c * 2 + 1])
-                p = appendVertex(data, p, corners[next], Color.WHITE, uvBuffer[next * 2], uvBuffer[next * 2 + 1])
+                indexData[indexCount++] = centerIndex.toShort()
+                indexData[indexCount++] = (firstCornerIndex + c).toShort()
+                indexData[indexCount++] = (firstCornerIndex + next).toShort()
             }
         }
-
-        val mesh = Mesh(
-            true,
-            floatCount / VERTEX_SIZE,
-            0,
-            VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
-            VertexAttribute(VertexAttributes.Usage.ColorUnpacked, 4, ShaderProgram.COLOR_ATTRIBUTE),
-            VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
-        )
-        mesh.setVertices(data)
-        return mesh
+        flush()
+        return meshes
     }
 
     /**
@@ -158,8 +193,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         preferences.flush()
         inventory.clear()
         world = WorldGenerator(seed).generate(frequency, resourceDensity)
-        mesh.dispose()
-        mesh = buildMesh()
+        meshes.forEach { it.dispose() }
+        meshes = buildMeshes()
     }
 
     /** Spins the globe back to its starting orientation - the world itself is untouched. */
@@ -189,7 +224,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         shader.bind()
         shader.setUniformMatrix("u_projViewTrans", mvpMatrix)
         shader.setUniformi("u_texture", 0)
-        mesh.render(shader, GL20.GL_TRIANGLES)
+        for (mesh in meshes) mesh.render(shader, GL20.GL_TRIANGLES)
         graticule.render(shader, GL20.GL_TRIANGLES)
 
         compass.render(rotation)
@@ -302,7 +337,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     override fun resume() {}
     override fun hide() {}
     override fun dispose() {
-        mesh.dispose()
+        meshes.forEach { it.dispose() }
         graticule.dispose()
         shader.dispose()
         biomeTexture.dispose()
@@ -312,6 +347,10 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     companion object {
         private const val VERTEX_SIZE = 9 // position(3) + color(4) + texCoord(2)
         private const val ROTATE_SPEED_DEG = 0.3f
+
+        // GL's 16-bit index buffers can address at most 65536 distinct
+        // vertices per mesh - keep a safety margin under that.
+        private const val MAX_VERTICES_PER_MESH = 60000
 
         private const val PREF_SEED = "seed"
         private const val PREF_RESOURCE_DENSITY = "resource_density"
