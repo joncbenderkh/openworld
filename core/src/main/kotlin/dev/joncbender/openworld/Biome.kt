@@ -16,6 +16,7 @@ enum class Biome(val color: Color) {
     TAIGA(Color(0.18f, 0.38f, 0.35f, 1f)),
     SWAMP(Color(0.30f, 0.40f, 0.28f, 1f)),
     MOUNTAIN(Color(0.55f, 0.53f, 0.50f, 1f)),
+    FOOTHILLS(Color(0.50f, 0.47f, 0.36f, 1f)),
     TUNDRA(Color(0.58f, 0.56f, 0.42f, 1f)),
     ARCTIC(Color(0.92f, 0.94f, 0.97f, 1f)),
 }

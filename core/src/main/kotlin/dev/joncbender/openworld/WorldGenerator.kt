@@ -54,11 +54,19 @@ class WorldGenerator(private val seed: Long) {
         val seaLevel = 0.42f
         // The elevation fBm (5 octaves, persistence 0.5) never actually reaches
         // anywhere near 1.0 in practice - across 10 test seeds its max ranged
-        // ~0.70-0.83, so the old 0.80 threshold made mountains all but
-        // impossible (0% of tiles in 9 of 10 seeds tested). 0.56 averages
-        // ~24% of LAND as mountain across 10 seeds tested (20-30% range),
-        // matching real-world mountainous land coverage.
-        val mountainLevel = 0.56f
+        // ~0.70-0.83, so the original 0.80 threshold made mountains all but
+        // impossible (0% of tiles in 9 of 10 seeds tested). These two
+        // thresholds were chosen empirically against that same 10-seed sample:
+        // mountainLevel averages ~15% of land at/above it (a single top-down
+        // screenshot of one hemisphere isn't a reliable way to eyeball this
+        // against the real-world ~24% figure, since elevation noise clusters
+        // spatially into contiguous ranges and a sphere's near side is a
+        // biased, foreshortened sample of the true global distribution -
+        // biased low, to be safe, given that same clustering can make a
+        // range look more dominant than its true land share in any one view),
+        // and foothillsLevel adds another ~13% of land as a transitional band.
+        val foothillsLevel = 0.55f
+        val mountainLevel = 0.59f
 
         for ((i, face) in faces.withIndex()) {
             val p = face.center
@@ -69,6 +77,7 @@ class WorldGenerator(private val seed: Long) {
             biomes[i] = when {
                 e < seaLevel -> Biome.OCEAN
                 e >= mountainLevel -> Biome.MOUNTAIN
+                e >= foothillsLevel -> Biome.FOOTHILLS
                 latitude >= 0.88f -> Biome.ARCTIC
                 m > 0.75f && e < seaLevel + 0.08f && latitude < 0.75f -> Biome.SWAMP
                 latitude >= 0.75f -> if (m > 0.40f) Biome.TAIGA else Biome.TUNDRA
