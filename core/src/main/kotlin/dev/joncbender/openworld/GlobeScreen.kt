@@ -64,9 +64,13 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private lateinit var biomeTexture: Texture
 
     override fun show() {
+        val perf = PerfTimer()
         biomeTexture = BiomeTextures.build()
+        perf.lap("BiomeTextures.build")
         mesh = buildMesh()
+        perf.lap("buildMesh")
         graticule = Graticule.build()
+        perf.lap("Graticule.build")
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         check(shader.isCompiled) { shader.log }
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
