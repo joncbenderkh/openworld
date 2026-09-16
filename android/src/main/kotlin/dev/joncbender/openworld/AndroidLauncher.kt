@@ -1,20 +1,25 @@
 package dev.joncbender.openworld
 
 import android.app.Dialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.backends.android.AndroidApplication
 import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
@@ -185,16 +190,65 @@ class AndroidLauncher : AndroidApplication() {
 
         layout.addView(divider())
 
+        layout.addView(sectionLabel("World seed"))
+        val seedInput = EditText(this).apply {
+            setText(screen.seed.toString())
+            setTextColor(SettingsPalette.TEXT_PRIMARY)
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
+            background = roundedDrawable(SettingsPalette.PILL_UNSELECTED, 10f)
+            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
+        }
+        val seedRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                seedInput,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8f) },
+            )
+            addView(
+                pillButton("Copy", selected = false) {
+                    val clipboard = getSystemService(ClipboardManager::class.java)
+                    clipboard.setPrimaryClip(ClipData.newPlainText("World seed", seedInput.text.toString()))
+                    Toast.makeText(this@AndroidLauncher, "Seed copied", Toast.LENGTH_SHORT).show()
+                },
+            )
+        }
+        layout.addView(seedRow)
+
+        layout.addView(
+            Button(this).apply {
+                text = "Use this seed"
+                isAllCaps = false
+                setTextColor(Color.BLACK)
+                background = roundedDrawable(SettingsPalette.ACCENT, 10f)
+                setOnClickListener {
+                    val parsed = seedInput.text.toString().trim().toLongOrNull()
+                    if (parsed == null) {
+                        Toast.makeText(this@AndroidLauncher, "Invalid seed", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Gdx.app.postRunnable { screen.regenerateWorld(parsed) }
+                    }
+                }
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10f)
+            },
+        )
+
         layout.addView(
             Button(this).apply {
                 text = "New world seed"
                 isAllCaps = false
                 setTextColor(Color.BLACK)
                 background = roundedDrawable(SettingsPalette.ACCENT, 10f)
-                setOnClickListener { Gdx.app.postRunnable { screen.regenerateWorld() } }
+                setOnClickListener {
+                    val newSeed = System.nanoTime()
+                    Gdx.app.postRunnable { screen.regenerateWorld(newSeed) }
+                    seedInput.setText(newSeed.toString())
+                }
             },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(16f)
+                topMargin = dp(8f)
             },
         )
 

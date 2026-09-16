@@ -27,7 +27,11 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
     var resourceDensity = WorldGenerator.DEFAULT_RESOURCE_DENSITY
 
-    private var world = WorldGenerator(seed = System.nanoTime()).generate(frequency, resourceDensity)
+    /** The seed behind the current world - readable so the settings menu can show/copy it. */
+    var seed: Long = System.nanoTime()
+        private set
+
+    private var world = WorldGenerator(seed).generate(frequency, resourceDensity)
 
     /** Reverses the sense of one- and two-finger drag gestures. Settable from outside (the Android settings menu). */
     var navigationFlipped = false
@@ -110,9 +114,14 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         return mesh
     }
 
-    /** Regenerates the world with a fresh random seed and rebuilds the terrain mesh. Called from the settings menu. */
-    fun regenerateWorld() {
-        world = WorldGenerator(seed = System.nanoTime()).generate(frequency, resourceDensity)
+    /**
+     * Regenerates the world and rebuilds the terrain mesh. Called from the
+     * settings menu, either with a fresh random seed ("New world seed") or a
+     * specific one the player typed in.
+     */
+    fun regenerateWorld(newSeed: Long = System.nanoTime()) {
+        seed = newSeed
+        world = WorldGenerator(seed).generate(frequency, resourceDensity)
         mesh.dispose()
         mesh = buildMesh()
     }
