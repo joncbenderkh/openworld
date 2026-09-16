@@ -43,4 +43,28 @@ class WorldGeneratorMountainTest {
             )
         }
     }
+
+    @Test
+    fun `land averages 30-40 percent of the globe, across several seeds`() {
+        // Individual seeds vary a lot more than the average does (elevation
+        // noise clusters spatially), so this checks the average of several
+        // seeds against the target, plus a generous per-seed sanity band.
+        val landShares = (0L until 8L).map { seed ->
+            val world = WorldGenerator(seed).generate(frequency = 30)
+            val total = world.faces.size
+            val land = world.faces.indices.count { world[it] != Biome.OCEAN }
+            land.toFloat() / total
+        }
+        val average = landShares.average()
+        assertTrue(
+            average in 0.30..0.40,
+            "average land share across seeds is ${average * 100}%, expected 30-40%",
+        )
+        for ((seed, share) in landShares.withIndex()) {
+            assertTrue(
+                share in 0.15f..0.55f,
+                "seed $seed: land is ${share * 100}% of the globe, expected a generous 15-55% sanity band",
+            )
+        }
+    }
 }
