@@ -45,17 +45,43 @@ object BiomeTextures {
         return texture
     }
 
-    /** UV at the center of a face, sampling the middle of its biome's cell. */
-    fun centerUV(biome: Biome): Pair<Float, Float> = cellCenterUV(biomeIndex.getValue(biome))
+    // A face's UVs depend only on its biome and whether it's a pentagon or
+    // hexagon, so they're computed once here and read by array index per
+    // face. The per-face alternative (a biome -> index map lookup plus a
+    // Pair<Float, Float> of boxed floats, twice per face) measured ~2.2s of
+    // a ~2.5s mesh build at ~396k tiles on the Android emulator - nearly all
+    // of it hashing enums and allocating, none of it actual work.
+    private val CENTER_UVS = FloatArray(Biome.entries.size * 2).also { out ->
+        for (biome in Biome.entries) {
+            val (u, v) = cellCenterUV(biomeIndex.getValue(biome))
+            out[biome.ordinal * 2] = u
+            out[biome.ordinal * 2 + 1] = v
+        }
+    }
 
-    // Precomputed per-corner (cos, sin) offsets for the only two corner counts
-    // a face ever has (pentagons, hexagons) - avoids calling MathUtils.cos/sin
-    // per corner per face, which at the game's production tile count meant
-    // hundreds of thousands of trig calls (each corner's UV was also computed
-    // twice over, once as a triangle-fan's "near" corner and again as the
-    // next triangle's "far" corner - see cornerUVsInto's caller).
-    private val CORNER_OFFSETS: Map<Int, FloatArray> = listOf(5, 6).associateWith(::buildCornerOffsets)
+    // [cornerCount][biome ordinal] -> (u0, v0, u1, v1, ...). Only 5 (pentagon)
+    // and 6 (hexagon) are populated, matching the only face shapes there are.
+    private val CORNER_UVS: Array<Array<FloatArray>?> = arrayOfNulls<Array<FloatArray>>(7).also { table ->
+        for (cornerCount in 5..6) {
+            val offsets = buildCornerOffsets(cornerCount)
+            table[cornerCount] = Array(Biome.entries.size) { ordinal ->
+                val (cu, cv) = cellCenterUV(biomeIndex.getValue(Biome.entries[ordinal]))
+                FloatArray(cornerCount * 2) { k -> (if (k % 2 == 0) cu else cv) + offsets[k] }
+            }
+        }
+    }
 
+    fun centerU(biome: Biome): Float = CENTER_UVS[biome.ordinal * 2]
+    fun centerV(biome: Biome): Float = CENTER_UVS[biome.ordinal * 2 + 1]
+
+    /**
+     * The (u0, v0, u1, v1, ...) of every corner of a [cornerCount]-gon face
+     * (5 or 6) in [biome]. Shared and precomputed - read only, never modify.
+     */
+    fun cornerUVs(biome: Biome, cornerCount: Int): FloatArray =
+        (CORNER_UVS.getOrNull(cornerCount) ?: error("no UVs for a $cornerCount-corner face"))[biome.ordinal]
+
+    // Per-corner (cos, sin) offsets from the cell center, scaled to UV space.
     private fun buildCornerOffsets(cornerCount: Int): FloatArray {
         val ru = CORNER_RADIUS_FRACTION / COLS
         val rv = CORNER_RADIUS_FRACTION / ROWS
@@ -65,21 +91,6 @@ object BiomeTextures {
                 offsets[c * 2] = MathUtils.cos(angle) * ru
                 offsets[c * 2 + 1] = MathUtils.sin(angle) * rv
             }
-        }
-    }
-
-    /**
-     * Writes every corner's UV for an N-gon face into [out] as (u0,v0,u1,v1,...)
-     * - computing them all at once, into a caller-owned buffer, avoids both
-     * the redundant per-corner recomputation and the Pair/boxed-Float
-     * allocation a [cornerUV]-per-call approach would cost at face-build time.
-     */
-    fun cornerUVsInto(biome: Biome, cornerCount: Int, out: FloatArray) {
-        val (cu, cv) = cellCenterUV(biomeIndex.getValue(biome))
-        val offsets = CORNER_OFFSETS.getValue(cornerCount)
-        for (c in 0 until cornerCount) {
-            out[c * 2] = cu + offsets[c * 2]
-            out[c * 2 + 1] = cv + offsets[c * 2 + 1]
         }
     }
 
