@@ -181,21 +181,21 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             indexCount = 0
         }
 
-        for ((i, face) in world.faces.withIndex()) {
+        val sphere = world.sphere
+        for (i in sphere.indices) {
             val biome = world[i]
             val (centerU, centerV) = BiomeTextures.centerUV(biome)
-            val corners = face.corners
-            val n = corners.size
+            val n = sphere.cornerCount(i)
             if (vertexCount + n + 1 > MAX_VERTICES_PER_MESH) flush()
             BiomeTextures.cornerUVsInto(biome, n, uvBuffer)
 
             val centerIndex = vertexCount
-            vertexFloatPos = appendVertex(vertexData, vertexFloatPos, face.center, Color.WHITE, centerU, centerV)
+            vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), Color.WHITE, centerU, centerV)
             vertexCount++
 
             val firstCornerIndex = vertexCount
             for (c in 0 until n) {
-                vertexFloatPos = appendVertex(vertexData, vertexFloatPos, corners[c], Color.WHITE, uvBuffer[c * 2], uvBuffer[c * 2 + 1])
+                vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c), Color.WHITE, uvBuffer[c * 2], uvBuffer[c * 2 + 1])
                 vertexCount++
             }
             for (c in 0 until n) {
@@ -232,9 +232,9 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         rotation.idt()
     }
 
-    private fun appendVertex(data: FloatArray, offset: Int, pos: Vector3, color: Color, u: Float, v: Float): Int {
+    private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, color: Color, u: Float, v: Float): Int {
         var o = offset
-        data[o++] = pos.x; data[o++] = pos.y; data[o++] = pos.z
+        data[o++] = x; data[o++] = y; data[o++] = z
         data[o++] = color.r; data[o++] = color.g; data[o++] = color.b; data[o++] = color.a
         data[o++] = u; data[o++] = v
         return o
@@ -346,8 +346,9 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private fun nearestFace(point: Vector3): Int {
         var bestIndex = 0
         var bestDot = -2f
-        for (i in world.faces.indices) {
-            val d = world.faces[i].center.dot(point)
+        val sphere = world.sphere
+        for (i in sphere.indices) {
+            val d = sphere.centerX(i) * point.x + sphere.centerY(i) * point.y + sphere.centerZ(i) * point.z
             if (d > bestDot) {
                 bestDot = d
                 bestIndex = i

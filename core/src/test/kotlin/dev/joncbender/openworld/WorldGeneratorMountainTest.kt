@@ -20,8 +20,8 @@ class WorldGeneratorMountainTest {
         // seed."
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 30)
-            val land = world.faces.indices.count { world[it] != Biome.OCEAN }
-            val mountain = world.faces.indices.count { world[it] == Biome.MOUNTAIN }
+            val land = world.sphere.indices.count { world[it] != Biome.OCEAN }
+            val mountain = world.sphere.indices.count { world[it] == Biome.MOUNTAIN }
             val mountainShareOfLand = mountain.toFloat() / land
             assertTrue(
                 mountainShareOfLand in 0.05f..0.25f,
@@ -34,8 +34,8 @@ class WorldGeneratorMountainTest {
     fun `foothills form a transitional band below mountains, across several seeds`() {
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 30)
-            val land = world.faces.indices.count { world[it] != Biome.OCEAN }
-            val foothills = world.faces.indices.count { world[it] == Biome.FOOTHILLS }
+            val land = world.sphere.indices.count { world[it] != Biome.OCEAN }
+            val foothills = world.sphere.indices.count { world[it] == Biome.FOOTHILLS }
             val foothillsShareOfLand = foothills.toFloat() / land
             assertTrue(
                 foothillsShareOfLand in 0.05f..0.25f,
@@ -51,8 +51,8 @@ class WorldGeneratorMountainTest {
         // seeds against the target, plus a generous per-seed sanity band.
         val landShares = (0L until 8L).map { seed ->
             val world = WorldGenerator(seed).generate(frequency = 30)
-            val total = world.faces.size
-            val land = world.faces.indices.count { world[it] != Biome.OCEAN }
+            val total = world.sphere.faceCount
+            val land = world.sphere.indices.count { world[it] != Biome.OCEAN }
             land.toFloat() / total
         }
         val average = landShares.average()

@@ -16,10 +16,10 @@ class WorldGeneratorRiverShapeTest {
         // tiles stay rare.
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 30)
-            val riverTiles = world.faces.indices.filter { world[it] == Biome.RIVER }
+            val riverTiles = world.sphere.indices.filter { world[it] == Biome.RIVER }
             if (riverTiles.isEmpty()) continue
             val pooledCount = riverTiles.count { i ->
-                world.faces[i].neighbors.count { world[it] == Biome.RIVER } >= 4
+                world.sphere.countNeighbors(i) { world[it] == Biome.RIVER } >= 4
             }
             val pooledFraction = pooledCount.toFloat() / riverTiles.size
             assertTrue(

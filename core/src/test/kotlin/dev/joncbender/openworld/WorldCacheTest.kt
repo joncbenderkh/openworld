@@ -30,26 +30,16 @@ class WorldCacheTest {
 
         val loaded = WorldCache.load(file, frequency = 12, seed = 5L, resourceDensity = 0.5f)
         assertTrue(loaded != null)
-        assertEquals(world.faces.size, loaded.faces.size)
-        for (i in world.faces.indices) {
+        val a = world.sphere
+        val b = loaded.sphere
+        assertTrue(a.centers.contentEquals(b.centers), "centers differ")
+        assertTrue(a.cornerStart.contentEquals(b.cornerStart), "cornerStart differs")
+        assertTrue(a.cornerVertex.contentEquals(b.cornerVertex), "cornerVertex differs")
+        assertTrue(a.vertexPositions.contentEquals(b.vertexPositions), "vertexPositions differ")
+        assertTrue(a.neighbors.contentEquals(b.neighbors), "neighbors differ")
+        for (i in a.indices) {
             assertEquals(world[i], loaded[i], "biome mismatch at face $i")
             assertEquals(world.resourcesAt(i), loaded.resourcesAt(i), "resources mismatch at face $i")
-            assertEquals(world.faces[i].neighbors.toList(), loaded.faces[i].neighbors.toList(), "neighbors mismatch at face $i")
-
-            val corners1 = world.faces[i].corners
-            val corners2 = loaded.faces[i].corners
-            assertEquals(corners1.size, corners2.size, "corner count mismatch at face $i")
-            for (c in corners1.indices) {
-                assertEquals(corners1[c].x, corners2[c].x, 0.0001f)
-                assertEquals(corners1[c].y, corners2[c].y, 0.0001f)
-                assertEquals(corners1[c].z, corners2[c].z, 0.0001f)
-            }
-
-            val center1 = world.faces[i].center
-            val center2 = loaded.faces[i].center
-            assertEquals(center1.x, center2.x, 0.0001f)
-            assertEquals(center1.y, center2.y, 0.0001f)
-            assertEquals(center1.z, center2.z, 0.0001f)
         }
     }
 

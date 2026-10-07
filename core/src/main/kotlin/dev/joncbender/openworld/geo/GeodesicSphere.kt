@@ -5,13 +5,6 @@ import dev.joncbender.openworld.Parallel
 import dev.joncbender.openworld.PerfTimer
 import kotlin.math.sqrt
 
-/** One tile on the sphere: a pentagon (12 of these total) or a hexagon. */
-data class Face(
-    val center: Vector3,
-    val corners: List<Vector3>,
-    val neighbors: IntArray,
-)
-
 /**
  * A Goldberg polyhedron: the dual of a geodesically subdivided icosahedron.
  * Every face is a hexagon except for exactly 12 pentagons at the original
@@ -22,14 +15,14 @@ data class Face(
 object GeodesicSphere {
 
     /** [frequency] controls tile count: total faces = 10*frequency^2 + 2. */
-    fun generate(frequency: Int): List<Face> {
+    fun generate(frequency: Int): Sphere {
         require(frequency >= 1) { "frequency must be >= 1" }
         val perf = PerfTimer()
         val (vertices, triangles) = subdivideIcosahedron(frequency)
         perf.lap("subdivideIcosahedron")
-        val faces = buildDual(vertices, triangles)
+        val sphere = buildDual(vertices, triangles)
         perf.lap("buildDual")
-        return faces
+        return sphere
     }
 
     private val PHI = ((1.0 + sqrt(5.0)) / 2.0).toFloat()
@@ -151,22 +144,32 @@ object GeodesicSphere {
      * (each step's "other" vertex is exactly one dual-face neighbor), so the
      * separate neighbor-set pass is gone too.
      */
-    private fun buildDual(vertices: List<Vector3>, triangles: List<IntArray>): List<Face> {
+    private fun buildDual(vertices: List<Vector3>, triangles: List<IntArray>): Sphere {
         val perf = PerfTimer()
-        val centroids = arrayOfNulls<Vector3>(triangles.size)
-        Parallel.forEachIndex(triangles.size) { ti ->
-            val t = triangles[ti]
-            val v0 = vertices[t[0]]
-            val v1 = vertices[t[1]]
-            val v2 = vertices[t[2]]
-            centroids[ti] = Vector3((v0.x + v1.x + v2.x) / 3f, (v0.y + v1.y + v2.y) / 3f, (v0.z + v1.z + v2.z) / 3f).nor()
+        // One dual-face corner per triangle, as a flat x/y/z array. The
+        // scratch vector per chunk keeps this allocation-free while using
+        // Vector3.nor() itself, so the result matches the old per-triangle
+        // Vector3 version bit for bit.
+        val vertexPositions = FloatArray(triangles.size * 3)
+        Parallel.forRanges(triangles.size) { from, to ->
+            val scratch = Vector3()
+            for (ti in from until to) {
+                val t = triangles[ti]
+                val v0 = vertices[t[0]]
+                val v1 = vertices[t[1]]
+                val v2 = vertices[t[2]]
+                scratch.set((v0.x + v1.x + v2.x) / 3f, (v0.y + v1.y + v2.y) / 3f, (v0.z + v1.z + v2.z) / 3f).nor()
+                vertexPositions[ti * 3] = scratch.x
+                vertexPositions[ti * 3 + 1] = scratch.y
+                vertexPositions[ti * 3 + 2] = scratch.z
+            }
         }
-        @Suppress("UNCHECKED_CAST")
-        val triCentroid = centroids as Array<Vector3>
         perf.lap("buildDual.triCentroid")
 
         // Flat (CSR-style) vertex -> incident-triangle adjacency, built with
         // plain IntArrays instead of Array<ArrayList<Int>> to avoid boxing.
+        // A vertex's degree is its dual face's corner count, so the same
+        // offsets also lay out the Sphere's per-corner arrays.
         val incidentCount = IntArray(vertices.size)
         for (t in triangles) {
             incidentCount[t[0]]++; incidentCount[t[1]]++; incidentCount[t[2]]++
@@ -188,31 +191,33 @@ object GeodesicSphere {
             return t[(i + 2) % 3]
         }
 
+        val centers = FloatArray(vertices.size * 3)
+        val cornerVertex = IntArray(incidentTriangles.size)
+        val neighbors = IntArray(incidentTriangles.size)
+
         // Each vertex's walk reads only the shared, now-immutable adjacency
-        // built above and writes only its own slot, so the walks are
-        // independent and can run in parallel.
-        val faces = arrayOfNulls<Face>(vertices.size)
+        // built above and writes only its own slice of the output arrays, so
+        // the walks are independent and can run in parallel.
         Parallel.forEachIndex(vertices.size) { v ->
             val from = incidentStart[v]
             val to = incidentStart[v + 1]
             val degree = to - from
 
-            val corners = ArrayList<Vector3>(degree)
-            // Sized degree+1, matching the do-while's own worst-case bound
-            // below, so a (theoretical, never observed) malformed mesh that
-            // fails to close within `degree` steps still can't overflow this -
-            // a plain IntArray otherwise boxes every one of the ~2.4M+
-            // neighbor values written here (once per Int.add(), again on the
-            // old toIntArray() unboxing pass), which was the single largest
-            // remaining allocation source at the game's largest tile counts.
-            val neighbors = IntArray(degree + 1)
+            val center = vertices[v]
+            centers[v * 3] = center.x
+            centers[v * 3 + 1] = center.y
+            centers[v * 3 + 2] = center.z
+
             val startTri = incidentTriangles[from]
             var current = startTri
             var guard = 0
             do {
-                corners.add(triCentroid[current])
+                // Checked before writing so a malformed mesh can't spill into
+                // the next vertex's slice (which another thread may be filling).
+                check(guard < degree) { "vertex $v: dual walk did not close within $degree steps - malformed mesh" }
+                cornerVertex[from + guard] = current
                 val targetVertex = thirdVertexAfter(triangles[current], v)
-                neighbors[guard] = targetVertex
+                neighbors[from + guard] = targetVertex
 
                 var next = -1
                 for (k in from until to) {
@@ -227,14 +232,11 @@ object GeodesicSphere {
                 check(next != -1) { "vertex $v: no other triangle shares edge with vertex $targetVertex - malformed mesh" }
                 current = next
                 guard++
-            } while (current != startTri && guard <= degree)
+            } while (current != startTri)
             check(guard == degree) { "vertex $v: dual walk closed after $guard steps, expected exactly $degree - malformed mesh" }
-
-            faces[v] = Face(center = vertices[v], corners = corners, neighbors = neighbors.copyOf(degree))
         }
         perf.lap("buildDual.perVertexWalk")
-        @Suppress("UNCHECKED_CAST")
-        return (faces as Array<Face>).asList()
+        return Sphere(centers, incidentStart, cornerVertex, vertexPositions, neighbors)
     }
 
     /**

@@ -18,9 +18,9 @@ class WorldGeneratorOceanShapeTest {
         // shouldn't show up as a small OCEAN component here either).
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 30)
-            val visited = BooleanArray(world.faces.size)
+            val visited = BooleanArray(world.sphere.faceCount)
             val componentSizes = mutableListOf<Int>()
-            for (start in world.faces.indices) {
+            for (start in world.sphere.indices) {
                 if (visited[start] || world[start] != Biome.OCEAN) continue
                 var size = 0
                 val queue = ArrayDeque<Int>()
@@ -29,7 +29,7 @@ class WorldGeneratorOceanShapeTest {
                 while (queue.isNotEmpty()) {
                     val i = queue.removeFirst()
                     size++
-                    for (n in world.faces[i].neighbors) {
+                    world.sphere.forEachNeighbor(i) { n ->
                         if (!visited[n] && world[n] == Biome.OCEAN) {
                             visited[n] = true
                             queue.add(n)
