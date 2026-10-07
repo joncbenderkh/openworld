@@ -61,10 +61,17 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     // game's current tile count) all over again.
     private val worldCacheFile = Gdx.files.local("world_cache.bin")
 
-    private var world = run {
+    // The far layer's biomes, cached separately (see CoarseWorldCache) so a warm start can build
+    // that layer before the fine world is loaded.
+    private val coarseCacheFile = Gdx.files.local("world_cache_coarse.bin")
+
+    private lateinit var world: SphereWorld
+
+    /** The world from the cache if it matches, otherwise freshly generated (and cached for next time). */
+    private fun loadOrGenerateWorld(): SphereWorld {
         val perf = PerfTimer()
         val cached = WorldCache.load(worldCacheFile, frequency, seed, resourceDensity)
-        if (cached != null) {
+        return if (cached != null) {
             perf.lap("world: loaded from cache")
             cached
         } else {
@@ -144,8 +151,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         val perf = PerfTimer()
         biomeTexture = BiomeTextures.build()
         perf.lap("BiomeTextures.build")
-        buildTerrain()
-        perf.lap("buildMeshes")
+        loadTerrain()
+        perf.lap("terrain")
         graticule = Graticule.build()
         perf.lap("Graticule.build")
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
@@ -177,14 +184,52 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         buildTerrain()
     }
 
+    /** Whether the world is finer than the far layer, so it is drawn at two levels of detail. */
+    private val layered get() = frequency > CoarseWorldBuilder.COARSE_FREQUENCY
+
+    /**
+     * Loads the world and builds both layers. On a warm start the far layer comes first, built
+     * from the cached coarse biomes while the heap is still empty, and only then is the ~175 MB
+     * fine world loaded - so building the coarse sphere never overlaps it, which is what limited
+     * the heap's headroom (and cost ~2 s of mapping and voting) when it was derived from the
+     * fine world instead.
+     */
+    private fun loadTerrain() {
+        val perf = PerfTimer()
+        var farBuilt = false
+        if (layered) {
+            val coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
+            if (coarseBiomes != null) {
+                farTerrain = buildFarLayer(CoarseWorldBuilder.fromBiomes(coarseBiomes), releaseSource = true)
+                farBuilt = true
+                perf.lap("far layer from cached coarse biomes")
+            }
+        }
+        world = loadOrGenerateWorld()
+        if (farBuilt) buildNearLayer() else buildTerrain()
+    }
+
+    /** Builds every layer from the in-memory [world] (first launch, a cache miss, or a new world). */
     private fun buildTerrain() {
-        val coarse = if (frequency > CoarseWorldBuilder.COARSE_FREQUENCY) CoarseWorldBuilder.build(world) else null
-        farTerrain = TerrainLayer(coarse ?: world).also {
+        farTerrain = if (layered) {
+            val coarse = CoarseWorldBuilder.build(world)
+            CoarseWorldCache.save(coarseCacheFile, coarse.biomeBytes(), frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
+            buildFarLayer(coarse, releaseSource = true)
+        } else {
+            buildFarLayer(world, releaseSource = false)
+        }
+        buildNearLayer()
+    }
+
+    private fun buildFarLayer(source: SphereWorld, releaseSource: Boolean): TerrainLayer =
+        TerrainLayer(source).also {
             it.buildAll()
             // A coarse world exists only to build this layer; let its sphere go.
-            if (coarse != null) it.releaseSource()
+            if (releaseSource) it.releaseSource()
         }
-        val near = if (coarse != null) TerrainLayer(world) else null
+
+    private fun buildNearLayer() {
+        val near = if (layered) TerrainLayer(world) else null
         nearTerrain = near
         nearStreamer = near?.let { layer ->
             NearPatchStreamer(layer.patchCount, MAX_NEAR_PATCHES, { layer.build(it) }, { layer.release(it) })

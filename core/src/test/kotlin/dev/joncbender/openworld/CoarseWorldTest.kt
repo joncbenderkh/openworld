@@ -124,4 +124,21 @@ class CoarseWorldTest {
         val coarse = CoarseWorldBuilder.build(fine, coarseFrequency = 16)
         assertTrue(coarse.sphere.indices.any { coarse[it] == Biome.RIVER }, "all $fineRivers fine river tiles vanished")
     }
+
+    @Test
+    fun `a coarse world rebuilt from its saved biomes matches the one built from the fine world`() {
+        val fine = WorldGenerator(seed = 5L).generate(frequency = 40)
+        val built = CoarseWorldBuilder.build(fine, coarseFrequency = 16)
+        val rebuilt = CoarseWorldBuilder.fromBiomes(built.biomeBytes(), coarseFrequency = 16)
+
+        assertEquals(built.sphere.faceCount, rebuilt.sphere.faceCount)
+        for (i in built.sphere.indices) assertEquals(built[i], rebuilt[i], "face $i")
+    }
+
+    @Test
+    fun `fromBiomes rejects a biome array of the wrong size`() {
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            CoarseWorldBuilder.fromBiomes(ByteArray(10), coarseFrequency = 16)
+        }
+    }
 }
