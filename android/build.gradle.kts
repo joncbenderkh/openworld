@@ -3,7 +3,6 @@ import java.util.Date
 
 plugins {
     id("com.android.application")
-    kotlin("android")
 }
 
 val gdxVersion = "1.12.1"
@@ -64,8 +63,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
+}
+
+kotlin {
+    jvmToolchain(21)
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
