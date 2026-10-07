@@ -5,19 +5,78 @@ import dev.joncbender.openworld.geo.Sphere
 import kotlin.math.abs
 import kotlin.random.Random
 
-/** The generated world: a geodesic sphere where every face has one biome and zero or more resources. */
-class SphereWorld(val sphere: Sphere, private val biomes: Array<Biome>) {
-    private val resources = Array<List<Resource>>(biomes.size) { emptyList() }
+/**
+ * The generated world: a geodesic sphere where every face has one biome and zero or more resources.
+ *
+ * Stored compactly, since there is one of each per tile: a biome is one byte (its ordinal),
+ * and a tile's resources are packed into one Int - a count in the low 3 bits, then each
+ * resource's ordinal in order, 5 bits apiece (no biome offers more than [MAX_RESOURCES]).
+ * Order is preserved exactly, so [resourcesAt] returns what [setResources] was given.
+ */
+class SphereWorld(val sphere: Sphere, private val biomes: ByteArray) {
+    constructor(sphere: Sphere, biomes: Array<Biome>) : this(sphere, ByteArray(biomes.size) { biomes[it].ordinal.toByte() })
 
-    operator fun get(faceIndex: Int): Biome = biomes[faceIndex]
+    private val resources = IntArray(biomes.size)
+
+    operator fun get(faceIndex: Int): Biome = BIOMES[biomes[faceIndex].toInt()]
     operator fun set(faceIndex: Int, biome: Biome) {
-        biomes[faceIndex] = biome
+        biomes[faceIndex] = biome.ordinal.toByte()
     }
 
-    fun resourcesAt(faceIndex: Int): List<Resource> = resources[faceIndex]
-    fun setResources(faceIndex: Int, value: List<Resource>) {
-        resources[faceIndex] = value
+    fun resourcesAt(faceIndex: Int): List<Resource> {
+        val packed = resources[faceIndex]
+        val count = packed and COUNT_MASK
+        if (count == 0) return emptyList()
+        return List(count) { RESOURCES[(packed ushr (COUNT_BITS + it * RESOURCE_BITS)) and RESOURCE_MASK] }
     }
+
+    fun setResources(faceIndex: Int, value: List<Resource>) {
+        require(value.size <= MAX_RESOURCES) { "a tile holds at most $MAX_RESOURCES resources, got ${value.size}" }
+        resources[faceIndex] = 0
+        for (resource in value) addResource(faceIndex, resource)
+    }
+
+    /** Appends [resource] after the tile's existing ones, without building a list. */
+    fun addResource(faceIndex: Int, resource: Resource) {
+        val packed = resources[faceIndex]
+        val count = packed and COUNT_MASK
+        require(count < MAX_RESOURCES) { "a tile holds at most $MAX_RESOURCES resources" }
+        resources[faceIndex] = (packed and COUNT_MASK.inv()) or (resource.ordinal shl (COUNT_BITS + count * RESOURCE_BITS)) or (count + 1)
+    }
+
+    companion object {
+        const val MAX_RESOURCES = 4
+        private const val COUNT_BITS = 3
+        private const val COUNT_MASK = (1 shl COUNT_BITS) - 1
+        private const val RESOURCE_BITS = 5
+        private const val RESOURCE_MASK = (1 shl RESOURCE_BITS) - 1
+
+        private val BIOMES = Biome.entries.toTypedArray()
+        private val RESOURCES = Resource.entries.toTypedArray()
+
+        init {
+            check(RESOURCES.size <= 1 shl RESOURCE_BITS) { "resource ordinals no longer fit $RESOURCE_BITS bits" }
+            check(BIOMES.size <= 256) { "biome ordinals no longer fit a byte" }
+        }
+    }
+}
+
+/**
+ * A breadth-first frontier over face indices, backed by one primitive array. Replaces
+ * ArrayDeque<Int> plus a MutableList<Int> per flood-fill, which boxed every visited tile
+ * (a 5x-size ocean is ~1.4M Integers) and made hydrology the heap's real high-water mark.
+ * Everything ever added stays in [items] in add order - which is also the order tiles
+ * are visited - so the tiles of one flood-fill are `items[begin until tail]`.
+ */
+private class FaceQueue(capacity: Int) {
+    val items = IntArray(capacity)
+    var head = 0
+    var tail = 0
+
+    fun isNotEmpty() = head < tail
+    fun add(face: Int) { items[tail++] = face }
+    fun removeFirst(): Int = items[head++]
+    fun clear() { head = 0; tail = 0 }
 }
 
 /**
@@ -63,7 +122,7 @@ class WorldGenerator(private val seed: Long) {
         val perf = PerfTimer()
         val sphere = GeodesicSphere.generate(frequency)
         perf.lap("GeodesicSphere.generate")
-        val biomes = Array(sphere.faceCount) { Biome.OCEAN }
+        val biomes = ByteArray(sphere.faceCount) { Biome.OCEAN.ordinal.toByte() }
         val elevation = FloatArray(sphere.faceCount)
 
         val elevationScale = 2.2f
@@ -118,7 +177,7 @@ class WorldGenerator(private val seed: Long) {
                 m > 0.75f -> Biome.DEEP_FOREST
                 m > 0.55f -> Biome.FOREST
                 else -> Biome.PLAINS
-            }
+            }.ordinal.toByte()
         }
 
         perf.lap("biomes")
@@ -152,18 +211,18 @@ class WorldGenerator(private val seed: Long) {
      */
     private fun reclassifyLandlockedOceans(world: SphereWorld) {
         val visited = BooleanArray(world.sphere.faceCount)
-        val components = mutableListOf<List<Int>>()
+        // Every component's tiles, back to back in one array; each component is a range of it.
+        val queue = FaceQueue(world.sphere.faceCount)
+        val components = ArrayList<IntRange>()
 
         for (start in world.sphere.indices) {
             if (visited[start] || world[start] != Biome.OCEAN) continue
 
-            val component = mutableListOf<Int>()
-            val queue = ArrayDeque<Int>()
+            val begin = queue.tail
             queue.add(start)
             visited[start] = true
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
-                component.add(i)
                 world.sphere.forEachNeighbor(i) { n ->
                     if (!visited[n] && world[n] == Biome.OCEAN) {
                         visited[n] = true
@@ -171,17 +230,18 @@ class WorldGenerator(private val seed: Long) {
                     }
                 }
             }
-            components.add(component)
+            components.add(begin until queue.tail)
         }
 
-        val largestSize = components.maxOfOrNull { it.size } ?: return
+        val largestSize = components.maxOfOrNull { it.last - it.first + 1 } ?: return
         for (component in components) {
-            if (component.size >= largestSize * LANDLOCKED_OCEAN_THRESHOLD) continue
+            if (component.last - component.first + 1 >= largestSize * LANDLOCKED_OCEAN_THRESHOLD) continue
             // A landlocked pocket this close to a pole isn't a lake either -
             // it reads as permanent ice, same as land would there (matching
             // the "no lakes in arctic regions" rule applied elsewhere).
-            component.forEach {
-                world[it] = if (abs(world.sphere.centerY(it)) >= 0.88f) Biome.ARCTIC else Biome.LAKE
+            for (k in component) {
+                val face = queue.items[k]
+                world[face] = if (abs(world.sphere.centerY(face)) >= 0.88f) Biome.ARCTIC else Biome.LAKE
             }
         }
     }
@@ -227,17 +287,19 @@ class WorldGenerator(private val seed: Long) {
         fun isLand(i: Int) = world[i] != Biome.OCEAN && world[i] != Biome.LAKE
 
         val visited = BooleanArray(world.sphere.faceCount)
+        val queue = FaceQueue(world.sphere.faceCount)
         val rng = Random(seed xor 0x9E6C63D0676A9A0FUL.toLong())
         for (start in world.sphere.indices) {
             if (visited[start] || !isLand(start)) continue
 
-            val island = mutableListOf<Int>()
-            val queue = ArrayDeque<Int>()
+            // The whole landmass is walked even when it turns out too big to be an
+            // island, so every one of its tiles is marked visited. After the walk,
+            // the island is items[0 until tail] in visit order.
+            queue.clear()
             queue.add(start)
             visited[start] = true
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
-                island.add(i)
                 world.sphere.forEachNeighbor(i) { n ->
                     if (!visited[n] && isLand(n)) {
                         visited[n] = true
@@ -246,20 +308,29 @@ class WorldGenerator(private val seed: Long) {
                 }
             }
 
-            if (island.size > ISLAND_VOLCANO_MAX_SIZE) continue
+            val size = queue.tail
+            if (size > ISLAND_VOLCANO_MAX_SIZE) continue
             // "Island" means surrounded by the real ocean, not just a small
             // patch of land inside a landlocked lake deep within a continent.
-            val touchesOcean = island.any { i -> world.sphere.anyNeighbor(i) { world[it] == Biome.OCEAN } }
+            var touchesOcean = false
+            for (k in 0 until size) {
+                if (world.sphere.anyNeighbor(queue.items[k]) { world[it] == Biome.OCEAN }) {
+                    touchesOcean = true
+                    break
+                }
+            }
             if (!touchesOcean) continue
             if (rng.nextFloat() >= ISLAND_VOLCANO_CHANCE) continue
-            val peak = island.maxByOrNull { elevation[it] } ?: continue
+            // First highest tile in visit order.
+            var peak = queue.items[0]
+            for (k in 1 until size) if (elevation[queue.items[k]] > elevation[peak]) peak = queue.items[k]
             world[peak] = Biome.VOLCANO
         }
     }
 
     private fun bfsDistanceToOcean(world: SphereWorld): IntArray {
         val distance = IntArray(world.sphere.faceCount) { -1 }
-        val queue = ArrayDeque<Int>()
+        val queue = FaceQueue(world.sphere.faceCount)
         for (i in world.sphere.indices) {
             if (world[i] == Biome.OCEAN) {
                 distance[i] = 0
@@ -290,17 +361,11 @@ class WorldGenerator(private val seed: Long) {
         val rng = Random(seed xor 0xC2B2AE3D27D4EB4FUL.toLong())
         for (i in world.sphere.indices) {
             val options = BIOME_RESOURCES[world[i]] ?: continue
-            // `options.filter {}` would allocate a list every tile even when
-            // nothing rolls (the common case: e.g. at the default 18% density,
-            // a 3-option biome rolls nothing on ~55% of its tiles) - only
-            // allocate once something has actually been rolled.
-            var rolled: MutableList<Resource>? = null
+            // Each roll goes straight into the tile's packed resources, so no
+            // list is built per tile (hundreds of thousands at 5x the tile count).
             for (option in options) {
-                if (rng.nextFloat() < density) {
-                    (rolled ?: ArrayList<Resource>(options.size).also { rolled = it }).add(option)
-                }
+                if (rng.nextFloat() < density) world.addResource(i, option)
             }
-            rolled?.let { world.setResources(i, it) }
         }
     }
 
@@ -320,18 +385,17 @@ class WorldGenerator(private val seed: Long) {
 
         fun isLakeCandidate(i: Int) = elevation[i] in seaLevel..lakeBand && world[i] != Biome.ARCTIC
 
+        val queue = FaceQueue(world.sphere.faceCount)
         for (start in world.sphere.indices) {
             if (visited[start] || !isLakeCandidate(start)) continue
 
-            val component = mutableListOf<Int>()
-            val queue = ArrayDeque<Int>()
+            queue.clear()
             queue.add(start)
             visited[start] = true
             var enclosed = true
 
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
-                component.add(i)
                 world.sphere.forEachNeighbor(i) { n ->
                     if (elevation[n] < seaLevel) enclosed = false // drains to the ocean - not a lake
                     if (!visited[n] && isLakeCandidate(n)) {
@@ -341,7 +405,7 @@ class WorldGenerator(private val seed: Long) {
                 }
             }
 
-            if (enclosed) component.forEach { world[it] = Biome.LAKE }
+            if (enclosed) for (k in 0 until queue.tail) world[queue.items[k]] = Biome.LAKE
         }
     }
 
@@ -383,16 +447,15 @@ class WorldGenerator(private val seed: Long) {
         val visited = BooleanArray(world.sphere.faceCount)
         fun riverDegree(i: Int) = world.sphere.countNeighbors(i) { world[it] == Biome.RIVER }
 
+        val queue = FaceQueue(world.sphere.faceCount)
         for (start in world.sphere.indices) {
             if (visited[start] || world[start] != Biome.RIVER) continue
 
-            val component = mutableListOf<Int>()
-            val queue = ArrayDeque<Int>()
+            queue.clear()
             queue.add(start)
             visited[start] = true
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
-                component.add(i)
                 world.sphere.forEachNeighbor(i) { n ->
                     if (!visited[n] && world[n] == Biome.RIVER) {
                         visited[n] = true
@@ -401,9 +464,12 @@ class WorldGenerator(private val seed: Long) {
                 }
             }
 
-            val pooledFraction = component.count { riverDegree(it) >= 4 }.toFloat() / component.size
-            if (component.size >= 6 && pooledFraction > 0.15f) {
-                component.forEach { world[it] = Biome.LAKE }
+            val size = queue.tail
+            var pooled = 0
+            for (k in 0 until size) if (riverDegree(queue.items[k]) >= 4) pooled++
+            val pooledFraction = pooled.toFloat() / size
+            if (size >= 6 && pooledFraction > 0.15f) {
+                for (k in 0 until size) world[queue.items[k]] = Biome.LAKE
             }
         }
     }
