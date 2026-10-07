@@ -4,7 +4,6 @@ import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Mesh
 import com.badlogic.gdx.graphics.VertexAttribute
 import com.badlogic.gdx.graphics.VertexAttributes
-import com.badlogic.gdx.graphics.glutils.ShaderProgram
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector3
 
@@ -18,7 +17,7 @@ import com.badlogic.gdx.math.Vector3
  */
 object Graticule {
 
-    private const val VERTEX_SIZE = 9 // position(3) + color(4) + texCoord(2)
+    private const val VERTEX_SIZE = 6 // position(3) + packed color(1) + texCoord(2)
     private const val LINE_RADIUS = 1.004f // just proud of the terrain sphere (radius 1)
     private const val PARALLEL_SEGMENTS = 128
     private const val MERIDIAN_SEGMENTS = 64
@@ -65,7 +64,7 @@ object Graticule {
             floatArray.size / VERTEX_SIZE,
             0,
             VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
-            VertexAttribute(VertexAttributes.Usage.ColorUnpacked, 4, ShaderProgram.COLOR_ATTRIBUTE),
+            VertexAttribute.ColorPacked(),
             VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
         )
         mesh.setVertices(floatArray)
@@ -108,7 +107,7 @@ object Graticule {
     private fun appendVertex(out: MutableList<Float>, pos: Vector3, color: Color) {
         val (u, v) = BiomeTextures.whiteUV()
         out.add(pos.x); out.add(pos.y); out.add(pos.z)
-        out.add(color.r); out.add(color.g); out.add(color.b); out.add(color.a)
+        out.add(color.toFloatBits())
         out.add(u); out.add(v)
     }
 }
