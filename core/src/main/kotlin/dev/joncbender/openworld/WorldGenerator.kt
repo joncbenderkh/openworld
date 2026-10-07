@@ -23,6 +23,9 @@ class SphereWorld(val sphere: Sphere, private val biomes: ByteArray) {
         biomes[faceIndex] = biome.ordinal.toByte()
     }
 
+    /** A copy of every face's biome as its ordinal byte - what [CoarseWorldCache] persists. */
+    fun biomeBytes(): ByteArray = biomes.copyOf()
+
     fun resourcesAt(faceIndex: Int): List<Resource> {
         val packed = resources[faceIndex]
         val count = packed and COUNT_MASK

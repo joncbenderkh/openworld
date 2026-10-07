@@ -22,6 +22,12 @@ object CoarseWorldBuilder {
     const val COARSE_FREQUENCY = 199
 
     /**
+     * Bump whenever the mapping or the vote changes what [build] produces, so a [CoarseWorldCache]
+     * written by an older version is discarded instead of being drawn.
+     */
+    const val ALGORITHM_VERSION = 1
+
+    /**
      * A biome's votes per fine tile. Most terrain counts once; features that are only a
      * tile or two wide count more, so a coarse tile with a couple of river tiles in it shows
      * as river rather than as whatever surrounds them. Tunable: the higher the weight, the
@@ -44,6 +50,15 @@ object CoarseWorldBuilder {
         perf.lap("CoarseWorld.map")
         val biomes = vote(parent, fine, coarseSphere)
         perf.lap("CoarseWorld.vote")
+        return SphereWorld(coarseSphere, biomes)
+    }
+
+    /** Rebuilds a coarse world from biomes saved earlier (see [CoarseWorldCache]) - no fine world needed. */
+    fun fromBiomes(biomes: ByteArray, coarseFrequency: Int = COARSE_FREQUENCY): SphereWorld {
+        val coarseSphere = GeodesicSphere.generate(coarseFrequency)
+        require(biomes.size == coarseSphere.faceCount) {
+            "expected ${coarseSphere.faceCount} coarse biomes for frequency $coarseFrequency, got ${biomes.size}"
+        }
         return SphereWorld(coarseSphere, biomes)
     }
 
