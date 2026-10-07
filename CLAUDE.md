@@ -84,4 +84,17 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   drags accumulate a rotation quaternion applied to the globe's model matrix
   instead of orbiting the camera (arcball/trackball), which avoids the pole
   singularities a camera-orbit model runs into.
+- Level of detail (`GlobeScreen.kt`, `TerrainLayer.kt`, `CoarseWorld.kt`, `NearPatchStreamer.kt`,
+  `PatchLayout.kt`): the world is generated and cached at full resolution (frequency 445,
+  ~2M tiles; tap-picking resolves to these tiles at every zoom), but drawn at two levels. A coarse
+  far layer (frequency 199, each tile a weighted vote of the fine tiles inside it, with rivers and
+  lakes weighted up so they survive) is always drawn. The full-resolution near layer is built
+  patch by patch on demand, only below camera distance ~2.2, within a per-frame time budget.
+  Both layers are split into compact `PatchLayout` cells with bounding `SphereCap`s so culling
+  against the horizon and view frustum is tight. A world no finer than the coarse frequency
+  skips all this and draws a single layer.
+- Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): the sphere's
+  arrays are ~175 MB, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
+  per-tile values will OOM. Keep per-tile data in primitive arrays.
+
 - No lighting or biome-color blending at tile boundaries yet.

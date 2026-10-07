@@ -16,10 +16,13 @@ import com.badlogic.gdx.math.Quaternion
 import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.math.Vector3
 import com.badlogic.gdx.math.collision.Ray
+import dev.joncbender.openworld.geo.GeodesicSphere
 
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
-    private val frequency = 199 // total tiles = 10*frequency^2 + 2 (~5x the previous 79212)
+    // total tiles = 10*frequency^2 + 2 = 1,980,252 (~5x the previous 396,012). Too many to draw
+    // at once: see CoarseWorldBuilder and the near/far terrain layers below.
+    private val frequency = 445
 
     // Gdx.app.getPreferences is libGDX's own cross-platform settings store
     // (backed by SharedPreferences on Android) - using it here instead of an
@@ -165,9 +168,12 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         preferences.putLong(PREF_SEED, seed)
         preferences.flush()
         inventory.clear()
+        // Let go of everything that still references the old world before generating the
+        // new one: the sphere alone is ~175 MB, so two worlds at once do not fit in the heap.
+        disposeTerrain()
+        world = SphereWorld(GeodesicSphere.generate(1), ByteArray(12))
         world = WorldGenerator(seed).generate(frequency, resourceDensity)
         WorldCache.save(worldCacheFile, world, frequency, seed, resourceDensity)
-        disposeTerrain()
         buildTerrain()
     }
 
@@ -193,6 +199,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         nearStreamer?.releaseAll()
         farTerrain.dispose()
         nearTerrain?.dispose()
+        nearTerrain = null
+        nearStreamer = null
     }
 
     /** Spins the globe back to its starting orientation - the world itself is untouched. */
