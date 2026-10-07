@@ -161,10 +161,11 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         var vertexFloatPos = 0
         var vertexCount = 0
         var indexCount = 0
-        val uvBuffer = FloatArray(6 * 2) // every face has 5 or 6 corners, so 6 is enough for either
 
+        var uploadNanos = 0L
         fun flush() {
             if (vertexCount == 0) return
+            val uploadStart = System.nanoTime()
             val mesh = Mesh(
                 true,
                 vertexCount,
@@ -176,6 +177,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             mesh.setVertices(vertexData, 0, vertexFloatPos)
             mesh.setIndices(indexData, 0, indexCount)
             meshes.add(mesh)
+            uploadNanos += System.nanoTime() - uploadStart
             vertexFloatPos = 0
             vertexCount = 0
             indexCount = 0
@@ -184,10 +186,11 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         val sphere = world.sphere
         for (i in sphere.indices) {
             val biome = world[i]
-            val (centerU, centerV) = BiomeTextures.centerUV(biome)
+            val centerU = BiomeTextures.centerU(biome)
+            val centerV = BiomeTextures.centerV(biome)
             val n = sphere.cornerCount(i)
             if (vertexCount + n + 1 > MAX_VERTICES_PER_MESH) flush()
-            BiomeTextures.cornerUVsInto(biome, n, uvBuffer)
+            val cornerUVs = BiomeTextures.cornerUVs(biome, n)
 
             val centerIndex = vertexCount
             vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), Color.WHITE, centerU, centerV)
@@ -195,7 +198,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
             val firstCornerIndex = vertexCount
             for (c in 0 until n) {
-                vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c), Color.WHITE, uvBuffer[c * 2], uvBuffer[c * 2 + 1])
+                vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c), Color.WHITE, cornerUVs[c * 2], cornerUVs[c * 2 + 1])
                 vertexCount++
             }
             for (c in 0 until n) {
@@ -206,6 +209,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             }
         }
         flush()
+        Gdx.app?.log("perf", "buildMeshes.upload: ${uploadNanos / 1_000_000}ms across ${meshes.size} meshes (the rest of buildMeshes is filling arrays)")
         return meshes
     }
 
