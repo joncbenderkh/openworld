@@ -12,6 +12,10 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
 }
 
+kotlin {
+    jvmToolchain(21)
+}
+
 tasks.test {
     useJUnitPlatform()
 }
