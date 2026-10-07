@@ -181,7 +181,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
                 vertexCount,
                 indexCount,
                 VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
-                VertexAttribute(VertexAttributes.Usage.ColorUnpacked, 4, ShaderProgram.COLOR_ATTRIBUTE),
+                VertexAttribute.ColorPacked(),
                 VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
             )
             mesh.setVertices(vertexData, 0, vertexFloatPos)
@@ -204,12 +204,12 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             val cornerUVs = BiomeTextures.cornerUVs(biome, n)
 
             val centerIndex = vertexCount
-            vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), Color.WHITE, centerU, centerV)
+            vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), WHITE_BITS, centerU, centerV)
             vertexCount++
 
             val firstCornerIndex = vertexCount
             for (c in 0 until n) {
-                vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c), Color.WHITE, cornerUVs[c * 2], cornerUVs[c * 2 + 1])
+                vertexFloatPos = appendVertex(vertexData, vertexFloatPos, sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c), WHITE_BITS, cornerUVs[c * 2], cornerUVs[c * 2 + 1])
                 vertexCount++
             }
             for (c in 0 until n) {
@@ -247,10 +247,10 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         rotation.idt()
     }
 
-    private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, color: Color, u: Float, v: Float): Int {
+    private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, colorBits: Float, u: Float, v: Float): Int {
         var o = offset
         data[o++] = x; data[o++] = y; data[o++] = z
-        data[o++] = color.r; data[o++] = color.g; data[o++] = color.b; data[o++] = color.a
+        data[o++] = colorBits
         data[o++] = u; data[o++] = v
         return o
     }
@@ -418,7 +418,11 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     }
 
     companion object {
-        private const val VERTEX_SIZE = 9 // position(3) + color(4) + texCoord(2)
+        // position(3) + color packed into one float's 4 bytes + texCoord(2). The color
+        // was four full floats (16 of 36 bytes per vertex) though every terrain vertex
+        // is plain white - the texture carries all the actual color.
+        private const val VERTEX_SIZE = 6
+        private val WHITE_BITS = Color.WHITE.toFloatBits()
         private const val ROTATE_SPEED_DEG = 0.3f
 
         // GL's 16-bit index buffers can address at most 65536 distinct
