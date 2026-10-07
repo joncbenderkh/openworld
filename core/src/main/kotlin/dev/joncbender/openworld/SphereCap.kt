@@ -39,11 +39,19 @@ class SphereCap(val ax: Float, val ay: Float, val az: Float, val chordRadius: Fl
         private const val MARGIN_RADIANS = 1e-3f
 
         /** A cap around the mean direction of faces [fromFace] until [toFace], large enough to contain all their centers and corners. */
-        fun enclosing(sphere: Sphere, fromFace: Int, toFace: Int): SphereCap {
+        fun enclosing(sphere: Sphere, fromFace: Int, toFace: Int): SphereCap =
+            enclosingOf(sphere, toFace - fromFace) { fromFace + it }
+
+        /** Like the range version, for the faces `faces[from until to]` - a patch need not be a run of consecutive faces. */
+        fun enclosing(sphere: Sphere, faces: IntArray, from: Int, to: Int): SphereCap =
+            enclosingOf(sphere, to - from) { faces[from + it] }
+
+        private inline fun enclosingOf(sphere: Sphere, count: Int, faceAt: (Int) -> Int): SphereCap {
             var sx = 0f
             var sy = 0f
             var sz = 0f
-            for (i in fromFace until toFace) {
+            for (k in 0 until count) {
+                val i = faceAt(k)
                 sx += sphere.centerX(i)
                 sy += sphere.centerY(i)
                 sz += sphere.centerZ(i)
@@ -56,18 +64,21 @@ class SphereCap(val ax: Float, val ay: Float, val az: Float, val chordRadius: Fl
             val az = if (length > 1e-6f) sz / length else 1f
 
             var maxSquared = 0f
-            fun consider(x: Float, y: Float, z: Float) {
-                val dx = x - ax
-                val dy = y - ay
-                val dz = z - az
-                val squared = dx * dx + dy * dy + dz * dz
-                if (squared > maxSquared) maxSquared = squared
-            }
-            for (i in fromFace until toFace) {
-                consider(sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i))
-                for (c in 0 until sphere.cornerCount(i)) consider(sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c))
+            for (k in 0 until count) {
+                val i = faceAt(k)
+                maxSquared = maxOf(maxSquared, squaredDistance(sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), ax, ay, az))
+                for (c in 0 until sphere.cornerCount(i)) {
+                    maxSquared = maxOf(maxSquared, squaredDistance(sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c), ax, ay, az))
+                }
             }
             return SphereCap(ax, ay, az, sqrt(maxSquared))
+        }
+
+        private fun squaredDistance(x: Float, y: Float, z: Float, ax: Float, ay: Float, az: Float): Float {
+            val dx = x - ax
+            val dy = y - ay
+            val dz = z - az
+            return dx * dx + dy * dy + dz * dz
         }
     }
 }
