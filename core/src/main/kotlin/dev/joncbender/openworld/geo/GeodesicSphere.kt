@@ -50,14 +50,46 @@ object GeodesicSphere {
         intArrayOf(4, 9, 5), intArrayOf(2, 4, 11), intArrayOf(6, 2, 10), intArrayOf(8, 6, 7), intArrayOf(9, 8, 1),
     )
 
+    private const val EDGE_COUNT = 30
+
+    /** Index of the icosahedron edge between base vertices `lo < hi`, in `0 until EDGE_COUNT`. */
+    private val EDGE_IDS: Array<IntArray> = run {
+        val ids = Array(BASE_VERTICES.size) { IntArray(BASE_VERTICES.size) { -1 } }
+        var next = 0
+        for (face in BASE_FACES) {
+            for (k in 0..2) {
+                val a = face[k]
+                val b = face[(k + 1) % 3]
+                val lo = minOf(a, b)
+                val hi = maxOf(a, b)
+                if (ids[lo][hi] == -1) ids[lo][hi] = next++
+            }
+        }
+        check(next == EDGE_COUNT) { "expected $EDGE_COUNT icosahedron edges, found $next" }
+        ids
+    }
+
     /**
      * Builds each grid point via raw float barycentric interpolation instead
-     * of chained Vector3.cpy()/scl()/add() calls, and normalizes in place in
-     * addVertex rather than copying first - each grid point (up to ~80k of
-     * them at the game's production frequency) previously cost 3 Vector3
-     * allocations, now costs 1.
+     * of chained Vector3.cpy()/scl()/add() calls, and normalizes in place
+     * rather than copying first.
+     *
+     * A grid point is identified by its integer barycentric counts
+     * (c0, c1, c2) toward the base face's three corners, summing to
+     * [freq]. Only points on the base face's boundary can also be reached
+     * from a neighboring base face - the 12 icosahedron corners (one count
+     * is [freq]) and the points along its 30 edges (one count is zero) - so
+     * those get an exact slot in a small table: a corner by its base index,
+     * an edge point by which edge and how far along it. Interior points are
+     * never shared and need no lookup at all. This replaces an earlier
+     * scheme that quantized each point's float coordinates into a hash key:
+     * a shared point is computed independently by each of its two faces and
+     * can differ by an ULP, so any fixed quantum eventually splits one
+     * vertex in two (observed at frequency 400) or merges two distinct
+     * vertices once the spacing nears the quantum (observed at 700). Integer
+     * identities have no such failure mode, at any frequency.
      */
-    private fun subdivideIcosahedron(freq: Int): Pair<List<Vector3>, List<IntArray>> {
+    internal fun subdivideIcosahedron(freq: Int): Pair<List<Vector3>, List<IntArray>> {
         // Both known exactly up front (see the class doc / generate()'s
         // contract), so pre-sizing avoids the repeated grow-and-copy an
         // unsized ArrayList does while climbing to ~400k+ elements at the
@@ -65,38 +97,41 @@ object GeodesicSphere {
         val expectedVertices = 10 * freq * freq + 2
         val expectedTriangles = 20 * freq * freq
         val vertices = ArrayList<Vector3>(expectedVertices)
-        // A plain HashMap<Long, Int> boxes every one of the ~400k+ dedup
-        // lookups below (both the Long key and the Int value, on every
-        // insert), which showed up as measurable cost at the game's largest
-        // tile counts - a flat open-addressing table over primitive arrays
-        // avoids that entirely.
-        val keyToIndex = VertexKeyMap(expectedVertices)
 
-        fun keyOf(v: Vector3): Long {
-            // Quantize so points shared by adjacent icosahedron faces merge into one
-            // vertex. A shared boundary point is computed independently by each of its
-            // two faces via different operand orderings (e.g. v0*(1-t)+v1*t vs the
-            // mirrored v1*(1-t')+v0*t'), which can differ by ~1 float32 ULP - too coarse
-            // a scale here lets that noise flip which side of a rounding boundary the
-            // point lands on, silently producing two vertices instead of one. 1e3 stays
-            // far below real inter-vertex spacing even at high subdivision frequencies.
-            val qx = Math.round(v.x * 1000f).toLong() and 0x1FFFFF
-            val qy = Math.round(v.y * 1000f).toLong() and 0x1FFFFF
-            val qz = Math.round(v.z * 1000f).toLong() and 0x1FFFFF
-            return qx or (qy shl 21) or (qz shl 42)
+        val edgeSlotsStart = BASE_VERTICES.size
+        val sharedIndex = IntArray(edgeSlotsStart + EDGE_COUNT * (freq - 1)) { -1 }
+
+        // The table slot for a point that can be reached from more than one
+        // base face, or -1 for an interior point. ids/counts are the base
+        // face's corner indices and the point's barycentric counts toward them.
+        fun sharedSlot(ids: IntArray, counts: IntArray): Int {
+            val zeros = (if (counts[0] == 0) 1 else 0) + (if (counts[1] == 0) 1 else 0) + (if (counts[2] == 0) 1 else 0)
+            return when (zeros) {
+                0 -> -1
+                2 -> ids[counts.indexOfFirst { it != 0 }]
+                else -> {
+                    val a = counts.indexOfFirst { it != 0 }
+                    val b = counts.indexOfLast { it != 0 }
+                    val (lo, hi, countTowardHi) =
+                        if (ids[a] < ids[b]) Triple(ids[a], ids[b], counts[b]) else Triple(ids[b], ids[a], counts[a])
+                    edgeSlotsStart + EDGE_IDS[lo][hi] * (freq - 1) + (countTowardHi - 1)
+                }
+            }
         }
 
         // Takes ownership of v (mutates it in place) - always call with a
         // freshly constructed Vector3, never a shared/reused instance.
-        fun addVertex(v: Vector3): Int {
+        fun addVertex(v: Vector3, slot: Int): Int {
+            if (slot >= 0 && sharedIndex[slot] != -1) return sharedIndex[slot]
             v.nor()
-            val candidateIndex = vertices.size
-            val actualIndex = keyToIndex.getOrPut(keyOf(v), candidateIndex)
-            if (actualIndex == candidateIndex) vertices.add(v)
-            return actualIndex
+            val index = vertices.size
+            vertices.add(v)
+            if (slot >= 0) sharedIndex[slot] = index
+            return index
         }
 
         val triangles = ArrayList<IntArray>(expectedTriangles)
+        val counts = IntArray(3)
         for (face in BASE_FACES) {
             val v0 = BASE_VERTICES[face[0]]
             val v1 = BASE_VERTICES[face[1]]
@@ -113,7 +148,10 @@ object GeodesicSphere {
                         v0.y * w0 + v1.y * a + v2.y * b,
                         v0.z * w0 + v1.z * a + v2.z * b,
                     )
-                    grid[i][j] = addVertex(p)
+                    counts[0] = freq - i - j
+                    counts[1] = i
+                    counts[2] = j
+                    grid[i][j] = addVertex(p, sharedSlot(face, counts))
                 }
             }
 
@@ -130,6 +168,7 @@ object GeodesicSphere {
                 }
             }
         }
+        check(vertices.size == expectedVertices) { "expected $expectedVertices vertices, built ${vertices.size}" }
         return vertices to triangles
     }
 
@@ -235,41 +274,5 @@ object GeodesicSphere {
         perf.lap("buildDual.perVertexWalk")
         @Suppress("UNCHECKED_CAST")
         return (faces as Array<Face>).asList()
-    }
-
-    /**
-     * Open-addressing long-to-int map used only for [subdivideIcosahedron]'s
-     * vertex dedup - see the call site for why a generic HashMap<Long, Int>
-     * wasn't good enough here. Sized once up front for a target load factor
-     * around 0.5 (good average probe length for linear probing); never
-     * grows, since the exact final entry count is known before it's built.
-     */
-    private class VertexKeyMap(expectedEntries: Int) {
-        private val mask: Int
-        private val keys: LongArray
-        private val values: IntArray
-        private val occupied: BooleanArray
-
-        init {
-            var capacity = 16
-            while (capacity < expectedEntries * 2) capacity = capacity shl 1
-            mask = capacity - 1
-            keys = LongArray(capacity)
-            values = IntArray(capacity)
-            occupied = BooleanArray(capacity)
-        }
-
-        /** Returns the value already stored for [key], or stores and returns [newValue]. */
-        fun getOrPut(key: Long, newValue: Int): Int {
-            var i = (key xor (key ushr 32)).toInt() and mask
-            while (occupied[i]) {
-                if (keys[i] == key) return values[i]
-                i = (i + 1) and mask
-            }
-            occupied[i] = true
-            keys[i] = key
-            values[i] = newValue
-            return newValue
-        }
     }
 }
