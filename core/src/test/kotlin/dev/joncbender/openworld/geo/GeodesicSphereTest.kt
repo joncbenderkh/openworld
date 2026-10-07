@@ -73,4 +73,17 @@ class GeodesicSphereTest {
             }
         }
     }
+
+    @Test
+    fun `subdivision yields exact vertex and triangle counts beyond the old quantization limit`() {
+        // Regression test: vertices used to be deduplicated by quantizing
+        // coordinates to 1e-3, which produced 7 duplicate vertices at
+        // frequency 400 (and wrongly merged distinct ones by 700). Shared
+        // vertices are now identified by integer edge position, so the
+        // counts must be exact at any frequency.
+        val freq = 400
+        val (vertices, triangles) = GeodesicSphere.subdivideIcosahedron(freq)
+        assertEquals(10 * freq * freq + 2, vertices.size)
+        assertEquals(20 * freq * freq, triangles.size)
+    }
 }
