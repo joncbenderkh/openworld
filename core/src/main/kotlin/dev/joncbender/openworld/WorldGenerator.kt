@@ -1,12 +1,12 @@
 package dev.joncbender.openworld
 
-import dev.joncbender.openworld.geo.Face
 import dev.joncbender.openworld.geo.GeodesicSphere
+import dev.joncbender.openworld.geo.Sphere
 import kotlin.math.abs
 import kotlin.random.Random
 
 /** The generated world: a geodesic sphere where every face has one biome and zero or more resources. */
-class SphereWorld(val faces: List<Face>, private val biomes: Array<Biome>) {
+class SphereWorld(val sphere: Sphere, private val biomes: Array<Biome>) {
     private val resources = Array<List<Resource>>(biomes.size) { emptyList() }
 
     operator fun get(faceIndex: Int): Biome = biomes[faceIndex]
@@ -61,18 +61,20 @@ class WorldGenerator(private val seed: Long) {
 
     fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY): SphereWorld {
         val perf = PerfTimer()
-        val faces = GeodesicSphere.generate(frequency)
+        val sphere = GeodesicSphere.generate(frequency)
         perf.lap("GeodesicSphere.generate")
-        val biomes = Array(faces.size) { Biome.OCEAN }
-        val elevation = FloatArray(faces.size)
+        val biomes = Array(sphere.faceCount) { Biome.OCEAN }
+        val elevation = FloatArray(sphere.faceCount)
 
         val elevationScale = 2.2f
         val moistureScale = 3.1f
 
-        Parallel.forEachIndex(faces.size) { i ->
-            val p = faces[i].center
-            var e = elevationNoise.fbm(p.x * elevationScale, p.y * elevationScale, p.z * elevationScale, octaves = 5)
-            val latitude = abs(p.y) // sphere's Y axis is the polar axis: 0 at equator, 1 at poles
+        Parallel.forEachIndex(sphere.faceCount) { i ->
+            val x = sphere.centerX(i)
+            val y = sphere.centerY(i)
+            val z = sphere.centerZ(i)
+            var e = elevationNoise.fbm(x * elevationScale, y * elevationScale, z * elevationScale, octaves = 5)
+            val latitude = abs(y) // sphere's Y axis is the polar axis: 0 at equator, 1 at poles
             e = (e - latitude * 0.15f).coerceIn(0f, 1f)
             elevation[i] = e
         }
@@ -95,11 +97,13 @@ class WorldGenerator(private val seed: Long) {
         val foothillsLevel = 0.58f
         val mountainLevel = 0.62f
 
-        Parallel.forEachIndex(faces.size) { i ->
-            val p = faces[i].center
+        Parallel.forEachIndex(sphere.faceCount) { i ->
+            val x = sphere.centerX(i)
+            val y = sphere.centerY(i)
+            val z = sphere.centerZ(i)
             val e = elevation[i]
-            val m = moistureNoise.fbm(p.x * moistureScale, p.y * moistureScale, p.z * moistureScale, octaves = 4)
-            val latitude = abs(p.y)
+            val m = moistureNoise.fbm(x * moistureScale, y * moistureScale, z * moistureScale, octaves = 4)
+            val latitude = abs(y)
 
             biomes[i] = when {
                 e < seaLevel -> Biome.OCEAN
@@ -118,7 +122,7 @@ class WorldGenerator(private val seed: Long) {
         }
 
         perf.lap("biomes")
-        val world = SphereWorld(faces, biomes)
+        val world = SphereWorld(sphere, biomes)
         reclassifyLandlockedOceans(world)
         perf.lap("reclassifyLandlockedOceans")
         carveCoastalMountainVolcanoes(world)
@@ -147,10 +151,10 @@ class WorldGenerator(private val seed: Long) {
      * legitimately have several comparably large, separate oceans.
      */
     private fun reclassifyLandlockedOceans(world: SphereWorld) {
-        val visited = BooleanArray(world.faces.size)
+        val visited = BooleanArray(world.sphere.faceCount)
         val components = mutableListOf<List<Int>>()
 
-        for (start in world.faces.indices) {
+        for (start in world.sphere.indices) {
             if (visited[start] || world[start] != Biome.OCEAN) continue
 
             val component = mutableListOf<Int>()
@@ -160,7 +164,7 @@ class WorldGenerator(private val seed: Long) {
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
                 component.add(i)
-                for (n in world.faces[i].neighbors) {
+                world.sphere.forEachNeighbor(i) { n ->
                     if (!visited[n] && world[n] == Biome.OCEAN) {
                         visited[n] = true
                         queue.add(n)
@@ -177,7 +181,7 @@ class WorldGenerator(private val seed: Long) {
             // it reads as permanent ice, same as land would there (matching
             // the "no lakes in arctic regions" rule applied elsewhere).
             component.forEach {
-                world[it] = if (abs(world.faces[it].center.y) >= 0.88f) Biome.ARCTIC else Biome.LAKE
+                world[it] = if (abs(world.sphere.centerY(it)) >= 0.88f) Biome.ARCTIC else Biome.LAKE
             }
         }
     }
@@ -201,7 +205,7 @@ class WorldGenerator(private val seed: Long) {
     private fun carveCoastalMountainVolcanoes(world: SphereWorld) {
         val distanceToOcean = bfsDistanceToOcean(world)
         val rng = Random(seed xor 0x27D4EB2F165667C5UL.toLong())
-        for (i in world.faces.indices) {
+        for (i in world.sphere.indices) {
             if (world[i] != Biome.MOUNTAIN) continue
             val distance = distanceToOcean[i]
             if (distance in 1..VOLCANO_MAX_OCEAN_DISTANCE && rng.nextFloat() < VOLCANO_CHANCE) {
@@ -222,9 +226,9 @@ class WorldGenerator(private val seed: Long) {
     private fun carveIslandVolcanoes(world: SphereWorld, elevation: FloatArray) {
         fun isLand(i: Int) = world[i] != Biome.OCEAN && world[i] != Biome.LAKE
 
-        val visited = BooleanArray(world.faces.size)
+        val visited = BooleanArray(world.sphere.faceCount)
         val rng = Random(seed xor 0x9E6C63D0676A9A0FUL.toLong())
-        for (start in world.faces.indices) {
+        for (start in world.sphere.indices) {
             if (visited[start] || !isLand(start)) continue
 
             val island = mutableListOf<Int>()
@@ -234,7 +238,7 @@ class WorldGenerator(private val seed: Long) {
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
                 island.add(i)
-                for (n in world.faces[i].neighbors) {
+                world.sphere.forEachNeighbor(i) { n ->
                     if (!visited[n] && isLand(n)) {
                         visited[n] = true
                         queue.add(n)
@@ -245,7 +249,7 @@ class WorldGenerator(private val seed: Long) {
             if (island.size > ISLAND_VOLCANO_MAX_SIZE) continue
             // "Island" means surrounded by the real ocean, not just a small
             // patch of land inside a landlocked lake deep within a continent.
-            val touchesOcean = island.any { i -> world.faces[i].neighbors.any { world[it] == Biome.OCEAN } }
+            val touchesOcean = island.any { i -> world.sphere.anyNeighbor(i) { world[it] == Biome.OCEAN } }
             if (!touchesOcean) continue
             if (rng.nextFloat() >= ISLAND_VOLCANO_CHANCE) continue
             val peak = island.maxByOrNull { elevation[it] } ?: continue
@@ -254,9 +258,9 @@ class WorldGenerator(private val seed: Long) {
     }
 
     private fun bfsDistanceToOcean(world: SphereWorld): IntArray {
-        val distance = IntArray(world.faces.size) { -1 }
+        val distance = IntArray(world.sphere.faceCount) { -1 }
         val queue = ArrayDeque<Int>()
-        for (i in world.faces.indices) {
+        for (i in world.sphere.indices) {
             if (world[i] == Biome.OCEAN) {
                 distance[i] = 0
                 queue.add(i)
@@ -264,7 +268,7 @@ class WorldGenerator(private val seed: Long) {
         }
         while (queue.isNotEmpty()) {
             val i = queue.removeFirst()
-            for (n in world.faces[i].neighbors) {
+            world.sphere.forEachNeighbor(i) { n ->
                 if (distance[n] == -1) {
                     distance[n] = distance[i] + 1
                     queue.add(n)
@@ -284,7 +288,7 @@ class WorldGenerator(private val seed: Long) {
      */
     private fun assignResources(world: SphereWorld, density: Float) {
         val rng = Random(seed xor 0xC2B2AE3D27D4EB4FUL.toLong())
-        for (i in world.faces.indices) {
+        for (i in world.sphere.indices) {
             val options = BIOME_RESOURCES[world[i]] ?: continue
             // `options.filter {}` would allocate a list every tile even when
             // nothing rolls (the common case: e.g. at the default 18% density,
@@ -312,11 +316,11 @@ class WorldGenerator(private val seed: Long) {
      */
     private fun carveLakes(world: SphereWorld, elevation: FloatArray, seaLevel: Float) {
         val lakeBand = seaLevel + 0.06f
-        val visited = BooleanArray(world.faces.size)
+        val visited = BooleanArray(world.sphere.faceCount)
 
         fun isLakeCandidate(i: Int) = elevation[i] in seaLevel..lakeBand && world[i] != Biome.ARCTIC
 
-        for (start in world.faces.indices) {
+        for (start in world.sphere.indices) {
             if (visited[start] || !isLakeCandidate(start)) continue
 
             val component = mutableListOf<Int>()
@@ -328,7 +332,7 @@ class WorldGenerator(private val seed: Long) {
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
                 component.add(i)
-                for (n in world.faces[i].neighbors) {
+                world.sphere.forEachNeighbor(i) { n ->
                     if (elevation[n] < seaLevel) enclosed = false // drains to the ocean - not a lake
                     if (!visited[n] && isLakeCandidate(n)) {
                         visited[n] = true
@@ -343,9 +347,9 @@ class WorldGenerator(private val seed: Long) {
 
     private fun carveRivers(world: SphereWorld, elevation: FloatArray, seaLevel: Float) {
         val rng = Random(seed)
-        val sourceCount = world.faces.size / 6
+        val sourceCount = world.sphere.faceCount / 6
         repeat(sourceCount) {
-            var current = rng.nextInt(world.faces.size)
+            var current = rng.nextInt(world.sphere.faceCount)
             if (elevation[current] < 0.65f) return@repeat
 
             var steps = 0
@@ -355,7 +359,8 @@ class WorldGenerator(private val seed: Long) {
                 if (world[current] == Biome.ARCTIC) break // rivers don't flow across permanent ice
                 if (world[current] != Biome.MOUNTAIN && world[current] != Biome.VOLCANO) world[current] = Biome.RIVER
 
-                val next = world.faces[current].neighbors.minByOrNull { elevation[it] } ?: break
+                val next = world.sphere.minNeighborBy(current) { elevation[it] }
+                if (next == -1) break
                 if (elevation[next] >= e) break
                 current = next
                 steps++
@@ -375,10 +380,10 @@ class WorldGenerator(private val seed: Long) {
      * of RIVER tiles that's mostly high-degree like that as LAKE instead.
      */
     private fun depoolRivers(world: SphereWorld) {
-        val visited = BooleanArray(world.faces.size)
-        fun riverDegree(i: Int) = world.faces[i].neighbors.count { world[it] == Biome.RIVER }
+        val visited = BooleanArray(world.sphere.faceCount)
+        fun riverDegree(i: Int) = world.sphere.countNeighbors(i) { world[it] == Biome.RIVER }
 
-        for (start in world.faces.indices) {
+        for (start in world.sphere.indices) {
             if (visited[start] || world[start] != Biome.RIVER) continue
 
             val component = mutableListOf<Int>()
@@ -388,7 +393,7 @@ class WorldGenerator(private val seed: Long) {
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
                 component.add(i)
-                for (n in world.faces[i].neighbors) {
+                world.sphere.forEachNeighbor(i) { n ->
                     if (!visited[n] && world[n] == Biome.RIVER) {
                         visited[n] = true
                         queue.add(n)

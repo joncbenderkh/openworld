@@ -9,8 +9,8 @@ class WorldGeneratorVolcanoTest {
     fun `volcanoes are rare but present, across several seeds`() {
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 89)
-            val land = world.faces.indices.count { world[it] != Biome.OCEAN }
-            val volcano = world.faces.indices.count { world[it] == Biome.VOLCANO }
+            val land = world.sphere.indices.count { world[it] != Biome.OCEAN }
+            val volcano = world.sphere.indices.count { world[it] == Biome.VOLCANO }
             assertTrue(volcano > 0, "seed $seed: expected at least one volcano")
             val volcanoShareOfLand = volcano.toFloat() / land
             assertTrue(
@@ -28,9 +28,9 @@ class WorldGeneratorVolcanoTest {
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 89)
 
-            val distanceToOcean = IntArray(world.faces.size) { -1 }
+            val distanceToOcean = IntArray(world.sphere.faceCount) { -1 }
             val queue = ArrayDeque<Int>()
-            for (i in world.faces.indices) {
+            for (i in world.sphere.indices) {
                 if (world[i] == Biome.OCEAN) {
                     distanceToOcean[i] = 0
                     queue.add(i)
@@ -38,7 +38,7 @@ class WorldGeneratorVolcanoTest {
             }
             while (queue.isNotEmpty()) {
                 val i = queue.removeFirst()
-                for (n in world.faces[i].neighbors) {
+                world.sphere.forEachNeighbor(i) { n ->
                     if (distanceToOcean[n] == -1) {
                         distanceToOcean[n] = distanceToOcean[i] + 1
                         queue.add(n)
@@ -46,7 +46,7 @@ class WorldGeneratorVolcanoTest {
                 }
             }
 
-            for (i in world.faces.indices) {
+            for (i in world.sphere.indices) {
                 if (world[i] != Biome.VOLCANO) continue
                 assertTrue(
                     distanceToOcean[i] in 1..6,
@@ -69,10 +69,10 @@ class WorldGeneratorVolcanoTest {
         var islandVolcanoesAcrossSeeds = 0
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 89)
-            val visited = BooleanArray(world.faces.size)
+            val visited = BooleanArray(world.sphere.faceCount)
             fun isLand(i: Int) = world[i] != Biome.OCEAN && world[i] != Biome.LAKE
 
-            for (start in world.faces.indices) {
+            for (start in world.sphere.indices) {
                 if (world[start] != Biome.VOLCANO || visited[start]) continue
 
                 val island = mutableListOf<Int>()
@@ -82,7 +82,7 @@ class WorldGeneratorVolcanoTest {
                 while (queue.isNotEmpty()) {
                     val i = queue.removeFirst()
                     island.add(i)
-                    for (n in world.faces[i].neighbors) {
+                    world.sphere.forEachNeighbor(i) { n ->
                         if (!visited[n] && isLand(n)) {
                             visited[n] = true
                             queue.add(n)

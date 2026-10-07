@@ -12,8 +12,8 @@ class WorldGeneratorTest {
         // river/lake candidates near a pole at all.
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 10)
-            for (i in world.faces.indices) {
-                val latitude = abs(world.faces[i].center.y)
+            for (i in world.sphere.indices) {
+                val latitude = abs(world.sphere.centerY(i))
                 if (latitude < 0.88f) continue
                 val biome = world[i]
                 assertTrue(

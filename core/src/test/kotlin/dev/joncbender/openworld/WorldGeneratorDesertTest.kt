@@ -10,9 +10,9 @@ class WorldGeneratorDesertTest {
     fun `desert never appears outside the equatorial band`() {
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 10)
-            for (i in world.faces.indices) {
+            for (i in world.sphere.indices) {
                 if (world[i] != Biome.DESERT) continue
-                val latitude = abs(world.faces[i].center.y)
+                val latitude = abs(world.sphere.centerY(i))
                 assertTrue(latitude < 0.40f, "seed $seed: desert at latitude $latitude, expected it confined to the equatorial band")
             }
         }
@@ -28,8 +28,8 @@ class WorldGeneratorDesertTest {
         var equatorialDesert = 0
         for (seed in 0L until 8L) {
             val world = WorldGenerator(seed).generate(frequency = 16)
-            for (i in world.faces.indices) {
-                val latitude = abs(world.faces[i].center.y)
+            for (i in world.sphere.indices) {
+                val latitude = abs(world.sphere.centerY(i))
                 if (latitude >= 0.40f) continue
                 val biome = world[i]
                 if (biome == Biome.OCEAN) continue

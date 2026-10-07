@@ -1,36 +1,33 @@
 package dev.joncbender.openworld
 
 import com.badlogic.gdx.files.FileHandle
-import com.badlogic.gdx.math.Vector3
-import dev.joncbender.openworld.geo.Face
+import dev.joncbender.openworld.geo.Sphere
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * Caches a generated [SphereWorld] to disk so a subsequent launch with the
  * same frequency/seed/resource density can load it instead of regenerating
- * it - at the game's current tile count (~396k), generation takes upwards of
- * ten seconds even after several rounds of optimization, almost all of it
- * building sphere topology and hydrology that's wasted work if nothing about
- * the world actually changed since last time.
+ * it - at the game's current tile count (~396k), generation takes seconds
+ * even after several rounds of optimization, almost all of it building
+ * sphere topology and hydrology that's wasted work if nothing about the
+ * world actually changed since last time.
  *
- * A plain binary format over a single [ByteBuffer], with no generic
- * (de)serialization library - there isn't one in this project's dependency
- * set already. Fields are stored column by column (all centers, then all
- * corner counts, ...) rather than record by record, so the whole file is one
- * bulk read or write, and every face's bytes sit at an offset computable from
- * prefix sums - which lets [Parallel] fill and decode them across all cores
- * instead of pushing millions of individual values through a stream.
+ * A plain binary format with no generic (de)serialization library - there
+ * isn't one in this project's dependency set already. The world is already a
+ * handful of flat primitive arrays (see [Sphere]), so each one is stored as
+ * a single contiguous column and moved with one bulk copy through a typed
+ * buffer view: no per-tile objects are created or parsed on load.
  *
- * Layout (big-endian), after the header: centers (3 floats per face), corner
- * counts (1 byte per face), corners (3 floats each), neighbors (1 int per
- * corner - a face always has as many neighbors as corners), biomes (1 byte
- * per face), resource counts (1 byte per face), resources (1 byte each).
+ * Layout (little-endian, the native order on every Android ABI), after the
+ * header: face centers (3 floats per face), cornerStart (faceCount + 1
+ * ints), cornerVertex (1 int per corner slot), vertex positions (3 floats
+ * per vertex), neighbors (1 int per corner slot), biomes (1 byte per face),
+ * resource counts (1 byte per face), resources (1 byte each).
  */
 object WorldCache {
-    private const val FORMAT_VERSION = 2
-    private const val HEADER_BYTES = 32
-
-    private const val VECTOR_BYTES = 3 * Float.SIZE_BYTES
+    private const val FORMAT_VERSION = 3
+    private const val HEADER_BYTES = 36
 
     /**
      * Returns the cached world if [file] holds one matching [frequency],
@@ -42,15 +39,16 @@ object WorldCache {
         if (!file.exists()) return null
         return try {
             val perf = PerfTimer()
-            val buffer = ByteBuffer.wrap(file.readBytes())
+            val bytes = file.readBytes()
             perf.lap("cache.load.readFile")
-            if (buffer.getInt(0) != FORMAT_VERSION) return null
-            if (buffer.getInt(4) != frequency) return null
-            if (buffer.getLong(8) != seed) return null
-            if (buffer.getFloat(16) != resourceDensity) return null
-            val layout = Layout(buffer.getInt(20), buffer.getInt(24), buffer.getInt(28))
-            if (layout.totalBytes != buffer.capacity().toLong()) return null
-            readWorld(buffer, layout).also { perf.lap("cache.load.decode") }
+            val header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            if (header.getInt(0) != FORMAT_VERSION) return null
+            if (header.getInt(4) != frequency) return null
+            if (header.getLong(8) != seed) return null
+            if (header.getFloat(16) != resourceDensity) return null
+            val layout = Layout(header.getInt(20), header.getInt(24), header.getInt(28), header.getInt(32))
+            if (layout.totalBytes != bytes.size.toLong()) return null
+            readWorld(bytes, layout).also { perf.lap("cache.load.decode") }
         } catch (e: Exception) {
             null
         }
@@ -60,108 +58,110 @@ object WorldCache {
     fun save(file: FileHandle, world: SphereWorld, frequency: Int, seed: Long, resourceDensity: Float) {
         try {
             val perf = PerfTimer()
-            val faces = world.faces
-            val cornerStart = IntArray(faces.size + 1)
-            val resourceStart = IntArray(faces.size + 1)
-            for (i in faces.indices) {
-                cornerStart[i + 1] = cornerStart[i] + faces[i].corners.size
-                resourceStart[i + 1] = resourceStart[i] + world.resourcesAt(i).size
-            }
-            val layout = Layout(faces.size, cornerStart[faces.size], resourceStart[faces.size])
-            val buffer = ByteBuffer.allocate(layout.totalBytes.toInt())
+            val sphere = world.sphere
+            val faceCount = sphere.faceCount
+            var resourceTotal = 0
+            for (i in 0 until faceCount) resourceTotal += world.resourcesAt(i).size
+            val layout = Layout(faceCount, sphere.cornerTotal, sphere.vertexCount, resourceTotal)
+            val bytes = ByteArray(layout.totalBytes.toInt())
 
-            buffer.putInt(0, FORMAT_VERSION)
-            buffer.putInt(4, frequency)
-            buffer.putLong(8, seed)
-            buffer.putFloat(16, resourceDensity)
-            buffer.putInt(20, layout.faceCount)
-            buffer.putInt(24, layout.cornerTotal)
-            buffer.putInt(28, layout.resourceTotal)
+            val header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            header.putInt(0, FORMAT_VERSION)
+            header.putInt(4, frequency)
+            header.putLong(8, seed)
+            header.putFloat(16, resourceDensity)
+            header.putInt(20, layout.faceCount)
+            header.putInt(24, layout.cornerTotal)
+            header.putInt(28, layout.vertexCount)
+            header.putInt(32, layout.resourceTotal)
 
-            Parallel.forEachIndex(faces.size) { i ->
-                val face = faces[i]
-                check(face.neighbors.size == face.corners.size) { "face $i: neighbor/corner count mismatch" }
-                buffer.putVector(layout.centers + i * VECTOR_BYTES, face.center)
-                buffer.put(layout.cornerCounts + i, face.corners.size.toByte())
-                for (c in face.corners.indices) {
-                    val corner = cornerStart[i] + c
-                    buffer.putVector(layout.corners + corner * VECTOR_BYTES, face.corners[c])
-                    buffer.putInt(layout.neighbors + corner * Int.SIZE_BYTES, face.neighbors[c])
-                }
-                buffer.put(layout.biomes + i, world[i].ordinal.toByte())
+            putFloats(bytes, layout.centers, sphere.centers)
+            putInts(bytes, layout.cornerStart, sphere.cornerStart)
+            putInts(bytes, layout.cornerVertex, sphere.cornerVertex)
+            putFloats(bytes, layout.vertexPositions, sphere.vertexPositions)
+            putInts(bytes, layout.neighbors, sphere.neighbors)
+
+            var resourceOffset = layout.resources
+            for (i in 0 until faceCount) {
+                bytes[layout.biomes + i] = world[i].ordinal.toByte()
                 val resources = world.resourcesAt(i)
-                buffer.put(layout.resourceCounts + i, resources.size.toByte())
-                for (r in resources.indices) buffer.put(layout.resources + resourceStart[i] + r, resources[r].ordinal.toByte())
+                bytes[layout.resourceCounts + i] = resources.size.toByte()
+                for (resource in resources) bytes[resourceOffset++] = resource.ordinal.toByte()
             }
 
             perf.lap("cache.save.encode")
-            file.writeBytes(buffer.array(), false)
+            file.writeBytes(bytes, false)
             perf.lap("cache.save.writeFile")
         } catch (e: Exception) {
             // Ignored - see doc comment above.
         }
     }
 
-    private fun readWorld(buffer: ByteBuffer, layout: Layout): SphereWorld {
-        val faceCount = layout.faceCount
-        val cornerStart = IntArray(faceCount + 1)
-        val resourceStart = IntArray(faceCount + 1)
-        for (i in 0 until faceCount) {
-            cornerStart[i + 1] = cornerStart[i] + buffer.get(layout.cornerCounts + i).toInt()
-            resourceStart[i + 1] = resourceStart[i] + buffer.get(layout.resourceCounts + i).toInt()
-        }
-        require(cornerStart[faceCount] == layout.cornerTotal && resourceStart[faceCount] == layout.resourceTotal) {
-            "per-face counts disagree with header totals"
-        }
+    private fun readWorld(bytes: ByteArray, layout: Layout): SphereWorld {
+        val sphere = Sphere(
+            centers = getFloats(bytes, layout.centers, layout.faceCount * 3),
+            cornerStart = getInts(bytes, layout.cornerStart, layout.faceCount + 1),
+            cornerVertex = getInts(bytes, layout.cornerVertex, layout.cornerTotal),
+            vertexPositions = getFloats(bytes, layout.vertexPositions, layout.vertexCount * 3),
+            neighbors = getInts(bytes, layout.neighbors, layout.cornerTotal),
+        )
 
-        val faces = arrayOfNulls<Face>(faceCount)
-        val biomes = Array(faceCount) { Biome.OCEAN }
-        Parallel.forEachIndex(faceCount) { i ->
-            val cornerCount = cornerStart[i + 1] - cornerStart[i]
-            val corners = ArrayList<Vector3>(cornerCount)
-            val neighbors = IntArray(cornerCount)
-            for (c in 0 until cornerCount) {
-                val corner = cornerStart[i] + c
-                corners.add(buffer.getVector(layout.corners + corner * VECTOR_BYTES))
-                neighbors[c] = buffer.getInt(layout.neighbors + corner * Int.SIZE_BYTES)
-            }
-            faces[i] = Face(buffer.getVector(layout.centers + i * VECTOR_BYTES), corners, neighbors)
-            biomes[i] = Biome.entries[buffer.get(layout.biomes + i).toInt()]
-        }
+        val biomes = Array(layout.faceCount) { Biome.entries[bytes[layout.biomes + it].toInt()] }
+        val world = SphereWorld(sphere, biomes)
 
-        @Suppress("UNCHECKED_CAST")
-        val world = SphereWorld((faces as Array<Face>).asList(), biomes)
-        Parallel.forEachIndex(faceCount) { i ->
-            val resourceCount = resourceStart[i + 1] - resourceStart[i]
-            if (resourceCount > 0) {
-                world.setResources(i, List(resourceCount) { r ->
-                    Resource.entries[buffer.get(layout.resources + resourceStart[i] + r).toInt()]
-                })
-            }
+        var resourceOffset = layout.resources
+        for (i in 0 until layout.faceCount) {
+            val count = bytes[layout.resourceCounts + i].toInt()
+            if (count == 0) continue
+            world.setResources(i, List(count) { Resource.entries[bytes[resourceOffset++].toInt()] })
         }
+        require(resourceOffset == layout.resources + layout.resourceTotal) { "per-face resource counts disagree with header total" }
         return world
     }
 
-    private fun ByteBuffer.putVector(offset: Int, v: Vector3) {
-        putFloat(offset, v.x)
-        putFloat(offset + Float.SIZE_BYTES, v.y)
-        putFloat(offset + 2 * Float.SIZE_BYTES, v.z)
+    // ByteBuffer.wrap(array, offset, length) positions the buffer at `offset`,
+    // so the typed view starts there without calling ByteBuffer.position(int) -
+    // compiled against JDK 9+ that resolves to a covariant override missing
+    // from Android's ByteBuffer before API 33.
+    private fun getFloats(bytes: ByteArray, offset: Int, count: Int) =
+        FloatArray(count).also { ByteBuffer.wrap(bytes, offset, count * Float.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
+
+    private fun getInts(bytes: ByteArray, offset: Int, count: Int) =
+        IntArray(count).also { ByteBuffer.wrap(bytes, offset, count * Int.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer().get(it) }
+
+    private fun putFloats(bytes: ByteArray, offset: Int, values: FloatArray) {
+        ByteBuffer.wrap(bytes, offset, values.size * Float.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().put(values)
     }
 
-    private fun ByteBuffer.getVector(offset: Int) =
-        Vector3(getFloat(offset), getFloat(offset + Float.SIZE_BYTES), getFloat(offset + 2 * Float.SIZE_BYTES))
+    private fun putInts(bytes: ByteArray, offset: Int, values: IntArray) {
+        ByteBuffer.wrap(bytes, offset, values.size * Int.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer().put(values)
+    }
 
-    /** Byte offset of each column, derived purely from the three header counts. */
-    private class Layout(val faceCount: Int, val cornerTotal: Int, val resourceTotal: Int) {
-        val centers = HEADER_BYTES
-        val cornerCounts = centers + faceCount * VECTOR_BYTES
-        val corners = cornerCounts + faceCount
-        val neighbors = corners + cornerTotal * VECTOR_BYTES
-        val biomes = neighbors + cornerTotal * Int.SIZE_BYTES
-        val resourceCounts = biomes + faceCount
-        val resources = resourceCounts + faceCount
+    /**
+     * Byte offset of each column, derived purely from the four header counts.
+     * Computed in Long so a corrupt header can't overflow into a plausible-
+     * looking size; offsets are only narrowed to Int once [totalBytes] has
+     * been checked against the real file length (which is itself an Int).
+     */
+    private class Layout(val faceCount: Int, val cornerTotal: Int, val vertexCount: Int, val resourceTotal: Int) {
+        private val centersAt = HEADER_BYTES.toLong()
+        private val cornerStartAt = centersAt + faceCount.toLong() * 12
+        private val cornerVertexAt = cornerStartAt + (faceCount.toLong() + 1) * 4
+        private val vertexPositionsAt = cornerVertexAt + cornerTotal.toLong() * 4
+        private val neighborsAt = vertexPositionsAt + vertexCount.toLong() * 12
+        private val biomesAt = neighborsAt + cornerTotal.toLong() * 4
+        private val resourceCountsAt = biomesAt + faceCount
+        private val resourcesAt = resourceCountsAt + faceCount
 
-        // A Long so a corrupt header can't overflow into a plausible-looking size.
-        val totalBytes: Long = resources.toLong() + resourceTotal
+        val totalBytes: Long = resourcesAt + resourceTotal
+
+        val centers get() = centersAt.toInt()
+        val cornerStart get() = cornerStartAt.toInt()
+        val cornerVertex get() = cornerVertexAt.toInt()
+        val vertexPositions get() = vertexPositionsAt.toInt()
+        val neighbors get() = neighborsAt.toInt()
+        val biomes get() = biomesAt.toInt()
+        val resourceCounts get() = resourceCountsAt.toInt()
+        val resources get() = resourcesAt.toInt()
     }
 }

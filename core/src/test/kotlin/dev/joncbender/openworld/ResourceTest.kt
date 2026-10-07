@@ -19,7 +19,7 @@ class ResourceTest {
     fun `assigned resources always match their tile's biome and have no duplicates`() {
         for (seed in 0L until 5L) {
             val world = WorldGenerator(seed).generate(frequency = 12, resourceDensity = 0.5f)
-            for (i in world.faces.indices) {
+            for (i in world.sphere.indices) {
                 val resources = world.resourcesAt(i)
                 val allowed = BIOME_RESOURCES.getValue(world[i])
                 for (resource in resources) {
@@ -36,7 +36,7 @@ class ResourceTest {
         // multi-resource biome - the "any resource" fraction should track the
         // requested density directly, same as the old single-roll model did.
         val world = WorldGenerator(seed = 42L).generate(frequency = 30, resourceDensity = 0.20f)
-        val arcticTiles = world.faces.indices.filter { world[it] == Biome.ARCTIC }
+        val arcticTiles = world.sphere.indices.filter { world[it] == Biome.ARCTIC }
         assertTrue(arcticTiles.size > 20, "need enough arctic tiles to measure density meaningfully")
         val withResource = arcticTiles.count { world.resourcesAt(it).isNotEmpty() }
         val actualDensity = withResource.toFloat() / arcticTiles.size
@@ -48,7 +48,7 @@ class ResourceTest {
         // High density specifically so this is reliably observable from one
         // generated world rather than needing to search many seeds.
         val world = WorldGenerator(seed = 1L).generate(frequency = 30, resourceDensity = 0.6f)
-        val hasBoth = world.faces.indices.any { i ->
+        val hasBoth = world.sphere.indices.any { i ->
             world[i] == Biome.FOREST &&
                 Resource.WOOD in world.resourcesAt(i) &&
                 Resource.GAME in world.resourcesAt(i)
@@ -59,7 +59,7 @@ class ResourceTest {
     @Test
     fun `zero density means no resources at all`() {
         val world = WorldGenerator(seed = 7L).generate(frequency = 12, resourceDensity = 0f)
-        val anyResource = world.faces.indices.any { world.resourcesAt(it).isNotEmpty() }
+        val anyResource = world.sphere.indices.any { world.resourcesAt(it).isNotEmpty() }
         assertFalse(anyResource)
     }
 }
