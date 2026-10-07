@@ -14,7 +14,8 @@ class PerfTimer(private val tag: String = "perf") {
 
     fun lap(label: String) {
         val now = System.nanoTime()
-        Gdx.app?.log(tag, "$label: ${(now - last) / 1_000_000}ms")
+        val app = Gdx.app
+        app?.log(tag, "$label: ${(now - last) / 1_000_000}ms [java ${app.javaHeap shr 20}MB, native ${app.nativeHeap shr 20}MB]")
         last = now
     }
 }
