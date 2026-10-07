@@ -3,6 +3,7 @@ package dev.joncbender.openworld
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.InputMultiplexer
 import com.badlogic.gdx.Screen
+import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.Mesh
 import com.badlogic.gdx.graphics.PerspectiveCamera
@@ -134,6 +135,9 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     // nearTerrain is the full-resolution world, built patch by patch only while zoomed in
     // (null when no coarser level is needed).
     private lateinit var farTerrain: TerrainLayer
+    // A coarse all-ocean sphere under everything. The far and near layers leave out open ocean
+    // (see DeepOcean), and this shows through where they do.
+    private lateinit var underlay: TerrainLayer
     private var nearTerrain: TerrainLayer? = null
     private var nearStreamer: NearPatchStreamer? = null
     private var nearVisible = IntArray(0)
@@ -196,6 +200,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
      */
     private fun loadTerrain() {
         val perf = PerfTimer()
+        buildUnderlay()
+        perf.lap("ocean underlay")
         var farBuilt = false
         if (layered) {
             val coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
@@ -221,15 +227,34 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         buildNearLayer()
     }
 
-    private fun buildFarLayer(source: SphereWorld, releaseSource: Boolean): TerrainLayer =
-        TerrainLayer(source).also {
+    private fun buildFarLayer(source: SphereWorld, releaseSource: Boolean): TerrainLayer {
+        val draw = DeepOcean.tilesToDraw(source, FAR_DEEP_OCEAN_RINGS)
+        Gdx.app?.log("perf", "far layer draws ${draw.count { it }} of ${draw.size} tiles (the rest is open ocean, left to the underlay)")
+        return TerrainLayer(source, draw).also {
             it.buildAll()
             // A coarse world exists only to build this layer; let its sphere go.
             if (releaseSource) it.releaseSource()
         }
+    }
+
+    /** The ocean under everything: one all-ocean sphere at a frequency far coarser than either layer. */
+    private fun buildUnderlay() {
+        val sphere = GeodesicSphere.generate(UNDERLAY_FREQUENCY)
+        val ocean = SphereWorld(sphere, ByteArray(sphere.faceCount) { Biome.OCEAN.ordinal.toByte() })
+        underlay = TerrainLayer(ocean, flatColor = UNDERLAY_COLOR).also {
+            it.buildAll()
+            it.releaseSource()
+        }
+    }
 
     private fun buildNearLayer() {
-        val near = if (layered) TerrainLayer(world) else null
+        val near = if (layered) {
+            val draw = DeepOcean.tilesToDraw(world, NEAR_DEEP_OCEAN_RINGS)
+            Gdx.app?.log("perf", "near layer covers ${draw.count { it }} of ${draw.size} tiles (the rest is open ocean)")
+            TerrainLayer(world, draw)
+        } else {
+            null
+        }
         nearTerrain = near
         nearStreamer = near?.let { layer ->
             NearPatchStreamer(layer.patchCount, MAX_NEAR_PATCHES, { layer.build(it) }, { layer.release(it) })
@@ -291,16 +316,20 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
         val near = nearTerrain
         updateNearActive()
+
+        // The layers tile the same surface but not with the same polygons, so they are only a
+        // few millionths apart in depth. Push each one back behind the layers drawn over it:
+        // underlay furthest, then the far layer (only while the near layer is up), then near.
+        Gdx.gl.glEnable(GL20.GL_POLYGON_OFFSET_FILL)
+        Gdx.gl.glPolygonOffset(UNDERLAY_POLYGON_OFFSET_FACTOR, UNDERLAY_POLYGON_OFFSET_UNITS)
+        drawLayer(underlay)
         if (near != null && nearActive) {
-            // The two layers tile the same surface but not with the same polygons, so they
-            // are only a few millionths apart in depth: push the far layer back so the
-            // near patches always win where they exist.
-            Gdx.gl.glEnable(GL20.GL_POLYGON_OFFSET_FILL)
             Gdx.gl.glPolygonOffset(FAR_POLYGON_OFFSET_FACTOR, FAR_POLYGON_OFFSET_UNITS)
             drawLayer(farTerrain)
             Gdx.gl.glDisable(GL20.GL_POLYGON_OFFSET_FILL)
             drawNear(near)
         } else {
+            Gdx.gl.glDisable(GL20.GL_POLYGON_OFFSET_FILL)
             drawLayer(farTerrain)
         }
     }
@@ -473,6 +502,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     override fun hide() {}
     override fun dispose() {
         disposeTerrain()
+        underlay.dispose()
         graticule.dispose()
         shader.dispose()
         biomeTexture.dispose()
@@ -497,6 +527,21 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         private const val NEAR_LOG_EVERY_FRAMES = 120
         private const val FAR_POLYGON_OFFSET_FACTOR = 2f
         private const val FAR_POLYGON_OFFSET_UNITS = 4f
+        private const val UNDERLAY_POLYGON_OFFSET_FACTOR = 4f
+        private const val UNDERLAY_POLYGON_OFFSET_UNITS = 8f
+
+        // Open ocean (see DeepOcean) is left to the underlay: ocean tiles with no land within this
+        // many tiles of themselves, counted in each layer's own tiles. Wider keeps more of the
+        // shallows at full detail.
+        private const val FAR_DEEP_OCEAN_RINGS = 2
+        private const val NEAR_DEEP_OCEAN_RINGS = 3
+        // The underlay's sphere. It is one flat color, so only its silhouette matters: at this
+        // frequency (~16k tiles, each ~3 degrees across) the polygons stray from a true sphere by
+        // well under a pixel, and it builds far faster than a finer one.
+        private const val UNDERLAY_FREQUENCY = 40
+        // Open ocean is one flat color: the average of the ocean texture's base blue (0.11, 0.29,
+        // 0.55) and its wave highlight (0.33, 0.47, 0.66), which shows ~43% of the time.
+        private val UNDERLAY_COLOR = Color(0.20f, 0.37f, 0.60f, 1f)
 
         private const val PREF_SEED = "seed"
         private const val PREF_RESOURCE_DENSITY = "resource_density"
