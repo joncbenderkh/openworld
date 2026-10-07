@@ -97,8 +97,8 @@ class GeodesicSphereTest {
         // counts must be exact at any frequency.
         val freq = 400
         val (vertices, triangles) = GeodesicSphere.subdivideIcosahedron(freq)
-        assertEquals(10 * freq * freq + 2, vertices.size)
-        assertEquals(20 * freq * freq, triangles.size)
+        assertEquals(10 * freq * freq + 2, vertices.size / 3)
+        assertEquals(20 * freq * freq, triangles.size / 3)
     }
 
     @Test
