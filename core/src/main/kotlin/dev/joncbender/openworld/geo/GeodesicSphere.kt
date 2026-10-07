@@ -1,6 +1,7 @@
 package dev.joncbender.openworld.geo
 
 import com.badlogic.gdx.math.Vector3
+import dev.joncbender.openworld.Parallel
 import dev.joncbender.openworld.PerfTimer
 import kotlin.math.sqrt
 
@@ -152,13 +153,16 @@ object GeodesicSphere {
      */
     private fun buildDual(vertices: List<Vector3>, triangles: List<IntArray>): List<Face> {
         val perf = PerfTimer()
-        val triCentroid = Array(triangles.size) { ti ->
+        val centroids = arrayOfNulls<Vector3>(triangles.size)
+        Parallel.forEachIndex(triangles.size) { ti ->
             val t = triangles[ti]
             val v0 = vertices[t[0]]
             val v1 = vertices[t[1]]
             val v2 = vertices[t[2]]
-            Vector3((v0.x + v1.x + v2.x) / 3f, (v0.y + v1.y + v2.y) / 3f, (v0.z + v1.z + v2.z) / 3f).nor()
+            centroids[ti] = Vector3((v0.x + v1.x + v2.x) / 3f, (v0.y + v1.y + v2.y) / 3f, (v0.z + v1.z + v2.z) / 3f).nor()
         }
+        @Suppress("UNCHECKED_CAST")
+        val triCentroid = centroids as Array<Vector3>
         perf.lap("buildDual.triCentroid")
 
         // Flat (CSR-style) vertex -> incident-triangle adjacency, built with
@@ -184,8 +188,11 @@ object GeodesicSphere {
             return t[(i + 2) % 3]
         }
 
-        val faces = ArrayList<Face>(vertices.size)
-        for (v in vertices.indices) {
+        // Each vertex's walk reads only the shared, now-immutable adjacency
+        // built above and writes only its own slot, so the walks are
+        // independent and can run in parallel.
+        val faces = arrayOfNulls<Face>(vertices.size)
+        Parallel.forEachIndex(vertices.size) { v ->
             val from = incidentStart[v]
             val to = incidentStart[v + 1]
             val degree = to - from
@@ -223,10 +230,11 @@ object GeodesicSphere {
             } while (current != startTri && guard <= degree)
             check(guard == degree) { "vertex $v: dual walk closed after $guard steps, expected exactly $degree - malformed mesh" }
 
-            faces.add(Face(center = vertices[v], corners = corners, neighbors = neighbors.copyOf(degree)))
+            faces[v] = Face(center = vertices[v], corners = corners, neighbors = neighbors.copyOf(degree))
         }
         perf.lap("buildDual.perVertexWalk")
-        return faces
+        @Suppress("UNCHECKED_CAST")
+        return (faces as Array<Face>).asList()
     }
 
     /**

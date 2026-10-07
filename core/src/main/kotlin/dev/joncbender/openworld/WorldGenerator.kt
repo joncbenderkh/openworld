@@ -69,8 +69,8 @@ class WorldGenerator(private val seed: Long) {
         val elevationScale = 2.2f
         val moistureScale = 3.1f
 
-        for ((i, face) in faces.withIndex()) {
-            val p = face.center
+        Parallel.forEachIndex(faces.size) { i ->
+            val p = faces[i].center
             var e = elevationNoise.fbm(p.x * elevationScale, p.y * elevationScale, p.z * elevationScale, octaves = 5)
             val latitude = abs(p.y) // sphere's Y axis is the polar axis: 0 at equator, 1 at poles
             e = (e - latitude * 0.15f).coerceIn(0f, 1f)
@@ -95,8 +95,8 @@ class WorldGenerator(private val seed: Long) {
         val foothillsLevel = 0.58f
         val mountainLevel = 0.62f
 
-        for ((i, face) in faces.withIndex()) {
-            val p = face.center
+        Parallel.forEachIndex(faces.size) { i ->
+            val p = faces[i].center
             val e = elevation[i]
             val m = moistureNoise.fbm(p.x * moistureScale, p.y * moistureScale, p.z * moistureScale, octaves = 4)
             val latitude = abs(p.y)
