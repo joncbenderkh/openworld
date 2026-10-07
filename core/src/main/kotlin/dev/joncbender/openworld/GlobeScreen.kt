@@ -20,6 +20,11 @@ import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.math.Vector3
 import com.badlogic.gdx.math.collision.Ray
 
+/** One slice of the terrain, with the cap that bounds it so the renderer can skip it when it's out of view. */
+private class TerrainMesh(val mesh: Mesh, val cap: SphereCap) {
+    fun dispose() = mesh.dispose()
+}
+
 class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     private val frequency = 199 // total tiles = 10*frequency^2 + 2 (~5x the previous 79212)
@@ -118,8 +123,11 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private val rotation = Quaternion()
     private val modelMatrix = Matrix4()
     private val mvpMatrix = Matrix4()
+    private val cameraDirection = Vector3()
+    private val capCenter = Vector3()
+    private val inverseRotation = Quaternion()
 
-    private var meshes: List<Mesh> = emptyList()
+    private var meshes: List<TerrainMesh> = emptyList()
     private lateinit var graticule: Mesh
     private lateinit var shader: ShaderProgram
     private lateinit var biomeTexture: Texture
@@ -154,8 +162,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
      * address 65536 distinct vertices per mesh - nowhere near enough for
      * the whole globe at any of the tile counts this project has used.
      */
-    private fun buildMeshes(): List<Mesh> {
-        val meshes = mutableListOf<Mesh>()
+    private fun buildMeshes(): List<TerrainMesh> {
+        val meshes = mutableListOf<TerrainMesh>()
         val vertexData = FloatArray(MAX_VERTICES_PER_MESH * VERTEX_SIZE)
         val indexData = ShortArray(MAX_VERTICES_PER_MESH * 3)
         var vertexFloatPos = 0
@@ -163,7 +171,9 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         var indexCount = 0
 
         var uploadNanos = 0L
-        fun flush() {
+        var meshFirstFace = 0
+        // Flushes the faces accumulated so far, which are meshFirstFace until endFace.
+        fun flush(endFace: Int) {
             if (vertexCount == 0) return
             val uploadStart = System.nanoTime()
             val mesh = Mesh(
@@ -176,7 +186,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             )
             mesh.setVertices(vertexData, 0, vertexFloatPos)
             mesh.setIndices(indexData, 0, indexCount)
-            meshes.add(mesh)
+            meshes.add(TerrainMesh(mesh, SphereCap.enclosing(world.sphere, meshFirstFace, endFace)))
+            meshFirstFace = endFace
             uploadNanos += System.nanoTime() - uploadStart
             vertexFloatPos = 0
             vertexCount = 0
@@ -189,7 +200,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
             val centerU = BiomeTextures.centerU(biome)
             val centerV = BiomeTextures.centerV(biome)
             val n = sphere.cornerCount(i)
-            if (vertexCount + n + 1 > MAX_VERTICES_PER_MESH) flush()
+            if (vertexCount + n + 1 > MAX_VERTICES_PER_MESH) flush(i)
             val cornerUVs = BiomeTextures.cornerUVs(biome, n)
 
             val centerIndex = vertexCount
@@ -208,7 +219,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
                 indexData[indexCount++] = (firstCornerIndex + next).toShort()
             }
         }
-        flush()
+        flush(sphere.faceCount)
         Gdx.app?.log("perf", "buildMeshes.upload: ${uploadNanos / 1_000_000}ms across ${meshes.size} meshes (the rest of buildMeshes is filling arrays)")
         return meshes
     }
@@ -258,10 +269,37 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         shader.bind()
         shader.setUniformMatrix("u_projViewTrans", mvpMatrix)
         shader.setUniformi("u_texture", 0)
-        for (mesh in meshes) mesh.render(shader, GL20.GL_TRIANGLES)
+        // Only the terrain is back-face culled: its triangles are known to wind
+        // counter-clockwise from outside (see GeodesicSphereTest), while the
+        // graticule's quads make no such promise.
+        Gdx.gl.glEnable(GL20.GL_CULL_FACE)
+        Gdx.gl.glCullFace(GL20.GL_BACK)
+        drawVisibleTerrain()
+        Gdx.gl.glDisable(GL20.GL_CULL_FACE)
         graticule.render(shader, GL20.GL_TRIANGLES)
 
         compass.render(rotation)
+    }
+
+    /**
+     * Draws each terrain mesh unless its bounding cap is entirely behind the
+     * globe's horizon or outside the view frustum. Roughly half the globe is
+     * always on the far side, and was previously processed every frame only
+     * for the depth test to throw it away.
+     */
+    private fun drawVisibleTerrain() {
+        // The camera's direction in the globe's own frame: undo the globe's rotation.
+        cameraDirection.set(0f, 0f, 1f)
+        inverseRotation.set(rotation).conjugate().transform(cameraDirection)
+
+        for (terrain in meshes) {
+            val cap = terrain.cap
+            if (cap.isBeyondHorizon(cameraDirection.x, cameraDirection.y, cameraDirection.z, distance)) continue
+            capCenter.set(cap.ax, cap.ay, cap.az)
+            rotation.transform(capCenter)
+            if (!camera.frustum.sphereInFrustum(capCenter, cap.chordRadius)) continue
+            terrain.mesh.render(shader, GL20.GL_TRIANGLES)
+        }
     }
 
     override fun resize(width: Int, height: Int) {
