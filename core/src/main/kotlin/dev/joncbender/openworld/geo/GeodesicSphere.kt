@@ -27,7 +27,7 @@ object GeodesicSphere {
 
     private val PHI = ((1.0 + sqrt(5.0)) / 2.0).toFloat()
 
-    private val BASE_VERTICES = arrayOf(
+    internal val BASE_VERTICES = arrayOf(
         Vector3(-1f, PHI, 0f), Vector3(1f, PHI, 0f),
         Vector3(-1f, -PHI, 0f), Vector3(1f, -PHI, 0f),
         Vector3(0f, -1f, PHI), Vector3(0f, 1f, PHI),
@@ -36,7 +36,7 @@ object GeodesicSphere {
         Vector3(-PHI, 0f, -1f), Vector3(-PHI, 0f, 1f),
     ).map { it.cpy().nor() }
 
-    private val BASE_FACES = arrayOf(
+    internal val BASE_FACES = arrayOf(
         intArrayOf(0, 11, 5), intArrayOf(0, 5, 1), intArrayOf(0, 1, 7), intArrayOf(0, 7, 10), intArrayOf(0, 10, 11),
         intArrayOf(1, 5, 9), intArrayOf(5, 11, 4), intArrayOf(11, 10, 2), intArrayOf(10, 7, 6), intArrayOf(7, 1, 8),
         intArrayOf(3, 9, 4), intArrayOf(3, 4, 2), intArrayOf(3, 2, 6), intArrayOf(3, 6, 8), intArrayOf(3, 8, 9),

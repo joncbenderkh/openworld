@@ -119,7 +119,19 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     private val capCenter = Vector3()
     private val inverseRotation = Quaternion()
 
-    private lateinit var terrain: TerrainLayer
+    // Level of detail. farTerrain is always drawn: the whole globe at coarse resolution when the
+    // world is finer than CoarseWorldBuilder.COARSE_FREQUENCY, otherwise the world itself.
+    // nearTerrain is the full-resolution world, built patch by patch only while zoomed in
+    // (null when no coarser level is needed).
+    private lateinit var farTerrain: TerrainLayer
+    private var nearTerrain: TerrainLayer? = null
+    private var nearStreamer: NearPatchStreamer? = null
+    private var nearVisible = IntArray(0)
+    private var nearPriority = FloatArray(0)
+    private var nearActive = false
+    private var nearInactiveFrames = 0
+    private var nearWindowBuilds = 0
+    private var frameCount = 0
     private lateinit var graticule: Mesh
     private lateinit var shader: ShaderProgram
     private lateinit var biomeTexture: Texture
@@ -129,7 +141,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         val perf = PerfTimer()
         biomeTexture = BiomeTextures.build()
         perf.lap("BiomeTextures.build")
-        terrain = TerrainLayer(world).also { it.buildAll() }
+        buildTerrain()
         perf.lap("buildMeshes")
         graticule = Graticule.build()
         perf.lap("Graticule.build")
@@ -155,8 +167,32 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         inventory.clear()
         world = WorldGenerator(seed).generate(frequency, resourceDensity)
         WorldCache.save(worldCacheFile, world, frequency, seed, resourceDensity)
-        terrain.dispose()
-        terrain = TerrainLayer(world).also { it.buildAll() }
+        disposeTerrain()
+        buildTerrain()
+    }
+
+    private fun buildTerrain() {
+        val coarse = if (frequency > CoarseWorldBuilder.COARSE_FREQUENCY) CoarseWorldBuilder.build(world) else null
+        farTerrain = TerrainLayer(coarse ?: world).also {
+            it.buildAll()
+            // A coarse world exists only to build this layer; let its sphere go.
+            if (coarse != null) it.releaseSource()
+        }
+        val near = if (coarse != null) TerrainLayer(world) else null
+        nearTerrain = near
+        nearStreamer = near?.let { layer ->
+            NearPatchStreamer(layer.patchCount, MAX_NEAR_PATCHES, { layer.build(it) }, { layer.release(it) })
+        }
+        nearVisible = IntArray(near?.patchCount ?: 0)
+        nearPriority = FloatArray(near?.patchCount ?: 0)
+        nearActive = false
+        nearInactiveFrames = 0
+    }
+
+    private fun disposeTerrain() {
+        nearStreamer?.releaseAll()
+        farTerrain.dispose()
+        nearTerrain?.dispose()
     }
 
     /** Spins the globe back to its starting orientation - the world itself is untouched. */
@@ -191,20 +227,79 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     }
 
     /**
-     * Draws each of the terrain's patches unless its bounding cap is entirely
-     * behind the globe's horizon or outside the view frustum. Roughly half
-     * the globe is always on the far side, and was previously processed every
-     * frame only for the depth test to throw it away.
+     * Draws the terrain: the far layer always, plus - once zoomed in close enough that a
+     * full-resolution tile is several pixels wide - the near layer on top of it.
      */
     private fun drawVisibleTerrain() {
+        frameCount++
         // The camera's direction in the globe's own frame: undo the globe's rotation.
         cameraDirection.set(0f, 0f, 1f)
         inverseRotation.set(rotation).conjugate().transform(cameraDirection)
 
-        for (patch in 0 until terrain.patchCount) {
-            val mesh = terrain.meshOrNull(patch) ?: continue
-            if (!isVisible(terrain.cap(patch))) continue
+        val near = nearTerrain
+        updateNearActive()
+        if (near != null && nearActive) {
+            // The two layers tile the same surface but not with the same polygons, so they
+            // are only a few millionths apart in depth: push the far layer back so the
+            // near patches always win where they exist.
+            Gdx.gl.glEnable(GL20.GL_POLYGON_OFFSET_FILL)
+            Gdx.gl.glPolygonOffset(FAR_POLYGON_OFFSET_FACTOR, FAR_POLYGON_OFFSET_UNITS)
+            drawLayer(farTerrain)
+            Gdx.gl.glDisable(GL20.GL_POLYGON_OFFSET_FILL)
+            drawNear(near)
+        } else {
+            drawLayer(farTerrain)
+        }
+    }
+
+    /**
+     * Switches the near layer on below [NEAR_ENTER_DISTANCE] and back off above
+     * [NEAR_EXIT_DISTANCE] (a gap, so hovering at the threshold doesn't flicker), and frees
+     * its patches once it has been off for a while.
+     */
+    private fun updateNearActive() {
+        if (nearTerrain == null) return
+        if (!nearActive && distance < NEAR_ENTER_DISTANCE) nearActive = true
+        else if (nearActive && distance > NEAR_EXIT_DISTANCE) nearActive = false
+
+        nearInactiveFrames = if (nearActive) 0 else nearInactiveFrames + 1
+        if (nearInactiveFrames == NEAR_RELEASE_AFTER_FRAMES) nearStreamer?.releaseAll()
+    }
+
+    /** Draws every visible, built patch of an eagerly built [layer]. */
+    private fun drawLayer(layer: TerrainLayer) {
+        for (patch in 0 until layer.patchCount) {
+            val mesh = layer.meshOrNull(patch) ?: continue
+            if (!isVisible(layer.cap(patch))) continue
             mesh.render(shader, GL20.GL_TRIANGLES)
+        }
+    }
+
+    /**
+     * Draws the near layer's visible patches, building the missing ones (closest to the view's
+     * center first) within a small per-frame time budget. A patch not built yet just shows the
+     * far layer beneath it.
+     */
+    private fun drawNear(near: TerrainLayer) {
+        val streamer = nearStreamer ?: return
+        var visibleCount = 0
+        for (patch in 0 until near.patchCount) {
+            val cap = near.cap(patch)
+            if (!isVisible(cap)) continue
+            nearVisible[visibleCount++] = patch
+            nearPriority[patch] = cap.ax * cameraDirection.x + cap.ay * cameraDirection.y + cap.az * cameraDirection.z
+        }
+
+        nearWindowBuilds += streamer.update(frameCount, nearVisible, visibleCount, nearPriority, NEAR_BUILD_BUDGET_NANOS)
+        for (k in 0 until visibleCount) near.meshOrNull(nearVisible[k])?.render(shader, GL20.GL_TRIANGLES)
+
+        if (frameCount % NEAR_LOG_EVERY_FRAMES == 0) {
+            Gdx.app?.log(
+                "perf",
+                "near layer: ${streamer.residentCount}/${near.patchCount} patches resident, $visibleCount in view, " +
+                    "$nearWindowBuilds built in the last $NEAR_LOG_EVERY_FRAMES frames",
+            )
+            nearWindowBuilds = 0
         }
     }
 
@@ -324,7 +419,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
     override fun resume() {}
     override fun hide() {}
     override fun dispose() {
-        terrain.dispose()
+        disposeTerrain()
         graticule.dispose()
         shader.dispose()
         biomeTexture.dispose()
@@ -333,6 +428,22 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     companion object {
         private const val ROTATE_SPEED_DEG = 0.3f
+
+        // Level of detail. The near layer switches on once a full-resolution tile is a few
+        // pixels wide (at a 5x tile count, around this camera distance) and off again
+        // slightly further out, so hovering at the threshold doesn't flicker.
+        private const val NEAR_ENTER_DISTANCE = 2.2f
+        private const val NEAR_EXIT_DISTANCE = 2.4f
+        // Frames out of use (3 s at 60 fps) before the near layer's patches are freed.
+        private const val NEAR_RELEASE_AFTER_FRAMES = 180
+        // A cap on resident near patches: ~2.5k tiles each, so ~600k tiles in all. Patches in
+        // view are never evicted, so more than this can be resident while they are all visible.
+        private const val MAX_NEAR_PATCHES = 256
+        // Time a frame may spend building near patches (at least one is always built).
+        private const val NEAR_BUILD_BUDGET_NANOS = 4_000_000L
+        private const val NEAR_LOG_EVERY_FRAMES = 120
+        private const val FAR_POLYGON_OFFSET_FACTOR = 2f
+        private const val FAR_POLYGON_OFFSET_UNITS = 4f
 
         private const val PREF_SEED = "seed"
         private const val PREF_RESOURCE_DENSITY = "resource_density"

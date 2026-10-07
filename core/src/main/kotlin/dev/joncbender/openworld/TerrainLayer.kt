@@ -21,25 +21,32 @@ import com.badlogic.gdx.graphics.VertexAttributes
  *
  * [build] and [buildAll] create GL objects, so they must run on the GL thread.
  */
-class TerrainLayer(val world: SphereWorld) {
-    private val sphere = world.sphere
+class TerrainLayer(world: SphereWorld) {
+    private class Source(val world: SphereWorld, val layout: PatchLayout)
 
-    val patchCount: Int = (sphere.faceCount + FACES_PER_PATCH - 1) / FACES_PER_PATCH
+    // Dropped by releaseSource() once a layer that was built eagerly no longer needs to build
+    // anything; the caps below are all that culling needs afterwards.
+    private var source: Source?
 
-    private val caps: Array<SphereCap?> = arrayOfNulls<SphereCap>(patchCount).also { caps ->
-        Parallel.forEachIndex(patchCount) { patch -> caps[patch] = SphereCap.enclosing(sphere, firstFace(patch), endFace(patch)) }
+    val patchCount: Int
+
+    private val caps: Array<SphereCap?>
+    private val meshes: Array<Mesh?>
+
+    init {
+        val layout = PatchLayout.build(world.sphere, FACES_PER_PATCH)
+        source = Source(world, layout)
+        patchCount = layout.patchCount
+        caps = arrayOfNulls<SphereCap>(patchCount)
+        Parallel.forEachIndex(patchCount) { patch ->
+            caps[patch] = SphereCap.enclosing(world.sphere, layout.faceIndices, layout.start(patch), layout.end(patch))
+        }
+        meshes = arrayOfNulls(patchCount)
     }
-    private val meshes = arrayOfNulls<Mesh>(patchCount)
 
     // Scratch arrays for filling a patch, shared by every build and allocated on first use.
     private var vertexData: FloatArray? = null
     private var indexData: ShortArray? = null
-
-    /** The first face of [patch]. */
-    fun firstFace(patch: Int): Int = patch * FACES_PER_PATCH
-
-    /** One past the last face of [patch]. */
-    fun endFace(patch: Int): Int = minOf(sphere.faceCount, (patch + 1) * FACES_PER_PATCH)
 
     fun cap(patch: Int): SphereCap = caps[patch]!!
 
@@ -49,13 +56,17 @@ class TerrainLayer(val world: SphereWorld) {
     /** Builds [patch]'s mesh if it isn't already, and returns it. */
     fun build(patch: Int): Mesh {
         meshes[patch]?.let { return it }
+        val (world, layout) = source?.let { it.world to it.layout }
+            ?: error("TerrainLayer source was released; patch $patch cannot be built")
+        val sphere = world.sphere
         val vertices = vertexData ?: FloatArray(FACES_PER_PATCH * VERTICES_PER_FACE * VERTEX_SIZE).also { vertexData = it }
         val indices = indexData ?: ShortArray(FACES_PER_PATCH * VERTICES_PER_FACE * 3).also { indexData = it }
 
         var vertexFloatPos = 0
         var vertexCount = 0
         var indexCount = 0
-        for (i in firstFace(patch) until endFace(patch)) {
+        for (k in layout.start(patch) until layout.end(patch)) {
+            val i = layout.faceIndices[k]
             val biome = world[i]
             val centerU = BiomeTextures.centerU(biome)
             val centerV = BiomeTextures.centerV(biome)
@@ -102,6 +113,14 @@ class TerrainLayer(val world: SphereWorld) {
         val start = System.nanoTime()
         for (patch in 0 until patchCount) build(patch)
         Gdx.app?.log("perf", "TerrainLayer.buildAll: ${(System.nanoTime() - start) / 1_000_000}ms for $patchCount meshes")
+    }
+
+    /**
+     * Lets go of the world this layer builds from, for a layer whose meshes are all built.
+     * Nothing can be built afterwards, but the (large) sphere can be collected.
+     */
+    fun releaseSource() {
+        source = null
     }
 
     /** Releases [patch]'s mesh; it can be rebuilt later with [build]. */
