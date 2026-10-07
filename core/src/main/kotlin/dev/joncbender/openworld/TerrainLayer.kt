@@ -19,9 +19,12 @@ import com.badlogic.gdx.graphics.VertexAttributes
  * regardless, since GL's 16-bit index buffers can only address 65536 distinct
  * vertices per mesh - nowhere near enough for a whole globe.
  *
+ * With a [flatColor], every tile is drawn as that one solid color (the shader's white texel times
+ * the vertex color) instead of its biome's texture - for a surface with nothing worth looking at.
+ *
  * [build] and [buildAll] create GL objects, so they must run on the GL thread.
  */
-class TerrainLayer(world: SphereWorld) {
+class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val flatColor: Color? = null) {
     private class Source(val world: SphereWorld, val layout: PatchLayout)
 
     // Dropped by releaseSource() once a layer that was built eagerly no longer needs to build
@@ -34,7 +37,7 @@ class TerrainLayer(world: SphereWorld) {
     private val meshes: Array<Mesh?>
 
     init {
-        val layout = PatchLayout.build(world.sphere, FACES_PER_PATCH)
+        val layout = PatchLayout.build(world.sphere, FACES_PER_PATCH, keep)
         source = Source(world, layout)
         patchCount = layout.patchCount
         caps = arrayOfNulls<SphereCap>(patchCount)
@@ -62,19 +65,21 @@ class TerrainLayer(world: SphereWorld) {
         val vertices = vertexData ?: FloatArray(FACES_PER_PATCH * VERTICES_PER_FACE * VERTEX_SIZE).also { vertexData = it }
         val indices = indexData ?: ShortArray(FACES_PER_PATCH * VERTICES_PER_FACE * 3).also { indexData = it }
 
+        val flatUV = flatColor?.let { BiomeTextures.whiteUV() }
+        val vertexColor = flatColor?.toFloatBits() ?: WHITE_BITS
         var vertexFloatPos = 0
         var vertexCount = 0
         var indexCount = 0
         for (k in layout.start(patch) until layout.end(patch)) {
             val i = layout.faceIndices[k]
             val biome = world[i]
-            val centerU = BiomeTextures.centerU(biome)
-            val centerV = BiomeTextures.centerV(biome)
+            val centerU = flatUV?.first ?: BiomeTextures.centerU(biome)
+            val centerV = flatUV?.second ?: BiomeTextures.centerV(biome)
             val n = sphere.cornerCount(i)
             val cornerUVs = BiomeTextures.cornerUVs(biome, n)
 
             val centerIndex = vertexCount
-            vertexFloatPos = appendVertex(vertices, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), centerU, centerV)
+            vertexFloatPos = appendVertex(vertices, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), vertexColor, centerU, centerV)
             vertexCount++
 
             val firstCornerIndex = vertexCount
@@ -82,7 +87,7 @@ class TerrainLayer(world: SphereWorld) {
                 vertexFloatPos = appendVertex(
                     vertices, vertexFloatPos,
                     sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c),
-                    cornerUVs[c * 2], cornerUVs[c * 2 + 1],
+                    vertexColor, flatUV?.first ?: cornerUVs[c * 2], flatUV?.second ?: cornerUVs[c * 2 + 1],
                 )
                 vertexCount++
             }
@@ -135,10 +140,10 @@ class TerrainLayer(world: SphereWorld) {
         source = null
     }
 
-    private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, u: Float, v: Float): Int {
+    private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, colorBits: Float, u: Float, v: Float): Int {
         var o = offset
         data[o++] = x; data[o++] = y; data[o++] = z
-        data[o++] = WHITE_BITS
+        data[o++] = colorBits
         data[o++] = u; data[o++] = v
         return o
     }

@@ -87,4 +87,39 @@ class PatchLayoutTest {
         assertEquals(byRange.ax, byList.ax)
         assertEquals(byRange.chordRadius, byList.chordRadius)
     }
+
+    @Test
+    fun `faces masked out belong to no patch and the rest are laid out exactly once`() {
+        val keep = BooleanArray(sphere.faceCount) { it % 3 != 0 }
+        val masked = PatchLayout.build(sphere, TerrainLayer.FACES_PER_PATCH, keep)
+
+        val seen = IntArray(sphere.faceCount)
+        for (patch in 0 until masked.patchCount) {
+            for (k in masked.start(patch) until masked.end(patch)) seen[masked.faceIndices[k]]++
+        }
+        for (i in sphere.indices) assertEquals(if (keep[i]) 1 else 0, seen[i], "face $i")
+        assertEquals(keep.count { it }, masked.end(masked.patchCount - 1))
+    }
+
+    @Test
+    fun `masking out a whole region drops its patches`() {
+        val full = PatchLayout.build(sphere, TerrainLayer.FACES_PER_PATCH)
+        val northern = BooleanArray(sphere.faceCount) { sphere.centerY(it) > 0f }
+        val half = PatchLayout.build(sphere, TerrainLayer.FACES_PER_PATCH, northern)
+        assertTrue(half.patchCount < full.patchCount, "${half.patchCount} vs ${full.patchCount}")
+        assertTrue(half.patchCount > 0)
+    }
+
+    @Test
+    fun `masking out every face gives an empty layout, not a crash`() {
+        val none = PatchLayout.build(sphere, TerrainLayer.FACES_PER_PATCH, BooleanArray(sphere.faceCount))
+        assertEquals(0, none.patchCount)
+    }
+
+    @Test
+    fun `a mask of the wrong size is rejected`() {
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            PatchLayout.build(sphere, TerrainLayer.FACES_PER_PATCH, BooleanArray(3))
+        }
+    }
 }
