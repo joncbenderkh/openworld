@@ -100,4 +100,30 @@ class GeodesicSphereTest {
         assertEquals(10 * freq * freq + 2, vertices.size)
         assertEquals(20 * freq * freq, triangles.size)
     }
+
+    @Test
+    fun `corners wind counter-clockwise seen from outside the sphere`() {
+        // The renderer's back-face culling depends on this: it draws each tile as
+        // a fan of (center, corner c, corner c + 1) triangles, which only face
+        // outward if the corners are stored counter-clockwise from outside.
+        val sphere = GeodesicSphere.generate(6)
+        for (i in sphere.indices) {
+            val cx = sphere.centerX(i)
+            val cy = sphere.centerY(i)
+            val cz = sphere.centerZ(i)
+            for (c in 0 until sphere.cornerCount(i)) {
+                val next = (c + 1) % sphere.cornerCount(i)
+                val ax = sphere.cornerX(i, c) - cx
+                val ay = sphere.cornerY(i, c) - cy
+                val az = sphere.cornerZ(i, c) - cz
+                val bx = sphere.cornerX(i, next) - cx
+                val by = sphere.cornerY(i, next) - cy
+                val bz = sphere.cornerZ(i, next) - cz
+                val normalX = ay * bz - az * by
+                val normalY = az * bx - ax * bz
+                val normalZ = ax * by - ay * bx
+                assertTrue(normalX * cx + normalY * cy + normalZ * cz > 0f, "face $i corner $c winds clockwise from outside")
+            }
+        }
+    }
 }
