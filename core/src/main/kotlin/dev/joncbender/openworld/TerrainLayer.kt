@@ -131,6 +131,8 @@ class TerrainLayer(world: SphereWorld) {
 
     fun dispose() {
         for (patch in 0 until patchCount) release(patch)
+        // A disposed layer is finished; don't keep the world it was built from alive.
+        source = null
     }
 
     private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, u: Float, v: Float): Int {
