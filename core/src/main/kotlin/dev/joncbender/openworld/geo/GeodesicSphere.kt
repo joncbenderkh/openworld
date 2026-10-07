@@ -82,14 +82,16 @@ object GeodesicSphere {
      * vertices once the spacing nears the quantum (observed at 700). Integer
      * identities have no such failure mode, at any frequency.
      */
-    internal fun subdivideIcosahedron(freq: Int): Pair<List<Vector3>, List<IntArray>> {
-        // Both known exactly up front (see the class doc / generate()'s
-        // contract), so pre-sizing avoids the repeated grow-and-copy an
-        // unsized ArrayList does while climbing to ~400k+ elements at the
-        // game's largest tile counts.
+    internal fun subdivideIcosahedron(freq: Int): Pair<FloatArray, IntArray> {
+        // Both counts are known exactly up front (see the class doc /
+        // generate()'s contract). Positions and triangles are flat primitive
+        // arrays - a Vector3 per vertex and an IntArray per triangle was ~5M
+        // small objects at 5x the production tile count, enough to exhaust
+        // the Java heap before the sphere was even assembled.
         val expectedVertices = 10 * freq * freq + 2
         val expectedTriangles = 20 * freq * freq
-        val vertices = ArrayList<Vector3>(expectedVertices)
+        val vertices = FloatArray(expectedVertices * 3)
+        var vertexCount = 0
 
         val edgeSlotsStart = BASE_VERTICES.size
         val sharedIndex = IntArray(edgeSlotsStart + EDGE_COUNT * (freq - 1)) { -1 }
@@ -112,18 +114,29 @@ object GeodesicSphere {
             }
         }
 
-        // Takes ownership of v (mutates it in place) - always call with a
-        // freshly constructed Vector3, never a shared/reused instance.
-        fun addVertex(v: Vector3, slot: Int): Int {
+        // Normalizes through one reused Vector3 (the same nor() the object-per-
+        // vertex version called), then stores the result in the flat array.
+        val scratch = Vector3()
+        fun addVertex(x: Float, y: Float, z: Float, slot: Int): Int {
             if (slot >= 0 && sharedIndex[slot] != -1) return sharedIndex[slot]
-            v.nor()
-            val index = vertices.size
-            vertices.add(v)
+            scratch.set(x, y, z).nor()
+            val index = vertexCount++
+            vertices[index * 3] = scratch.x
+            vertices[index * 3 + 1] = scratch.y
+            vertices[index * 3 + 2] = scratch.z
             if (slot >= 0) sharedIndex[slot] = index
             return index
         }
 
-        val triangles = ArrayList<IntArray>(expectedTriangles)
+        val triangles = IntArray(expectedTriangles * 3)
+        var triangleCount = 0
+        fun addTriangle(a: Int, b: Int, c: Int) {
+            triangles[triangleCount * 3] = a
+            triangles[triangleCount * 3 + 1] = b
+            triangles[triangleCount * 3 + 2] = c
+            triangleCount++
+        }
+
         val counts = IntArray(3)
         for (face in BASE_FACES) {
             val v0 = BASE_VERTICES[face[0]]
@@ -136,15 +149,15 @@ object GeodesicSphere {
                     val a = i.toFloat() / freq
                     val b = j.toFloat() / freq
                     val w0 = 1f - a - b
-                    val p = Vector3(
-                        v0.x * w0 + v1.x * a + v2.x * b,
-                        v0.y * w0 + v1.y * a + v2.y * b,
-                        v0.z * w0 + v1.z * a + v2.z * b,
-                    )
                     counts[0] = freq - i - j
                     counts[1] = i
                     counts[2] = j
-                    grid[i][j] = addVertex(p, sharedSlot(face, counts))
+                    grid[i][j] = addVertex(
+                        v0.x * w0 + v1.x * a + v2.x * b,
+                        v0.y * w0 + v1.y * a + v2.y * b,
+                        v0.z * w0 + v1.z * a + v2.z * b,
+                        sharedSlot(face, counts),
+                    )
                 }
             }
 
@@ -153,15 +166,16 @@ object GeodesicSphere {
                     val a = grid[i][j]
                     val b = grid[i + 1][j]
                     val c = grid[i][j + 1]
-                    triangles.add(intArrayOf(a, b, c))
+                    addTriangle(a, b, c)
                     if (j < freq - i - 1) {
                         val d = grid[i + 1][j + 1]
-                        triangles.add(intArrayOf(b, d, c))
+                        addTriangle(b, d, c)
                     }
                 }
             }
         }
-        check(vertices.size == expectedVertices) { "expected $expectedVertices vertices, built ${vertices.size}" }
+        check(vertexCount == expectedVertices) { "expected $expectedVertices vertices, built $vertexCount" }
+        check(triangleCount == expectedTriangles) { "expected $expectedTriangles triangles, built $triangleCount" }
         return vertices to triangles
     }
 
@@ -183,21 +197,27 @@ object GeodesicSphere {
      * (each step's "other" vertex is exactly one dual-face neighbor), so the
      * separate neighbor-set pass is gone too.
      */
-    private fun buildDual(vertices: List<Vector3>, triangles: List<IntArray>): Sphere {
+    private fun buildDual(vertices: FloatArray, triangles: IntArray): Sphere {
         val perf = PerfTimer()
+        val vertexCount = vertices.size / 3
+        val triangleCount = triangles.size / 3
+
         // One dual-face corner per triangle, as a flat x/y/z array. The
         // scratch vector per chunk keeps this allocation-free while using
         // Vector3.nor() itself, so the result matches the old per-triangle
         // Vector3 version bit for bit.
-        val vertexPositions = FloatArray(triangles.size * 3)
-        Parallel.forRanges(triangles.size) { from, to ->
+        val vertexPositions = FloatArray(triangleCount * 3)
+        Parallel.forRanges(triangleCount) { from, to ->
             val scratch = Vector3()
             for (ti in from until to) {
-                val t = triangles[ti]
-                val v0 = vertices[t[0]]
-                val v1 = vertices[t[1]]
-                val v2 = vertices[t[2]]
-                scratch.set((v0.x + v1.x + v2.x) / 3f, (v0.y + v1.y + v2.y) / 3f, (v0.z + v1.z + v2.z) / 3f).nor()
+                val a = triangles[ti * 3] * 3
+                val b = triangles[ti * 3 + 1] * 3
+                val c = triangles[ti * 3 + 2] * 3
+                scratch.set(
+                    (vertices[a] + vertices[b] + vertices[c]) / 3f,
+                    (vertices[a + 1] + vertices[b + 1] + vertices[c + 1]) / 3f,
+                    (vertices[a + 2] + vertices[b + 2] + vertices[c + 2]) / 3f,
+                ).nor()
                 vertexPositions[ti * 3] = scratch.x
                 vertexPositions[ti * 3 + 1] = scratch.y
                 vertexPositions[ti * 3 + 2] = scratch.z
@@ -205,76 +225,80 @@ object GeodesicSphere {
         }
         perf.lap("buildDual.triCentroid")
 
-        // Flat (CSR-style) vertex -> incident-triangle adjacency, built with
-        // plain IntArrays instead of Array<ArrayList<Int>> to avoid boxing.
-        // A vertex's degree is its dual face's corner count, so the same
-        // offsets also lay out the Sphere's per-corner arrays.
-        val incidentCount = IntArray(vertices.size)
-        for (t in triangles) {
-            incidentCount[t[0]]++; incidentCount[t[1]]++; incidentCount[t[2]]++
-        }
-        val incidentStart = IntArray(vertices.size + 1)
-        for (v in vertices.indices) incidentStart[v + 1] = incidentStart[v] + incidentCount[v]
-        val incidentTriangles = IntArray(incidentStart[vertices.size])
-        val cursor = incidentStart.copyOf()
-        for ((ti, t) in triangles.withIndex()) {
-            for (v in t) {
-                incidentTriangles[cursor[v]] = ti
-                cursor[v]++
+        // Flat (CSR-style) vertex -> incident-triangle adjacency in plain
+        // IntArrays. A vertex's degree is its dual face's corner count, so
+        // these offsets are also the Sphere's cornerStart, and the adjacency
+        // array itself becomes cornerVertex: the walk below only reorders each
+        // vertex's own slice of it into winding order, in place.
+        val cornerStart = IntArray(vertexCount + 1)
+        for (v in triangles) cornerStart[v + 1]++
+        for (v in 0 until vertexCount) cornerStart[v + 1] += cornerStart[v]
+        val cornerVertex = IntArray(cornerStart[vertexCount])
+        val cursor = cornerStart.copyOf(vertexCount)
+        for (ti in 0 until triangleCount) {
+            for (k in 0..2) {
+                val v = triangles[ti * 3 + k]
+                cornerVertex[cursor[v]++] = ti
             }
         }
         perf.lap("buildDual.csr")
 
-        fun thirdVertexAfter(t: IntArray, v: Int): Int {
-            val i = t.indexOf(v)
-            return t[(i + 2) % 3]
+        fun thirdVertexAfter(tri: Int, v: Int): Int {
+            val base = tri * 3
+            val i = if (triangles[base] == v) 0 else if (triangles[base + 1] == v) 1 else 2
+            return triangles[base + (i + 2) % 3]
         }
 
-        val centers = FloatArray(vertices.size * 3)
-        val cornerVertex = IntArray(incidentTriangles.size)
-        val neighbors = IntArray(incidentTriangles.size)
+        val neighbors = IntArray(cornerVertex.size)
 
-        // Each vertex's walk reads only the shared, now-immutable adjacency
-        // built above and writes only its own slice of the output arrays, so
-        // the walks are independent and can run in parallel.
-        Parallel.forEachIndex(vertices.size) { v ->
-            val from = incidentStart[v]
-            val to = incidentStart[v + 1]
-            val degree = to - from
+        // Each vertex's walk reads only the shared, immutable triangles and its
+        // own slice of cornerVertex, and writes only that slice and its slice
+        // of neighbors, so the walks are independent and can run in parallel.
+        // The ordered result goes through a small per-chunk scratch because the
+        // walk is still reading the unordered slice while it builds the order.
+        Parallel.forRanges(vertexCount) { chunkFrom, chunkTo ->
+            val ordered = IntArray(MAX_DEGREE)
+            for (v in chunkFrom until chunkTo) {
+                val from = cornerStart[v]
+                val to = cornerStart[v + 1]
+                val degree = to - from
+                check(degree <= MAX_DEGREE) { "vertex $v: degree $degree exceeds $MAX_DEGREE - malformed mesh" }
 
-            val center = vertices[v]
-            centers[v * 3] = center.x
-            centers[v * 3 + 1] = center.y
-            centers[v * 3 + 2] = center.z
+                val startTri = cornerVertex[from]
+                var current = startTri
+                var guard = 0
+                do {
+                    // Checked before writing so a malformed mesh can't spill into
+                    // the next vertex's slice (which another thread may be filling).
+                    check(guard < degree) { "vertex $v: dual walk did not close within $degree steps - malformed mesh" }
+                    ordered[guard] = current
+                    val targetVertex = thirdVertexAfter(current, v)
+                    neighbors[from + guard] = targetVertex
 
-            val startTri = incidentTriangles[from]
-            var current = startTri
-            var guard = 0
-            do {
-                // Checked before writing so a malformed mesh can't spill into
-                // the next vertex's slice (which another thread may be filling).
-                check(guard < degree) { "vertex $v: dual walk did not close within $degree steps - malformed mesh" }
-                cornerVertex[from + guard] = current
-                val targetVertex = thirdVertexAfter(triangles[current], v)
-                neighbors[from + guard] = targetVertex
-
-                var next = -1
-                for (k in from until to) {
-                    val cand = incidentTriangles[k]
-                    if (cand == current) continue
-                    val t = triangles[cand]
-                    if (t[0] == targetVertex || t[1] == targetVertex || t[2] == targetVertex) {
-                        next = cand
-                        break
+                    var next = -1
+                    for (k in from until to) {
+                        val cand = cornerVertex[k]
+                        if (cand == current) continue
+                        val base = cand * 3
+                        if (triangles[base] == targetVertex || triangles[base + 1] == targetVertex || triangles[base + 2] == targetVertex) {
+                            next = cand
+                            break
+                        }
                     }
-                }
-                check(next != -1) { "vertex $v: no other triangle shares edge with vertex $targetVertex - malformed mesh" }
-                current = next
-                guard++
-            } while (current != startTri)
-            check(guard == degree) { "vertex $v: dual walk closed after $guard steps, expected exactly $degree - malformed mesh" }
+                    check(next != -1) { "vertex $v: no other triangle shares edge with vertex $targetVertex - malformed mesh" }
+                    current = next
+                    guard++
+                } while (current != startTri)
+                check(guard == degree) { "vertex $v: dual walk closed after $guard steps, expected exactly $degree - malformed mesh" }
+                System.arraycopy(ordered, 0, cornerVertex, from, degree)
+            }
         }
         perf.lap("buildDual.perVertexWalk")
-        return Sphere(centers, incidentStart, cornerVertex, vertexPositions, neighbors)
+        // The original vertex positions are exactly the face centers, so the
+        // array is handed over rather than copied.
+        return Sphere(vertices, cornerStart, cornerVertex, vertexPositions, neighbors)
     }
+
+    // Pentagons have 5 corners and hexagons 6; nothing on this sphere has more.
+    private const val MAX_DEGREE = 6
 }
