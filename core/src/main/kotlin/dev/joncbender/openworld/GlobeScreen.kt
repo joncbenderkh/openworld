@@ -536,7 +536,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         private const val FAR_DEEP_OCEAN_RINGS = 2
         private const val NEAR_DEEP_OCEAN_RINGS = 3
         // The underlay's sphere. It is one flat color, so only its silhouette matters: at this
-        // frequency (~16k tiles, each ~3 degrees across) the polygons stray from a true sphere by
+        // frequency (~16k tiles, each ~1.7 degrees across) the polygons stray from a true sphere by
         // well under a pixel, and it builds far faster than a finer one.
         private const val UNDERLAY_FREQUENCY = 40
         // Open ocean is one flat color: the average of the ocean texture's base blue (0.11, 0.29,

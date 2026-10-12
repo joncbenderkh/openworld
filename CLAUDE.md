@@ -93,6 +93,14 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   Both layers are split into compact `PatchLayout` cells with bounding `SphereCap`s so culling
   against the horizon and view frustum is tight. A world no finer than the coarse frequency
   skips all this and draws a single layer.
+- Open ocean (`DeepOcean.kt`, `GlobeScreen.kt`): ~60-70% of tiles are ocean far from any land, so both
+  layers deliberately *omit* ocean tiles with no land within 2 (far) / 3 (near) tiles of themselves -
+  `PatchLayout`'s `keep` mask leaves them out of every patch, so missing meshes in deep ocean are
+  intentional, not a bug. A coarse all-ocean sphere (`UNDERLAY_FREQUENCY` 40, one flat color via the
+  shader's white texel times the vertex color) sits under everything and shows through. Draw order
+  is underlay, far, near, each pushed behind the next with `glPolygonOffset` (underlay 4/8, far 2/4
+  while the near layer is up, near none), so a new draw call must respect it. This saves rendering
+  memory and GPU work only: the tiles still exist in the data, the cache and the sphere arrays.
 - Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): the sphere's
   arrays are ~175 MB, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
