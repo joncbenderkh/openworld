@@ -120,6 +120,13 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   times the vertex color) sits under everything and shows through. Draw order is underlay, far, near, each
   pushed behind the next with `glPolygonOffset` (underlay 4/8, far 2/4 while the near layer is up, near
   none), so a new draw call must respect it.
+- The full-size world is generated without corners (`GeodesicSphere.generate(f, corners = false)`,
+  `Sphere.hasCorners`): generation reads only centers and neighbors, and corners are 55% of the sphere's
+  arrays. The neighbor lists are built by the same winding walk over a range of vertices at a time, so they
+  are identical to the full sphere's. `CompactPlan` rebuilds a kept tile's corners from centers and neighbors:
+  the corner between two consecutive neighbors is named by the neighbor-list slot of the lowest of the three
+  tiles meeting there, and sits at the average of their centers. Measured on a desktop JVM (smallest `-Xmx`
+  that cold-starts): frequency 445 needs ~150 MB, down from ~230; 540 needs ~180; 600 ~240.
 - Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): generation builds
   a ~175 MB full sphere, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
@@ -127,9 +134,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   start: Java heap 196 -> 94 MB once loaded, PSS 403 -> 311 MB (zoomed out), cache file 180 -> 80 MB, world
   load 0.78 -> 0.33 s, drag fps unchanged (~120 out, ~105 in). Headroom (heap held back by a ballast array
   before a start still succeeds): warm 60-80 -> ~160 MB. Cold start (generating) is unchanged: ~250 MB peak,
-  ~30-40 MB headroom, and the limit is generation's own allocations (`GeodesicSphere.buildDual`), not the
-  compaction. Raising the frequency further therefore needs the generation peak lowered first (#52). A
-  192 MB-heap emulator cannot generate this world at all; seed its app files with caches built on the
-  desktop instead.
+  ~30-40 MB headroom before #52 (see the corner-free generation above for what it lowered). The 192 MB-heap
+  emulator can now generate this world.
 
 - No lighting or biome-color blending at tile boundaries yet.

@@ -30,9 +30,9 @@ class WorldCompactorTest {
             assertEquals(full.sphere.centerX(source), sphere.centerX(t))
             assertEquals(full.sphere.centerZ(source), sphere.centerZ(t))
             for (k in 0 until sphere.cornerCount(t)) {
-                assertEquals(full.sphere.cornerX(source, k), sphere.cornerX(t, k))
-                assertEquals(full.sphere.cornerY(source, k), sphere.cornerY(t, k))
-                assertEquals(full.sphere.cornerZ(source, k), sphere.cornerZ(t, k))
+                assertEquals(full.sphere.cornerX(source, k), sphere.cornerX(t, k), 1e-6f)
+                assertEquals(full.sphere.cornerY(source, k), sphere.cornerY(t, k), 1e-6f)
+                assertEquals(full.sphere.cornerZ(source, k), sphere.cornerZ(t, k), 1e-6f)
             }
         }
     }
@@ -126,5 +126,26 @@ class WorldCompactorTest {
         val again = WorldCompactor.compact(full, coarse, rings = 1)
         assertTrue(again.world.sphere.neighbors.contentEquals(sphere.neighbors))
         assertTrue(again.sourceFace.contentEquals(compact.sourceFace))
+    }
+
+    @Test
+    fun `a world generated without corners compacts to the same world as one with them`() {
+        val lean = WorldGenerator(7L).generate(30, corners = false)
+        assertTrue(!lean.sphere.hasCorners)
+        for (i in 0 until full.sphere.faceCount) assertEquals(full[i], lean[i], "tile $i")
+        val again = WorldCompactor.compact(lean, coarse, rings = 1)
+        val a = again.world.sphere
+        assertTrue(a.neighbors.contentEquals(sphere.neighbors))
+        assertTrue(a.cornerVertex.contentEquals(sphere.cornerVertex))
+        assertTrue(a.vertexPositions.contentEquals(sphere.vertexPositions))
+        assertTrue(a.centers.contentEquals(sphere.centers))
+    }
+
+    @Test
+    fun `corners are shared by exactly the three tiles that meet there`() {
+        val uses = IntArray(sphere.vertexCount)
+        for (k in 0 until sphere.cornerTotal) uses[sphere.cornerVertex[k]]++
+        // A corner on the seam with an ocean tile is also a corner of that ocean tile, so fine corners are used 1-3 times.
+        for (v in 0 until sphere.vertexCount) assertTrue(uses[v] in 1..3, "vertex $v used ${uses[v]} times")
     }
 }

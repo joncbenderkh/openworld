@@ -292,7 +292,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         cacheFiles().forEach { it.delete() }
         if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD)) return NOT_ENOUGH_STORAGE
         val perf = PerfTimer()
-        val full = WorldGenerator(seed).generate(frequency, resourceDensity)
+        val full = WorldGenerator(seed).generate(frequency, resourceDensity, corners = false)
         perf.lap("world: generated")
         if (!cacheCoarseBiomes(full)) return WORLD_NOT_SAVED
         if (!CompactWorldCache.save(compactCacheFile, full, frequency, seed, resourceDensity)) return WORLD_NOT_SAVED

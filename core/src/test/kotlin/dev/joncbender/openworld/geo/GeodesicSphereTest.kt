@@ -126,4 +126,31 @@ class GeodesicSphereTest {
             }
         }
     }
+
+    @Test
+    fun `a sphere without corners has the same centers and neighbors`() {
+        for (freq in intArrayOf(1, 2, 7, 40)) {
+            val full = GeodesicSphere.generate(freq)
+            val lean = GeodesicSphere.generate(freq, corners = false)
+            assertTrue(!lean.hasCorners && full.hasCorners, "freq $freq")
+            assertTrue(full.centers.contentEquals(lean.centers), "freq $freq centers")
+            assertTrue(full.cornerStart.contentEquals(lean.cornerStart), "freq $freq starts")
+            assertTrue(full.neighbors.contentEquals(lean.neighbors), "freq $freq neighbors")
+        }
+    }
+
+    @Test
+    fun `gathering neighbors in many small chunks changes nothing`() {
+        val full = GeodesicSphere.generate(20)
+        val original = GeodesicSphere.chunkEntries
+        try {
+            for (entries in intArrayOf(1, 7, 100, 1000)) {
+                GeodesicSphere.chunkEntries = entries
+                val lean = GeodesicSphere.generate(20, corners = false)
+                assertTrue(full.neighbors.contentEquals(lean.neighbors), "chunks of $entries")
+            }
+        } finally {
+            GeodesicSphere.chunkEntries = original
+        }
+    }
 }

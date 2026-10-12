@@ -121,9 +121,10 @@ class WorldGenerator(private val seed: Long) {
         private const val ISLAND_VOLCANO_CHANCE = 0.2f
     }
 
-    fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY): SphereWorld {
+    /** With [corners] false the world's sphere has no corners (see [Sphere.hasCorners]); everything generated is identical. */
+    fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY, corners: Boolean = true): SphereWorld {
         val perf = PerfTimer()
-        val sphere = GeodesicSphere.generate(frequency)
+        val sphere = GeodesicSphere.generate(frequency, corners)
         perf.lap("GeodesicSphere.generate")
         val biomes = ByteArray(sphere.faceCount) { Biome.OCEAN.ordinal.toByte() }
         val elevation = FloatArray(sphere.faceCount)
