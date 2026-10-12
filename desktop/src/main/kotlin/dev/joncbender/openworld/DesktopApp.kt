@@ -100,7 +100,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
         text("seed ${game.globeScreen.seed}")
         if (notice.isNotEmpty()) text(notice)
         selected?.let {
-            text("Biome: ${it.biome.name.toDisplayName()}")
+            text("Biome: ${it.biome.name.toDisplayName()}${if (it.isOpenOcean) " (open ocean)" else ""}")
             text(if (it.resources.isEmpty()) "Resources: none" else "Resources: ${it.resources.joinToString(", ") { r -> r.name.toDisplayName() }}")
         }
         batch.end()

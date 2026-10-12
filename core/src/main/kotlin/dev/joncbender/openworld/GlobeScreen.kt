@@ -56,42 +56,24 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         preferences.flush()
     }
 
-    // options.storage is Gdx.files.local by default - the app's private files directory on
-    // Android - a plain on-disk cache of the generated world (see
-    // WorldCache) so a launch with an unchanged seed/density can load it
-    // instead of paying generation's cost (upwards of ten seconds at the
-    // game's current tile count) all over again.
-    private val worldCacheFile = options.storage("world_cache.bin")
-
-    // The far layer's biomes, cached separately (see CoarseWorldCache) so a warm start can build
-    // that layer before the fine world is loaded.
+    // options.storage is Gdx.files.local by default - the app's private files directory on Android.
+    // The world is cached on disk so a launch with an unchanged seed/density can load it instead of
+    // paying generation's cost (upwards of ten seconds at the game's current tile count) all over
+    // again: the compact world itself (see CompactWorldCache), and the far layer's biomes
+    // (see CoarseWorldCache), cached separately so a warm start can build that layer before the
+    // world is loaded.
+    private val compactCacheFile = options.storage("world_cache_compact.bin")
     private val coarseCacheFile = options.storage("world_cache_coarse.bin")
 
-    private lateinit var world: SphereWorld
+    // The world: fine tiles near land, a few large ocean tiles elsewhere (see WorldCompactor).
+    private lateinit var compact: CompactWorld
 
-    /** The world from the cache if it matches, otherwise freshly generated (and cached for next time). */
-    private fun loadOrGenerateWorld(): SphereWorld {
-        val perf = PerfTimer()
-        val cached = WorldCache.load(worldCacheFile, frequency, seed, resourceDensity)
-        return if (cached != null) {
-            perf.lap("world: loaded from cache")
-            cached
-        } else {
-            // A cache miss here (as opposed to regenerateWorld()'s explicit
-            // reseed) can still mean this is a genuinely different world from
-            // whatever the inventory was tracking - e.g. a stale/missing
-            // cache file, or a frequency bump from an app update changing
-            // the whole tile layout even with the same seed. Clearing keeps
-            // the same "persists between restarts, not between worlds" rule
-            // regenerateWorld() already follows; harmless on a first-ever
-            // launch, where the inventory is already empty.
-            inventory.clear()
-            val generated = WorldGenerator(seed).generate(frequency, resourceDensity)
-            perf.lap("world: generated")
-            WorldCache.save(worldCacheFile, generated, frequency, seed, resourceDensity)
-            perf.lap("world: saved to cache")
-            generated
-        }
+    // Built on the first tap after a world loads, since only picking needs it.
+    private var picker: TilePicker? = null
+
+    private fun pickTile(x: Float, y: Float, z: Float): Int {
+        val current = picker ?: TilePicker(compact, GeodesicSphere.generate(WorldCompactor.COARSE_FREQUENCY)).also { picker = it }
+        return current.pick(x, y, z)
     }
 
     /** Reverses the sense of one- and two-finger drag gestures. Settable from outside (the Android settings menu). */
@@ -188,61 +170,93 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         preferences.putLong(PREF_SEED, seed)
         preferences.flush()
         inventory.clear()
-        // Let go of everything that still references the old world before generating the
-        // new one: the sphere alone is ~175 MB, so two worlds at once do not fit in the heap.
+        // Let go of everything that still references the old world before generating the new one:
+        // the caches no longer match the seed, so loadWorld() generates, and the generator's full
+        // sphere is ~175 MB.
         disposeTerrain()
-        world = SphereWorld(GeodesicSphere.generate(1), ByteArray(12))
-        world = WorldGenerator(seed).generate(frequency, resourceDensity)
-        WorldCache.save(worldCacheFile, world, frequency, seed, resourceDensity)
-        buildTerrain()
+        picker = null
+        compact = placeholderWorld()
+        loadWorld()
     }
 
-    /** Whether the world is finer than the far layer, so it is drawn at two levels of detail. */
-    private val layered get() = frequency > CoarseWorldBuilder.COARSE_FREQUENCY
-
     /**
-     * Loads the world and builds both layers. On a warm start the far layer comes first, built
-     * from the cached coarse biomes while the heap is still empty, and only then is the ~175 MB
-     * fine world loaded - so building the coarse sphere never overlaps it, which is what limited
-     * the heap's headroom (and cost ~2 s of mapping and voting) when it was derived from the
-     * fine world instead.
+     * Builds the underlay, then loads the world and builds both layers. Generation happens in
+     * [generateAndCacheWorld], whose frame - and the ~175 MB full world in it - is gone by the time
+     * the compact world is loaded; the interpreter would otherwise keep a dead reference alive.
+     * On a warm start the far layer comes first, built from the cached coarse biomes while the heap
+     * is still empty, so building the coarse sphere never overlaps the world.
      */
     private fun loadTerrain() {
         val perf = PerfTimer()
         buildUnderlay()
         perf.lap("ocean underlay")
-        var farBuilt = false
-        if (layered) {
-            val coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
-            if (coarseBiomes != null) {
-                farTerrain = buildFarLayer(CoarseWorldBuilder.fromBiomes(coarseBiomes), releaseSource = true)
-                farBuilt = true
-                perf.lap("far layer from cached coarse biomes")
+        // The cache of builds before the compact world: ~180 MB nothing reads any more.
+        options.storage("world_cache.bin").delete()
+        loadWorld()
+    }
+
+    private fun loadWorld() {
+        val perf = PerfTimer()
+        // Two attempts: the second only happens if a cache that looked current could not be read.
+        repeat(2) {
+            var coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
+            if (coarseBiomes == null || !CompactWorldCache.isCurrent(compactCacheFile, frequency, seed, resourceDensity)) {
+                // A miss can mean this is a genuinely different world from whatever the inventory
+                // was tracking - e.g. a stale/missing cache, or a frequency bump from an app update
+                // changing the whole tile layout even with the same seed. Clearing keeps the same
+                // "persists between restarts, not between worlds" rule regenerateWorld() follows;
+                // harmless on a first-ever launch, where the inventory is already empty.
+                inventory.clear()
+                generateAndCacheWorld()
+                coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
             }
+            if (coarseBiomes != null) {
+                farTerrain = buildFarLayer(CoarseWorldBuilder.fromBiomes(coarseBiomes))
+                perf.lap("far layer from cached coarse biomes")
+                val loaded = CompactWorldCache.load(compactCacheFile, frequency, seed, resourceDensity)
+                if (loaded != null) {
+                    picker = null
+                    compact = loaded
+                    perf.lap("world: loaded from cache")
+                    buildNearLayer()
+                    return
+                }
+                farTerrain.dispose()
+            }
+            coarseCacheFile.delete()
+            compactCacheFile.delete()
         }
-        world = loadOrGenerateWorld()
-        if (farBuilt) buildNearLayer() else buildTerrain()
+        error("the world cache could not be read back after generating it")
     }
 
-    /** Builds every layer from the in-memory [world] (first launch, a cache miss, or a new world). */
-    private fun buildTerrain() {
-        farTerrain = if (layered) {
-            val coarse = CoarseWorldBuilder.build(world)
-            CoarseWorldCache.save(coarseCacheFile, coarse.biomeBytes(), frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
-            buildFarLayer(coarse, releaseSource = true)
-        } else {
-            buildFarLayer(world, releaseSource = false)
-        }
-        buildNearLayer()
+    /** A tiny stand-in that lets the old world be collected before a new one is built. */
+    private fun placeholderWorld() = CompactWorld(
+        SphereWorld(GeodesicSphere.generate(1), ByteArray(12)), fineCount = 12, sourceFace = IntArray(12) { it }, coarseFace = IntArray(0),
+    )
+
+    /** Generates the world and caches it. The full world never leaves this frame, so it is freed on return. */
+    private fun generateAndCacheWorld() {
+        val perf = PerfTimer()
+        val full = WorldGenerator(seed).generate(frequency, resourceDensity)
+        perf.lap("world: generated")
+        cacheCoarseBiomes(full)
+        CompactWorldCache.save(compactCacheFile, full, frequency, seed, resourceDensity)
+        perf.lap("world: saved to cache")
     }
 
-    private fun buildFarLayer(source: SphereWorld, releaseSource: Boolean): TerrainLayer {
+    /** In its own frame so the coarse world is freed before the compact cache is written. */
+    private fun cacheCoarseBiomes(full: SphereWorld) {
+        val coarse = CoarseWorldBuilder.build(full)
+        CoarseWorldCache.save(coarseCacheFile, coarse.biomeBytes(), frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
+    }
+
+    private fun buildFarLayer(source: SphereWorld): TerrainLayer {
         val draw = DeepOcean.tilesToDraw(source, FAR_DEEP_OCEAN_RINGS)
         Gdx.app?.log("perf", "far layer draws ${draw.count { it }} of ${draw.size} tiles (the rest is open ocean, left to the underlay)")
         return TerrainLayer(source, draw).also {
             it.buildAll()
             // A coarse world exists only to build this layer; let its sphere go.
-            if (releaseSource) it.releaseSource()
+            it.releaseSource()
         }
     }
 
@@ -257,19 +271,16 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     }
 
     private fun buildNearLayer() {
-        val near = if (layered) {
-            val draw = DeepOcean.tilesToDraw(world, NEAR_DEEP_OCEAN_RINGS)
-            Gdx.app?.log("perf", "near layer covers ${draw.count { it }} of ${draw.size} tiles (the rest is open ocean)")
-            TerrainLayer(world, draw)
-        } else {
-            null
-        }
+        val world = compact.world
+        val draw = DeepOcean.tilesToDraw(world, NEAR_DEEP_OCEAN_RINGS)
+        // The ocean tiles are open ocean by definition, and far too big for a patch of fine tiles.
+        for (t in compact.fineCount until compact.tileCount) draw[t] = false
+        Gdx.app?.log("perf", "near layer covers ${draw.count { it }} of ${draw.size} tiles (the rest is open ocean)")
+        val near = TerrainLayer(world, draw)
         nearTerrain = near
-        nearStreamer = near?.let { layer ->
-            NearPatchStreamer(layer.patchCount, options.maxNearPatches, { layer.build(it) }, { layer.release(it) })
-        }
-        nearVisible = IntArray(near?.patchCount ?: 0)
-        nearPriority = FloatArray(near?.patchCount ?: 0)
+        nearStreamer = NearPatchStreamer(near.patchCount, options.maxNearPatches, { near.build(it) }, { near.release(it) })
+        nearVisible = IntArray(near.patchCount)
+        nearPriority = FloatArray(near.patchCount)
         nearActive = false
         nearInactiveFrames = 0
     }
@@ -483,30 +494,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val hit = Vector3()
         if (!Intersector.intersectRaySphere(localRay, Vector3.Zero, 1f, hit)) return false
 
-        val faceIndex = nearestFace(hit.nor())
-        onTileSelected?.invoke(TileInfo(faceIndex, world[faceIndex], world.resourcesAt(faceIndex)))
+        val point = hit.nor()
+        val tile = pickTile(point.x, point.y, point.z)
+        val world = compact.world
+        onTileSelected?.invoke(TileInfo(tile, world[tile], world.resourcesAt(tile), compact.isOpenOcean(tile)))
         return true
-    }
-
-    /**
-     * Nearest face by angular distance to a point on the unit sphere. Not an
-     * exact point-in-polygon test against each face's actual (irregular)
-     * boundary, but a face's corners sit roughly evenly around its center, so
-     * nearest-center is a very close approximation - and cheap enough to just
-     * scan linearly since this only runs once per tap, not per frame.
-     */
-    private fun nearestFace(point: Vector3): Int {
-        var bestIndex = 0
-        var bestDot = -2f
-        val sphere = world.sphere
-        for (i in sphere.indices) {
-            val d = sphere.centerX(i) * point.x + sphere.centerY(i) * point.y + sphere.centerZ(i) * point.z
-            if (d > bestDot) {
-                bestDot = d
-                bestIndex = i
-            }
-        }
-        return bestIndex
     }
 
     override fun touchDown(x: Float, y: Float, pointer: Int, button: Int): Boolean {

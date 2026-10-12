@@ -91,24 +91,30 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   instead of orbiting the camera (arcball/trackball), which avoids the pole
   singularities a camera-orbit model runs into.
 - Level of detail (`GlobeScreen.kt`, `TerrainLayer.kt`, `CoarseWorld.kt`, `NearPatchStreamer.kt`,
-  `PatchLayout.kt`): the world is generated and cached at full resolution (frequency 445,
-  ~2M tiles; tap-picking resolves to these tiles at every zoom), but drawn at two levels. A coarse
-  far layer (frequency 199, each tile a weighted vote of the fine tiles inside it, with rivers and
-  lakes weighted up so they survive) is always drawn. The full-resolution near layer is built
-  patch by patch on demand, only below camera distance ~2.2, within a per-frame time budget.
-  Both layers are split into compact `PatchLayout` cells with bounding `SphereCap`s so culling
-  against the horizon and view frustum is tight. A world no finer than the coarse frequency
-  skips all this and draws a single layer.
-- Open ocean (`DeepOcean.kt`, `GlobeScreen.kt`): ~60-70% of tiles are ocean far from any land, so both
-  layers deliberately *omit* ocean tiles with no land within 2 (far) / 3 (near) tiles of themselves -
-  `PatchLayout`'s `keep` mask leaves them out of every patch, so missing meshes in deep ocean are
-  intentional, not a bug. A coarse all-ocean sphere (`UNDERLAY_FREQUENCY` 40, one flat color via the
-  shader's white texel times the vertex color) sits under everything and shows through. Draw order
-  is underlay, far, near, each pushed behind the next with `glPolygonOffset` (underlay 4/8, far 2/4
-  while the near layer is up, near none), so a new draw call must respect it. This saves rendering
-  memory and GPU work only: the tiles still exist in the data, the cache and the sphere arrays.
-- Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): the sphere's
-  arrays are ~175 MB, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
+  `PatchLayout.kt`): the world is drawn at two levels. A coarse far layer (frequency 199, each tile a
+  weighted vote of the fine tiles inside it, with rivers and lakes weighted up so they survive) is always
+  drawn. The full-resolution near layer is built patch by patch on demand, only below camera distance ~2.2,
+  within a per-frame time budget. Both layers are split into compact `PatchLayout` cells with bounding
+  `SphereCap`s so culling against the horizon and view frustum is tight.
+- The world itself is compact (`WorldCompactor.kt`, `CompactPlan.kt`, `CompactWorldCache.kt`,
+  `TilePicker.kt`): it is generated at full resolution (frequency 445, ~2M tiles), then every tile far from
+  land is replaced. Tile ids `0 until fineCount` are fine tiles (land, a 3-tile coast, and any frequency-66
+  coarse cell that holds those); ids from `fineCount` on are one large ocean tile per all-ocean coarse cell
+  (~26k of them), with their own corners and any number of neighbors (`Sphere.neighborStart`). That is
+  ~41% of the tiles, ~74 MB of arrays instead of ~175 MB. The full world exists only inside
+  `GlobeScreen.generateAndCacheWorld`, which streams the compact world to the cache and returns, so the
+  full world is freed *before* the compact one is loaded (ART's interpreter keeps a dead reference in a
+  live frame, so do not hold the full world in a caller's frame). Tap-picking resolves a point to its
+  coarse cell first (`TilePicker`): an ocean tile owns its cell, otherwise the nearest fine tile wins.
+- Open ocean (`DeepOcean.kt`, `GlobeScreen.kt`): ocean tiles with no land within 2 (far) / 3 (near) tiles are
+  deliberately *omitted* from the layers - `PatchLayout`'s `keep` mask leaves them out of every patch (the
+  big ocean tiles are always left out of the near layer), so missing meshes in deep ocean are intentional,
+  not a bug. A coarse all-ocean sphere (`UNDERLAY_FREQUENCY` 40, one flat color via the shader's white texel
+  times the vertex color) sits under everything and shows through. Draw order is underlay, far, near, each
+  pushed behind the next with `glPolygonOffset` (underlay 4/8, far 2/4 while the near layer is up, near
+  none), so a new draw call must respect it.
+- Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): generation builds
+  a ~175 MB full sphere, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
 
 - No lighting or biome-color blending at tile boundaries yet.

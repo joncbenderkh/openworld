@@ -26,6 +26,23 @@ class CoarseWorldTest {
     }
 
     @Test
+    fun `a face exactly between two coarse faces goes to the lower one, as in an exhaustive search`() {
+        val fine = GeodesicSphere.generate(30)
+        val coarse = GeodesicSphere.generate(5)
+        val parent = CoarseWorldBuilder.nearestFaces(fine, coarse)
+
+        for (i in fine.indices) {
+            var best = 0
+            var bestDot = -2f
+            for (c in coarse.indices) {
+                val d = dot(fine, i, coarse, c)
+                if (d > bestDot) { bestDot = d; best = c }
+            }
+            assertEquals(best, parent[i], "fine face $i")
+        }
+    }
+
+    @Test
     fun `mapping a sphere onto itself is the identity`() {
         val sphere = GeodesicSphere.generate(12)
         val parent = CoarseWorldBuilder.nearestFaces(sphere, sphere)
