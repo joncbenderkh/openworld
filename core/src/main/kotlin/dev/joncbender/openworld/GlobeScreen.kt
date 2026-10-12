@@ -69,6 +69,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     // The world: fine tiles near land, a few large ocean tiles elsewhere (see WorldCompactor).
     private lateinit var compact: CompactWorld
 
+    // The resource density the loaded world was made with; null while there is no world.
+    private var loadedDensity: Float? = null
+
     // False while there is no world to inspect: before it loads, or when it could not be stored.
     private var worldReady = false
 
@@ -178,8 +181,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     fun regenerateWorld(newSeed: Long = System.nanoTime()) {
         // Decide before touching anything: a refused regeneration leaves the current world playable.
         // The caches about to be replaced count as free space, since they are deleted first.
-        val reclaimable = compactCacheFile.lengthOrZero() + coarseCacheFile.lengthOrZero()
+        val reclaimable = cacheFiles().sumOf { it.lengthOrZero() }
         if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD, reclaimable)) {
+            // The settings menu may have changed the density just before asking; put it back, or the
+            // next launch would find the saved world does not match it and try to replace that world.
+            loadedDensity?.let { resourceDensity = it }
             onMessage?.invoke(NOT_ENOUGH_STORAGE)
             return
         }
@@ -198,6 +204,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     }
 
     private fun FileHandle.lengthOrZero(): Long = if (exists()) length() else 0L
+
+    /** Both caches and the temporary files a write that was cut short could have left beside them. */
+    private fun cacheFiles(): List<FileHandle> =
+        listOf(coarseCacheFile, compactCacheFile).flatMap { listOf(it, CacheFiles.temporaryOf(it)) }
 
     /**
      * Builds the underlay, then loads the world and builds both layers. Generation happens in
@@ -222,6 +232,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private fun loadWorld() {
         val problem = loadWorldOrExplain()
         worldReady = problem == null
+        loadedDensity = if (problem == null) resourceDensity else null
         if (problem != null) {
             picker = null
             compact = placeholderWorld()
@@ -236,13 +247,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         repeat(2) {
             var coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
             if (coarseBiomes == null || !CompactWorldCache.isCurrent(compactCacheFile, frequency, seed, resourceDensity)) {
+                generateAndCacheWorld()?.let { return it }
                 // A miss can mean this is a genuinely different world from whatever the inventory
                 // was tracking - e.g. a stale/missing cache, or a frequency bump from an app update
                 // changing the whole tile layout even with the same seed. Clearing keeps the same
                 // "persists between restarts, not between worlds" rule regenerateWorld() follows;
-                // harmless on a first-ever launch, where the inventory is already empty.
+                // harmless on a first-ever launch, where the inventory is already empty. It waits for
+                // the world to exist: a world that cannot be stored must not cost the player their items.
                 inventory.clear()
-                generateAndCacheWorld()?.let { return it }
                 coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
             }
             if (coarseBiomes != null) {
@@ -273,11 +285,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     /**
      * Generates the world and caches it, returning null or what to tell the player if it could not.
      * The full world never leaves this frame, so it is freed on return. The stale caches go first:
-     * they cannot match, and their space is needed for the new ones.
+     * they cannot match, and their space is needed for the new ones - as is that of any temporary
+     * file a killed save left behind.
      */
     private fun generateAndCacheWorld(): String? {
-        coarseCacheFile.delete()
-        compactCacheFile.delete()
+        cacheFiles().forEach { it.delete() }
         if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD)) return NOT_ENOUGH_STORAGE
         val perf = PerfTimer()
         val full = WorldGenerator(seed).generate(frequency, resourceDensity)
