@@ -1,9 +1,13 @@
 name: CI
 
+# Docs-only changes skip the build. Do not make this workflow a required status check
+# without changing this: a skipped run never reports, so a docs-only PR would wait forever.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md', 'LICENSE']
   pull_request:
+    paths-ignore: ['**/*.md', 'LICENSE']
 
 permissions:
   contents: read
