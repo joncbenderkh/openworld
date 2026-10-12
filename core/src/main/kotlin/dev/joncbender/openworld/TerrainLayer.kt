@@ -19,9 +19,12 @@ import com.badlogic.gdx.graphics.VertexAttributes
  * regardless, since GL's 16-bit index buffers can only address 65536 distinct
  * vertices per mesh - nowhere near enough for a whole globe.
  *
+ * With a [flatColor], every tile is drawn as that one solid color (the shader's white texel times
+ * the vertex color) instead of its biome's texture - for a surface with nothing worth looking at.
+ *
  * [build] and [buildAll] create GL objects, so they must run on the GL thread.
  */
-class TerrainLayer(world: SphereWorld) {
+class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val flatColor: Color? = null) {
     private class Source(val world: SphereWorld, val layout: PatchLayout)
 
     // Dropped by releaseSource() once a layer that was built eagerly no longer needs to build
@@ -34,7 +37,7 @@ class TerrainLayer(world: SphereWorld) {
     private val meshes: Array<Mesh?>
 
     init {
-        val layout = PatchLayout.build(world.sphere, FACES_PER_PATCH)
+        val layout = PatchLayout.build(world.sphere, FACES_PER_PATCH, keep)
         source = Source(world, layout)
         patchCount = layout.patchCount
         caps = arrayOfNulls<SphereCap>(patchCount)
@@ -53,28 +56,60 @@ class TerrainLayer(world: SphereWorld) {
     /** The built mesh for [patch], or null if it hasn't been built (or was released). */
     fun meshOrNull(patch: Int): Mesh? = meshes[patch]
 
+    /**
+     * One patch's vertices (x, y, z, packed color, u, v per vertex) and triangle indices, as filled
+     * into this layer's shared scratch arrays - valid only until the next [geometry] or [build] call.
+     */
+    internal class PatchGeometry(
+        val vertices: FloatArray,
+        val vertexFloats: Int,
+        val vertexCount: Int,
+        val indices: ShortArray,
+        val indexCount: Int,
+    )
+
     /** Builds [patch]'s mesh if it isn't already, and returns it. */
     fun build(patch: Int): Mesh {
         meshes[patch]?.let { return it }
+        val geometry = geometry(patch)
+
+        val mesh = Mesh(
+            true,
+            geometry.vertexCount,
+            geometry.indexCount,
+            VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
+            VertexAttribute.ColorPacked(),
+            VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
+        )
+        mesh.setVertices(geometry.vertices, 0, geometry.vertexFloats)
+        mesh.setIndices(geometry.indices, 0, geometry.indexCount)
+        meshes[patch] = mesh
+        return mesh
+    }
+
+    /** Fills the scratch arrays with [patch]'s geometry. Needs no GL, so it can be tested directly. */
+    internal fun geometry(patch: Int): PatchGeometry {
         val (world, layout) = source?.let { it.world to it.layout }
             ?: error("TerrainLayer source was released; patch $patch cannot be built")
         val sphere = world.sphere
         val vertices = vertexData ?: FloatArray(FACES_PER_PATCH * VERTICES_PER_FACE * VERTEX_SIZE).also { vertexData = it }
         val indices = indexData ?: ShortArray(FACES_PER_PATCH * VERTICES_PER_FACE * 3).also { indexData = it }
 
+        val flatUV = flatColor?.let { BiomeTextures.whiteUV() }
+        val vertexColor = flatColor?.toFloatBits() ?: WHITE_BITS
         var vertexFloatPos = 0
         var vertexCount = 0
         var indexCount = 0
         for (k in layout.start(patch) until layout.end(patch)) {
             val i = layout.faceIndices[k]
             val biome = world[i]
-            val centerU = BiomeTextures.centerU(biome)
-            val centerV = BiomeTextures.centerV(biome)
+            val centerU = flatUV?.first ?: BiomeTextures.centerU(biome)
+            val centerV = flatUV?.second ?: BiomeTextures.centerV(biome)
             val n = sphere.cornerCount(i)
             val cornerUVs = BiomeTextures.cornerUVs(biome, n)
 
             val centerIndex = vertexCount
-            vertexFloatPos = appendVertex(vertices, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), centerU, centerV)
+            vertexFloatPos = appendVertex(vertices, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), vertexColor, centerU, centerV)
             vertexCount++
 
             val firstCornerIndex = vertexCount
@@ -82,7 +117,7 @@ class TerrainLayer(world: SphereWorld) {
                 vertexFloatPos = appendVertex(
                     vertices, vertexFloatPos,
                     sphere.cornerX(i, c), sphere.cornerY(i, c), sphere.cornerZ(i, c),
-                    cornerUVs[c * 2], cornerUVs[c * 2 + 1],
+                    vertexColor, flatUV?.first ?: cornerUVs[c * 2], flatUV?.second ?: cornerUVs[c * 2 + 1],
                 )
                 vertexCount++
             }
@@ -94,18 +129,7 @@ class TerrainLayer(world: SphereWorld) {
             }
         }
 
-        val mesh = Mesh(
-            true,
-            vertexCount,
-            indexCount,
-            VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
-            VertexAttribute.ColorPacked(),
-            VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
-        )
-        mesh.setVertices(vertices, 0, vertexFloatPos)
-        mesh.setIndices(indices, 0, indexCount)
-        meshes[patch] = mesh
-        return mesh
+        return PatchGeometry(vertices, vertexFloatPos, vertexCount, indices, indexCount)
     }
 
     /** Builds every patch's mesh, logging how long the whole layer took. */
@@ -121,6 +145,9 @@ class TerrainLayer(world: SphereWorld) {
      */
     fun releaseSource() {
         source = null
+        // Nothing can be built any more, so the scratch arrays (~1.8 MB) are dead weight too.
+        vertexData = null
+        indexData = null
     }
 
     /** Releases [patch]'s mesh; it can be rebuilt later with [build]. */
@@ -132,13 +159,13 @@ class TerrainLayer(world: SphereWorld) {
     fun dispose() {
         for (patch in 0 until patchCount) release(patch)
         // A disposed layer is finished; don't keep the world it was built from alive.
-        source = null
+        releaseSource()
     }
 
-    private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, u: Float, v: Float): Int {
+    private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, colorBits: Float, u: Float, v: Float): Int {
         var o = offset
         data[o++] = x; data[o++] = y; data[o++] = z
-        data[o++] = WHITE_BITS
+        data[o++] = colorBits
         data[o++] = u; data[o++] = v
         return o
     }

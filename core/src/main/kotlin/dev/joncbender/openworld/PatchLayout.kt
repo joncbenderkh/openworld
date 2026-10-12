@@ -19,6 +19,9 @@ import kotlin.math.sqrt
  * Only non-empty cells become patches, numbered in cell order, and a patch lists its faces
  * in ascending index order, so the layout is deterministic. The grid is made finer until no
  * patch exceeds [maxFacesPerPatch].
+ *
+ * A `keep` mask leaves faces out entirely: a face with `keep[i] == false` belongs to no patch.
+ * That is how open ocean is dropped from the meshes.
  */
 class PatchLayout private constructor(
     val patchCount: Int,
@@ -35,24 +38,32 @@ class PatchLayout private constructor(
         // a cheap mesh build, large enough that draw calls stay in the hundreds.
         private const val TARGET_FACES_PER_CELL = 2500
 
-        fun build(sphere: Sphere, maxFacesPerPatch: Int): PatchLayout {
+        fun build(sphere: Sphere, maxFacesPerPatch: Int, keep: BooleanArray? = null): PatchLayout {
+            require(keep == null || keep.size == sphere.faceCount) { "keep must have one entry per face" }
             var cellsPerEdge = maxOf(1, ceil(sqrt(sphere.faceCount / (TARGET_FACES_PER_CELL * 10.0))).toInt())
             while (true) {
-                tryBuild(sphere, cellsPerEdge, maxFacesPerPatch)?.let { return it }
+                tryBuild(sphere, cellsPerEdge, maxFacesPerPatch, keep)?.let { return it }
                 cellsPerEdge++
             }
         }
 
-        private fun tryBuild(sphere: Sphere, g: Int, maxFacesPerPatch: Int): PatchLayout? {
+        private fun tryBuild(sphere: Sphere, g: Int, maxFacesPerPatch: Int, keep: BooleanArray?): PatchLayout? {
             val faceCount = sphere.faceCount
+            // -1 for a face that is left out.
             val cellOf = IntArray(faceCount)
             Parallel.forEachIndex(faceCount) { i ->
-                cellOf[i] = Triangles.cellOf(sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), g)
+                cellOf[i] = if (keep == null || keep[i]) Triangles.cellOf(sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), g) else -1
             }
 
             val cellCount = 20 * g * g
             val counts = IntArray(cellCount)
-            for (cell in cellOf) counts[cell]++
+            var keptCount = 0
+            for (cell in cellOf) {
+                if (cell >= 0) {
+                    counts[cell]++
+                    keptCount++
+                }
+            }
             if (counts.max() > maxFacesPerPatch) return null
 
             // Number the non-empty cells as patches and lay their faces out back to back.
@@ -64,8 +75,11 @@ class PatchLayout private constructor(
             for (p in 0 until patchCount) patchStart[p + 1] += patchStart[p]
 
             val cursor = patchStart.copyOf(patchCount)
-            val faceIndices = IntArray(faceCount)
-            for (face in 0 until faceCount) faceIndices[cursor[patchOfCell[cellOf[face]]]++] = face
+            val faceIndices = IntArray(keptCount)
+            for (face in 0 until faceCount) {
+                val cell = cellOf[face]
+                if (cell >= 0) faceIndices[cursor[patchOfCell[cell]]++] = face
+            }
             return PatchLayout(patchCount, patchStart, faceIndices)
         }
     }
