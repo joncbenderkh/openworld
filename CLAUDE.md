@@ -116,5 +116,13 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
 - Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): generation builds
   a ~175 MB full sphere, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
+- Measured on the phone (Android, seed 123456789; 1,980,252 source tiles, 809,555 after compaction). Warm
+  start: Java heap 196 -> 94 MB once loaded, PSS 403 -> 311 MB (zoomed out), cache file 180 -> 80 MB, world
+  load 0.78 -> 0.33 s, drag fps unchanged (~120 out, ~105 in). Headroom (heap held back by a ballast array
+  before a start still succeeds): warm 60-80 -> ~160 MB. Cold start (generating) is unchanged: ~250 MB peak,
+  ~30-40 MB headroom, and the limit is generation's own allocations (`GeodesicSphere.buildDual`), not the
+  compaction. Raising the frequency further therefore needs the generation peak lowered first (#52). A
+  192 MB-heap emulator cannot generate this world at all; seed its app files with caches built on the
+  desktop instead.
 
 - No lighting or biome-color blending at tile boundaries yet.
