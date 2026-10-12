@@ -21,7 +21,16 @@ kotlin {
 application {
     mainClass = "dev.joncbender.openworld.DesktopLauncherKt"
     // Unlike a phone, a desktop JVM can be given the memory; the default heap is a quarter of RAM.
-    // Run with e.g. `./gradlew :desktop:run --args="--max-near-patches=1024"`; pass -Xmx via JAVA_OPTS.
+    // Run with e.g. `./gradlew :desktop:run --args="--max-near-patches=1024"`.
+}
+
+// `run` forks the game, and a -D given to Gradle stays with Gradle: pass the game's own settings on.
+tasks.run {
+    System.getProperties().stringPropertyNames()
+        .filter { it.startsWith("openworld.") }
+        .forEach { systemProperty(it, System.getProperty(it)) }
+    // Heap for the forked game, e.g. -Popenworld.heap=4g (JAVA_OPTS reaches only the installed start script).
+    (findProperty("openworld.heap") as String?)?.let { maxHeapSize = it }
 }
 
 tasks.test {

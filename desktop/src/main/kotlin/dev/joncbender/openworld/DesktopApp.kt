@@ -54,7 +54,10 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                 Input.Keys.NUM_1 -> setDensity(0.12f, "Sparse")
                 Input.Keys.NUM_2 -> setDensity(0.18f, "Normal")
                 Input.Keys.NUM_3 -> setDensity(0.28f, "Abundant")
-                Input.Keys.N -> screen.regenerateWorld(System.nanoTime())
+                Input.Keys.N -> {
+                    screen.regenerateWorld(System.nanoTime())
+                    selected = null
+                }
                 Input.Keys.C -> {
                     Gdx.app.clipboard.contents = screen.seed.toString()
                     notice = "Seed ${screen.seed} copied"
@@ -70,6 +73,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
         if (screen.resourceDensity == value) return
         screen.resourceDensity = value
         screen.regenerateWorld()
+        selected = null
         notice = "$label resources"
     }
 
