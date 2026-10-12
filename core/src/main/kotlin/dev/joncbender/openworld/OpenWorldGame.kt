@@ -9,9 +9,13 @@ class OpenWorldGame(private val options: GameOptions = GameOptions()) : Game() {
     /** Set before initialize()/initializeForView() runs create() on the GL thread - see GlobeScreen.onTileSelected. */
     var onTileSelected: ((TileInfo) -> Unit)? = null
 
+    /** Same timing as [onTileSelected]; see [GlobeScreen.onMessage]. */
+    var onMessage: ((String) -> Unit)? = null
+
     override fun create() {
         globeScreen = GlobeScreen(options)
         globeScreen.onTileSelected = onTileSelected
+        globeScreen.onMessage = onMessage
         setScreen(globeScreen)
     }
 }

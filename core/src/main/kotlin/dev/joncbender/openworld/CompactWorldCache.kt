@@ -106,7 +106,7 @@ object CompactWorldCache {
                 val resourceCounts = ByteArray(layout.fineCount).also { input.readFully(it) }
                 val resourceBytes = ByteArray(layout.resourceTotal).also { input.readFully(it) }
 
-                if (biomeBytes.any { it < 0 || it >= Biome.entries.size }) return null
+                if (!isConsistent(layout, cornerStart, cornerVertex, neighborStart, neighbors, sourceFace, coarseFace, biomeBytes, resourceCounts, resourceBytes)) return null
                 val sphere = Sphere(centers, cornerStart, cornerVertex, vertexPositions, neighbors, neighborStart)
                 val world = SphereWorld(sphere, biomeBytes)
                 var resourceOffset = 0
@@ -125,9 +125,9 @@ object CompactWorldCache {
     }
 
     /**
-     * Compacts [full] and writes the result to [file], without ever building it in memory.
-     * Best-effort: a failed write shouldn't crash or block gameplay, just means the next launch
-     * regenerates.
+     * Compacts [full] and writes the result to [file], without ever building it in memory. The file
+     * is replaced atomically (see [CacheFiles.writeAtomically]). Returns whether it was written;
+     * a failure is not thrown, since the caller decides what a missing cache means.
      */
     fun save(
         file: FileHandle,
@@ -137,15 +137,15 @@ object CompactWorldCache {
         resourceDensity: Float,
         coarseFrequency: Int = WorldCompactor.COARSE_FREQUENCY,
         rings: Int = WorldCompactor.COAST_RINGS,
-    ) {
-        try {
+    ): Boolean {
+        return try {
             val perf = PerfTimer()
             val plan = CompactPlan(full, GeodesicSphere.generate(coarseFrequency), rings)
             var resourceTotal = 0
             for (t in 0 until plan.fineCount) resourceTotal += plan.resources(t).size
             val layout = Layout(plan.tileCount, plan.fineCount, plan.cornerTotal, plan.neighborTotal, plan.vertexCount, resourceTotal)
 
-            file.write(false).use { out ->
+            val written = CacheFiles.writeAtomically(file) { out ->
                 val header = ByteBuffer.allocate(HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
                 header.putInt(0, FORMAT_VERSION)
                 header.putInt(4, frequency)
@@ -176,9 +176,51 @@ object CompactWorldCache {
                 writer.flush()
             }
             perf.lap("compactCache.save.stream")
+            written
         } catch (e: Exception) {
-            // Ignored - see doc comment above.
+            false
         }
+    }
+
+    /**
+     * Whether every index in the arrays points somewhere real: offsets rise from 0 to the totals,
+     * vertices and neighbors are in range, source and coarse faces ascend (the compactor writes
+     * them in order, and [TilePicker] searches [coarseFace]), and biomes and resources are valid
+     * ordinals. A file of the right length can still hold garbage; rejecting it here means a
+     * regeneration rather than an index error later.
+     */
+    private fun isConsistent(
+        layout: Layout,
+        cornerStart: IntArray,
+        cornerVertex: IntArray,
+        neighborStart: IntArray,
+        neighbors: IntArray,
+        sourceFace: IntArray,
+        coarseFace: IntArray,
+        biomes: ByteArray,
+        resourceCounts: ByteArray,
+        resourceBytes: ByteArray,
+    ): Boolean {
+        if (!offsetsRise(cornerStart, layout.cornerTotal) || !offsetsRise(neighborStart, layout.neighborTotal)) return false
+        if (cornerVertex.any { it < 0 || it >= layout.vertexCount }) return false
+        if (neighbors.any { it < 0 || it >= layout.tileCount }) return false
+        if (!ascendingFrom0(sourceFace) || !ascendingFrom0(coarseFace)) return false
+        if (biomes.any { it < 0 || it >= Biome.entries.size }) return false
+        if (resourceCounts.any { it < 0 || it > SphereWorld.MAX_RESOURCES }) return false
+        return resourceBytes.none { it < 0 || it >= Resource.entries.size }
+    }
+
+    private fun offsetsRise(offsets: IntArray, total: Int): Boolean {
+        if (offsets[0] != 0 || offsets[offsets.size - 1] != total) return false
+        for (i in 1 until offsets.size) if (offsets[i] < offsets[i - 1]) return false
+        return true
+    }
+
+    private fun ascendingFrom0(values: IntArray): Boolean {
+        if (values.isEmpty()) return true
+        if (values[0] < 0) return false
+        for (i in 1 until values.size) if (values[i] <= values[i - 1]) return false
+        return true
     }
 
     private fun readFloats(input: DataInputStream, count: Int, chunk: ByteArray): FloatArray {

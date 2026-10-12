@@ -38,6 +38,7 @@ class AndroidLauncher : AndroidApplication() {
         // Set before initializeForView() so it's already there by the time
         // create() runs on the GL thread and constructs globeScreen.
         game.onTileSelected = { info -> runOnUiThread { showTileInfo(info) } }
+        game.onMessage = { message -> runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() } }
         // initializeForView (rather than initialize) skips setContentView so the
         // GL surface can be embedded alongside the settings button overlay below.
         val gameView = initializeForView(game, config)

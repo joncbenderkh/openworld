@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.InputAdapter
 import com.badlogic.gdx.InputMultiplexer
 import com.badlogic.gdx.Screen
+import com.badlogic.gdx.files.FileHandle
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.Mesh
@@ -68,6 +69,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     // The world: fine tiles near land, a few large ocean tiles elsewhere (see WorldCompactor).
     private lateinit var compact: CompactWorld
 
+    // False while there is no world to inspect: before it loads, or when it could not be stored.
+    private var worldReady = false
+
     // Built on the first tap after a world loads, since only picking needs it.
     private var picker: TilePicker? = null
 
@@ -86,6 +90,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     /** Fired from tap() with whatever tile was hit - set by the Android layer to pop up a detail dialog. */
     var onTileSelected: ((TileInfo) -> Unit)? = null
+
+    /**
+     * Fired with a sentence for the player when something that is not their doing goes wrong - the
+     * world cannot be stored, say. Set by the launcher to show it; may be called on the GL thread.
+     */
+    var onMessage: ((String) -> Unit)? = null
 
     private val camera = PerspectiveCamera(60f, 1f, 1f).apply {
         near = 0.1f
@@ -117,7 +127,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     // world is finer than CoarseWorldBuilder.COARSE_FREQUENCY, otherwise the world itself.
     // nearTerrain is the full-resolution world, built patch by patch only while zoomed in
     // (null when no coarser level is needed).
-    private lateinit var farTerrain: TerrainLayer
+    private var farTerrain: TerrainLayer? = null
     // A coarse all-ocean sphere under everything. The far and near layers leave out open ocean
     // (see DeepOcean), and this shows through where they do.
     private lateinit var underlay: TerrainLayer
@@ -166,6 +176,13 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
      * inventory resets along with it.
      */
     fun regenerateWorld(newSeed: Long = System.nanoTime()) {
+        // Decide before touching anything: a refused regeneration leaves the current world playable.
+        // The caches about to be replaced count as free space, since they are deleted first.
+        val reclaimable = compactCacheFile.lengthOrZero() + coarseCacheFile.lengthOrZero()
+        if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD, reclaimable)) {
+            onMessage?.invoke(NOT_ENOUGH_STORAGE)
+            return
+        }
         seed = newSeed
         preferences.putLong(PREF_SEED, seed)
         preferences.flush()
@@ -175,9 +192,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // sphere is ~175 MB.
         disposeTerrain()
         picker = null
+        worldReady = false
         compact = placeholderWorld()
         loadWorld()
     }
+
+    private fun FileHandle.lengthOrZero(): Long = if (exists()) length() else 0L
 
     /**
      * Builds the underlay, then loads the world and builds both layers. Generation happens in
@@ -195,7 +215,22 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         loadWorld()
     }
 
+    /**
+     * Loads the world and builds both layers, or - if the world cannot be stored or read back -
+     * leaves the globe bare (just the underlay) and tells the player why.
+     */
     private fun loadWorld() {
+        val problem = loadWorldOrExplain()
+        worldReady = problem == null
+        if (problem != null) {
+            picker = null
+            compact = placeholderWorld()
+            onMessage?.invoke(problem)
+        }
+    }
+
+    /** Null on success, otherwise what to tell the player. */
+    private fun loadWorldOrExplain(): String? {
         val perf = PerfTimer()
         // Two attempts: the second only happens if a cache that looked current could not be read.
         repeat(2) {
@@ -207,7 +242,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                 // "persists between restarts, not between worlds" rule regenerateWorld() follows;
                 // harmless on a first-ever launch, where the inventory is already empty.
                 inventory.clear()
-                generateAndCacheWorld()
+                generateAndCacheWorld()?.let { return it }
                 coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
             }
             if (coarseBiomes != null) {
@@ -219,14 +254,15 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                     compact = loaded
                     perf.lap("world: loaded from cache")
                     buildNearLayer()
-                    return
+                    return null
                 }
-                farTerrain.dispose()
+                farTerrain?.dispose()
+                farTerrain = null
             }
             coarseCacheFile.delete()
             compactCacheFile.delete()
         }
-        error("the world cache could not be read back after generating it")
+        return WORLD_UNREADABLE
     }
 
     /** A tiny stand-in that lets the old world be collected before a new one is built. */
@@ -234,20 +270,28 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         SphereWorld(GeodesicSphere.generate(1), ByteArray(12)), fineCount = 12, sourceFace = IntArray(12) { it }, coarseFace = IntArray(0),
     )
 
-    /** Generates the world and caches it. The full world never leaves this frame, so it is freed on return. */
-    private fun generateAndCacheWorld() {
+    /**
+     * Generates the world and caches it, returning null or what to tell the player if it could not.
+     * The full world never leaves this frame, so it is freed on return. The stale caches go first:
+     * they cannot match, and their space is needed for the new ones.
+     */
+    private fun generateAndCacheWorld(): String? {
+        coarseCacheFile.delete()
+        compactCacheFile.delete()
+        if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD)) return NOT_ENOUGH_STORAGE
         val perf = PerfTimer()
         val full = WorldGenerator(seed).generate(frequency, resourceDensity)
         perf.lap("world: generated")
-        cacheCoarseBiomes(full)
-        CompactWorldCache.save(compactCacheFile, full, frequency, seed, resourceDensity)
+        if (!cacheCoarseBiomes(full)) return WORLD_NOT_SAVED
+        if (!CompactWorldCache.save(compactCacheFile, full, frequency, seed, resourceDensity)) return WORLD_NOT_SAVED
         perf.lap("world: saved to cache")
+        return null
     }
 
     /** In its own frame so the coarse world is freed before the compact cache is written. */
-    private fun cacheCoarseBiomes(full: SphereWorld) {
+    private fun cacheCoarseBiomes(full: SphereWorld): Boolean {
         val coarse = CoarseWorldBuilder.build(full)
-        CoarseWorldCache.save(coarseCacheFile, coarse.biomeBytes(), frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
+        return CoarseWorldCache.save(coarseCacheFile, coarse.biomeBytes(), frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
     }
 
     private fun buildFarLayer(source: SphereWorld): TerrainLayer {
@@ -287,7 +331,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     private fun disposeTerrain() {
         nearStreamer?.releaseAll()
-        farTerrain.dispose()
+        farTerrain?.dispose()
+        farTerrain = null
         nearTerrain?.dispose()
         nearTerrain = null
         nearStreamer = null
@@ -355,12 +400,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         drawLayer(underlay)
         if (near != null && nearActive) {
             Gdx.gl.glPolygonOffset(FAR_POLYGON_OFFSET_FACTOR, FAR_POLYGON_OFFSET_UNITS)
-            drawLayer(farTerrain)
+            farTerrain?.let { drawLayer(it) }
             Gdx.gl.glDisable(GL20.GL_POLYGON_OFFSET_FILL)
             drawNear(near)
         } else {
             Gdx.gl.glDisable(GL20.GL_POLYGON_OFFSET_FILL)
-            drawLayer(farTerrain)
+            farTerrain?.let { drawLayer(it) }
         }
     }
 
@@ -494,6 +539,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val hit = Vector3()
         if (!Intersector.intersectRaySphere(localRay, Vector3.Zero, 1f, hit)) return false
 
+        if (!worldReady) return false
         val point = hit.nor()
         val tile = pickTile(point.x, point.y, point.z)
         val world = compact.world
@@ -521,6 +567,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     }
 
     companion object {
+        // The compact cache is ~80-90 MB; a world with more land is bigger, and the coarse cache is small.
+        private const val MIN_FREE_BYTES_FOR_WORLD = 160L * 1024 * 1024
+        private const val NOT_ENOUGH_STORAGE = "Not enough free storage to create the world (about 160 MB is needed)."
+        private const val WORLD_NOT_SAVED = "The world could not be saved, so it cannot be shown. Free some storage and start a new world."
+        private const val WORLD_UNREADABLE = "The saved world could not be read. Start a new world."
+
         private const val ROTATE_SPEED_DEG = 0.3f
         // Camera distance change per wheel notch.
         private const val SCROLL_ZOOM_STEP = 0.1f

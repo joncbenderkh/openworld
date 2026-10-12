@@ -30,27 +30,27 @@ object CoarseWorldCache {
                 val count = input.readInt()
                 if (count != 10 * coarseFrequency * coarseFrequency + 2) return null
                 if (file.length() != HEADER_BYTES.toLong() + count) return null
-                ByteArray(count).also { input.readFully(it) }
+                val biomes = ByteArray(count).also { input.readFully(it) }
+                if (biomes.any { it < 0 || it >= Biome.entries.size }) return null
+                biomes
             }
         } catch (e: Exception) {
             null
         }
     }
 
-    /** Best-effort: a failed write just means the next launch recomputes. */
-    fun save(file: FileHandle, biomes: ByteArray, fineFrequency: Int, coarseFrequency: Int, seed: Long) {
-        try {
-            DataOutputStream(file.write(false)).use { output ->
-                output.writeInt(FORMAT_VERSION)
-                output.writeInt(CoarseWorldBuilder.ALGORITHM_VERSION)
-                output.writeInt(fineFrequency)
-                output.writeInt(coarseFrequency)
-                output.writeLong(seed)
-                output.writeInt(biomes.size)
-                output.write(biomes)
+    /** Replaces [file] atomically (see [CacheFiles.writeAtomically]); returns whether it was written. */
+    fun save(file: FileHandle, biomes: ByteArray, fineFrequency: Int, coarseFrequency: Int, seed: Long): Boolean =
+        CacheFiles.writeAtomically(file) { out ->
+            DataOutputStream(out).apply {
+                writeInt(FORMAT_VERSION)
+                writeInt(CoarseWorldBuilder.ALGORITHM_VERSION)
+                writeInt(fineFrequency)
+                writeInt(coarseFrequency)
+                writeLong(seed)
+                writeInt(biomes.size)
+                write(biomes)
+                flush()
             }
-        } catch (e: Exception) {
-            // Ignored - see doc comment above.
         }
-    }
 }
