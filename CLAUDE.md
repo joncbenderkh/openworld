@@ -37,6 +37,7 @@ openworld/
     geo/    geodesic sphere geometry (icosahedron subdivision + dual)
     ...     world generation (noise → biomes → rivers/lakes), 3D rendering, biomes
   android/  Android application module (libGDX Android backend)
+  desktop/  Linux desktop launcher (libGDX LWJGL3 backend): keyboard/mouse input and a text overlay
   assets/   shared assets (currently none — tile art is generated at runtime, see BiomeTextures.kt)
 ```
 
@@ -46,6 +47,11 @@ openworld/
 - Run unit tests: `./gradlew test`
 - Install debug APK to a connected device/emulator: `./gradlew android:installDebug`
 - Lint: `./gradlew lint`
+- Run on the desktop: `./gradlew :desktop:run` (extra settings via `--args`, e.g.
+  `--args="--max-near-patches=1024"`, or `-Dopenworld.maxNearPatches=1024`; a desktop JVM
+  has no 256 MB heap limit, so the heap-driven near-patch cap can be raised there; set heap with
+  `JAVA_OPTS=-Xmx...`). World caches live in `$XDG_DATA_HOME/openworld`, preferences in
+  `$XDG_CONFIG_HOME/openworld`. Keys and mouse are listed in the on-screen help (H toggles it).
 
 ## Versioning
 

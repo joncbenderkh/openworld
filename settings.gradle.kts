@@ -14,3 +14,4 @@ rootProject.name = "openworld"
 
 include(":core")
 include(":android")
+include(":desktop")
