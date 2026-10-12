@@ -1,6 +1,7 @@
 package dev.joncbender.openworld
 
 import com.badlogic.gdx.Gdx
+import com.badlogic.gdx.InputAdapter
 import com.badlogic.gdx.InputMultiplexer
 import com.badlogic.gdx.Screen
 import com.badlogic.gdx.graphics.Color
@@ -19,7 +20,7 @@ import com.badlogic.gdx.math.Vector3
 import com.badlogic.gdx.math.collision.Ray
 import dev.joncbender.openworld.geo.GeodesicSphere
 
-class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
+class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, GestureDetector.GestureAdapter() {
 
     // total tiles = 10*frequency^2 + 2 = 1,980,252 (~5x the previous 396,012). Too many to draw
     // at once: see CoarseWorldBuilder and the near/far terrain layers below.
@@ -55,16 +56,16 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         preferences.flush()
     }
 
-    // Gdx.files.local resolves to the app's private files directory on
+    // options.storage is Gdx.files.local by default - the app's private files directory on
     // Android - a plain on-disk cache of the generated world (see
     // WorldCache) so a launch with an unchanged seed/density can load it
     // instead of paying generation's cost (upwards of ten seconds at the
     // game's current tile count) all over again.
-    private val worldCacheFile = Gdx.files.local("world_cache.bin")
+    private val worldCacheFile = options.storage("world_cache.bin")
 
     // The far layer's biomes, cached separately (see CoarseWorldCache) so a warm start can build
     // that layer before the fine world is loaded.
-    private val coarseCacheFile = Gdx.files.local("world_cache_coarse.bin")
+    private val coarseCacheFile = options.storage("world_cache_coarse.bin")
 
     private lateinit var world: SphereWorld
 
@@ -164,7 +165,15 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         compass = Compass()
         compass.resize(Gdx.graphics.width, Gdx.graphics.height)
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
-        Gdx.input.inputProcessor = InputMultiplexer(GestureDetector(this))
+        Gdx.input.inputProcessor = InputMultiplexer(
+            GestureDetector(this),
+            object : InputAdapter() {
+                override fun scrolled(amountX: Float, amountY: Float): Boolean {
+                    zoomBy(1f + amountY * SCROLL_ZOOM_STEP)
+                    return true
+                }
+            },
+        )
     }
 
     /**
@@ -257,7 +266,7 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         }
         nearTerrain = near
         nearStreamer = near?.let { layer ->
-            NearPatchStreamer(layer.patchCount, MAX_NEAR_PATCHES, { layer.build(it) }, { layer.release(it) })
+            NearPatchStreamer(layer.patchCount, options.maxNearPatches, { layer.build(it) }, { layer.release(it) })
         }
         nearVisible = IntArray(near?.patchCount ?: 0)
         nearPriority = FloatArray(near?.patchCount ?: 0)
@@ -271,6 +280,16 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         nearTerrain?.dispose()
         nearTerrain = null
         nearStreamer = null
+    }
+
+    /** Moves the camera to [factor] times its current distance, within the zoom limits. */
+    fun zoomBy(factor: Float) {
+        distance = (distance * factor).coerceIn(minDistance, maxDistance)
+    }
+
+    /** Turns the globe by [degrees] about the camera's view axis - what a two-finger twist does. */
+    fun twist(degrees: Float) {
+        rotation.mulLeft(Quaternion(Vector3.Z, degrees))
     }
 
     /** Spins the globe back to its starting orientation - the world itself is untouched. */
@@ -511,6 +530,8 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
 
     companion object {
         private const val ROTATE_SPEED_DEG = 0.3f
+        // Camera distance change per wheel notch.
+        private const val SCROLL_ZOOM_STEP = 0.1f
 
         // Level of detail. The near layer switches on once a full-resolution tile is a few
         // pixels wide (at a 5x tile count, around this camera distance) and off again
@@ -519,9 +540,6 @@ class GlobeScreen : Screen, GestureDetector.GestureAdapter() {
         private const val NEAR_EXIT_DISTANCE = 2.4f
         // Frames out of use (3 s at 60 fps) before the near layer's patches are freed.
         private const val NEAR_RELEASE_AFTER_FRAMES = 180
-        // A cap on resident near patches: ~2.5k tiles each, so ~600k tiles in all. Patches in
-        // view are never evicted, so more than this can be resident while they are all visible.
-        private const val MAX_NEAR_PATCHES = 256
         // Time a frame may spend building near patches (at least one is always built).
         private const val NEAR_BUILD_BUDGET_NANOS = 4_000_000L
         private const val NEAR_LOG_EVERY_FRAMES = 120

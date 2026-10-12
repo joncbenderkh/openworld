@@ -2,7 +2,7 @@ package dev.joncbender.openworld
 
 import com.badlogic.gdx.Game
 
-class OpenWorldGame : Game() {
+class OpenWorldGame(private val options: GameOptions = GameOptions()) : Game() {
     lateinit var globeScreen: GlobeScreen
         private set
 
@@ -10,7 +10,7 @@ class OpenWorldGame : Game() {
     var onTileSelected: ((TileInfo) -> Unit)? = null
 
     override fun create() {
-        globeScreen = GlobeScreen()
+        globeScreen = GlobeScreen(options)
         globeScreen.onTileSelected = onTileSelected
         setScreen(globeScreen)
     }
