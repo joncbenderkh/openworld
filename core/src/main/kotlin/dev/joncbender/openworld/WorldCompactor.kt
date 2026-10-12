@@ -51,116 +51,38 @@ object WorldCompactor {
 
     internal fun compact(full: SphereWorld, coarse: Sphere, rings: Int): CompactWorld {
         val perf = PerfTimer()
-        val fine = full.sphere
-        val fineTotal = fine.faceCount
+        val plan = CompactPlan(full, coarse, rings)
 
-        val keep = DeepOcean.tilesToDraw(full, rings)
-        val parent = CoarseWorldBuilder.nearestFaces(fine, coarse)
-        perf.lap("compact.map")
-
-        val coarseHasKept = BooleanArray(coarse.faceCount)
-        for (i in 0 until fineTotal) if (keep[i]) coarseHasKept[parent[i]] = true
-
-        // Tile ids: fine tiles that stay, then ocean tiles.
-        val fineId = IntArray(fineTotal) { -1 }
-        var fineCount = 0
-        for (i in 0 until fineTotal) if (coarseHasKept[parent[i]]) fineId[i] = fineCount++
-        val sourceFace = IntArray(fineCount)
-        for (i in 0 until fineTotal) if (fineId[i] >= 0) sourceFace[fineId[i]] = i
-
-        val oceanId = IntArray(coarse.faceCount) { -1 }
-        var oceanCount = 0
-        for (c in 0 until coarse.faceCount) if (!coarseHasKept[c]) oceanId[c] = fineCount + oceanCount++
-        val coarseFace = IntArray(oceanCount)
-        for (c in 0 until coarse.faceCount) if (oceanId[c] >= 0) coarseFace[oceanId[c] - fineCount] = c
-
-        val tileCount = fineCount + oceanCount
-        fun resolve(sourceTile: Int): Int = if (fineId[sourceTile] >= 0) fineId[sourceTile] else oceanId[parent[sourceTile]]
-
-        // Kept fine tiles that border each ocean tile, in ascending order.
-        val bordering = Array(oceanCount) { ArrayList<Int>() }
-        for (t in 0 until fineCount) {
-            fine.forEachNeighbor(sourceFace[t]) { n ->
-                val id = resolve(n)
-                if (id >= fineCount) {
-                    val list = bordering[id - fineCount]
-                    if (list.isEmpty() || list.last() != t) list.add(t)
-                }
-            }
-        }
-        perf.lap("compact.borders")
-
-        // Geometry. Fine and coarse vertices are separate, so each source has its own remap.
-        val centers = FloatArray(tileCount * 3)
-        val cornerStart = IntArray(tileCount + 1)
-        val neighborStart = IntArray(tileCount + 1)
-        for (t in 0 until fineCount) {
-            val source = sourceFace[t]
-            cornerStart[t + 1] = cornerStart[t] + fine.cornerCount(source)
-            neighborStart[t + 1] = neighborStart[t] + fine.neighborCount(source)
-        }
-        for (o in 0 until oceanCount) {
-            val t = fineCount + o
-            val c = coarseFace[o]
-            var neighborCount = bordering[o].size
-            coarse.forEachNeighbor(c) { n -> if (oceanId[n] >= 0) neighborCount++ }
-            cornerStart[t + 1] = cornerStart[t] + coarse.cornerCount(c)
-            neighborStart[t + 1] = neighborStart[t] + neighborCount
-        }
-
-        val cornerVertex = IntArray(cornerStart[tileCount])
-        val neighbors = IntArray(neighborStart[tileCount])
-        val fineVertexId = IntArray(fine.vertexCount) { -1 }
-        val coarseVertexId = IntArray(coarse.vertexCount) { -1 }
-        var vertexCount = 0
-        for (t in 0 until fineCount) {
-            val source = sourceFace[t]
-            fine.centers.copyInto(centers, t * 3, source * 3, source * 3 + 3)
-            val from = fine.cornerStart[source]
-            for (k in 0 until fine.cornerCount(source)) {
-                val v = fine.cornerVertex[from + k]
-                if (fineVertexId[v] < 0) fineVertexId[v] = vertexCount++
-                cornerVertex[cornerStart[t] + k] = fineVertexId[v]
-            }
-            for (k in 0 until fine.neighborCount(source)) {
-                neighbors[neighborStart[t] + k] = resolve(fine.neighbor(source, k))
-            }
-        }
-        for (o in 0 until oceanCount) {
-            val t = fineCount + o
-            val c = coarseFace[o]
-            coarse.centers.copyInto(centers, t * 3, c * 3, c * 3 + 3)
-            val from = coarse.cornerStart[c]
-            for (k in 0 until coarse.cornerCount(c)) {
-                val v = coarse.cornerVertex[from + k]
-                if (coarseVertexId[v] < 0) coarseVertexId[v] = vertexCount++
-                cornerVertex[cornerStart[t] + k] = coarseVertexId[v]
-            }
-            var slot = neighborStart[t]
-            coarse.forEachNeighbor(c) { n -> if (oceanId[n] >= 0) neighbors[slot++] = oceanId[n] }
-            for (f in bordering[o]) neighbors[slot++] = f
-        }
-
-        val vertexPositions = FloatArray(vertexCount * 3)
-        for (v in 0 until fine.vertexCount) {
-            val id = fineVertexId[v]
-            if (id >= 0) fine.vertexPositions.copyInto(vertexPositions, id * 3, v * 3, v * 3 + 3)
-        }
-        for (v in 0 until coarse.vertexCount) {
-            val id = coarseVertexId[v]
-            if (id >= 0) coarse.vertexPositions.copyInto(vertexPositions, id * 3, v * 3, v * 3 + 3)
-        }
+        val tileCount = plan.tileCount
+        val centers = FloatArray(tileCount * 3).also { fill(it, plan::emitCenters) }
+        val cornerStart = IntArray(tileCount + 1).also { fill(it, plan::emitCornerStart) }
+        val cornerVertex = IntArray(plan.cornerTotal).also { fill(it, plan::emitCornerVertex) }
+        val vertexPositions = FloatArray(plan.vertexCount * 3).also { fill(it, plan::emitVertexPositions) }
+        val neighborStart = IntArray(tileCount + 1).also { fill(it, plan::emitNeighborStart) }
+        val neighbors = IntArray(plan.neighborTotal).also { fill(it, plan::emitNeighbors) }
         perf.lap("compact.geometry")
 
-        val biomes = ByteArray(tileCount) { Biome.OCEAN.ordinal.toByte() }
-        val compact = SphereWorld(Sphere(centers, cornerStart, cornerVertex, vertexPositions, neighbors, neighborStart), biomes)
-        for (t in 0 until fineCount) {
-            val source = sourceFace[t]
-            compact[t] = full[source]
-            val resources = full.resourcesAt(source)
-            if (resources.isNotEmpty()) compact.setResources(t, resources)
+        val world = SphereWorld(
+            Sphere(centers, cornerStart, cornerVertex, vertexPositions, neighbors, neighborStart),
+            ByteArray(tileCount) { plan.biome(it).ordinal.toByte() },
+        )
+        for (t in 0 until plan.fineCount) {
+            val resources = plan.resources(t)
+            if (resources.isNotEmpty()) world.setResources(t, resources)
         }
         perf.lap("compact.world")
-        return CompactWorld(compact, fineCount, sourceFace, coarseFace)
+        return CompactWorld(world, plan.fineCount, plan.sourceFace, plan.coarseFace)
+    }
+
+    private fun fill(target: FloatArray, emit: (FloatSink) -> Unit) {
+        var next = 0
+        emit(FloatSink { target[next++] = it })
+        check(next == target.size) { "emitted $next values for ${target.size} slots" }
+    }
+
+    private fun fill(target: IntArray, emit: (IntSink) -> Unit) {
+        var next = 0
+        emit(IntSink { target[next++] = it })
+        check(next == target.size) { "emitted $next values for ${target.size} slots" }
     }
 }
