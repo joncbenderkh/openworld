@@ -30,6 +30,12 @@ class Sphere(
     val vertexPositions: FloatArray,
     /** Per corner slot: the neighboring face across that corner's edge. */
     val neighbors: IntArray,
+    /**
+     * Prefix offsets into [neighbors]; size is `faceCount + 1`. Defaults to [cornerStart], one
+     * neighbor per corner. A tile larger than the ones around it (see [WorldCompactor]) has
+     * more neighbors than corners, which is what a distinct array is for.
+     */
+    val neighborStart: IntArray = cornerStart,
 ) {
     val faceCount: Int get() = centers.size / 3
     val vertexCount: Int get() = vertexPositions.size / 3
@@ -40,8 +46,9 @@ class Sphere(
     init {
         require(centers.size % 3 == 0 && vertexPositions.size % 3 == 0) { "position arrays must hold x, y, z triples" }
         require(cornerStart.size == faceCount + 1) { "cornerStart must have faceCount + 1 entries" }
-        require(cornerStart[faceCount] == cornerVertex.size && cornerVertex.size == neighbors.size) {
-            "per-corner arrays must match cornerStart's total"
+        require(cornerStart[faceCount] == cornerVertex.size) { "cornerVertex must match cornerStart's total" }
+        require(neighborStart.size == faceCount + 1 && neighborStart[faceCount] == neighbors.size) {
+            "neighbors must match neighborStart's total"
         }
     }
 
@@ -56,20 +63,23 @@ class Sphere(
     fun cornerY(face: Int, corner: Int): Float = vertexPositions[cornerVertex[cornerStart[face] + corner] * 3 + 1]
     fun cornerZ(face: Int, corner: Int): Float = vertexPositions[cornerVertex[cornerStart[face] + corner] * 3 + 2]
 
-    fun neighbor(face: Int, corner: Int): Int = neighbors[cornerStart[face] + corner]
+    fun neighborCount(face: Int): Int = neighborStart[face + 1] - neighborStart[face]
+
+    /** [index] is the position within the face's neighbors, `0 until neighborCount(face)`; equal to a corner for ordinary tiles. */
+    fun neighbor(face: Int, index: Int): Int = neighbors[neighborStart[face] + index]
 
     inline fun forEachNeighbor(face: Int, action: (neighbor: Int) -> Unit) {
-        for (k in cornerStart[face] until cornerStart[face + 1]) action(neighbors[k])
+        for (k in neighborStart[face] until neighborStart[face + 1]) action(neighbors[k])
     }
 
     inline fun anyNeighbor(face: Int, predicate: (neighbor: Int) -> Boolean): Boolean {
-        for (k in cornerStart[face] until cornerStart[face + 1]) if (predicate(neighbors[k])) return true
+        for (k in neighborStart[face] until neighborStart[face + 1]) if (predicate(neighbors[k])) return true
         return false
     }
 
     inline fun countNeighbors(face: Int, predicate: (neighbor: Int) -> Boolean): Int {
         var count = 0
-        for (k in cornerStart[face] until cornerStart[face + 1]) if (predicate(neighbors[k])) count++
+        for (k in neighborStart[face] until neighborStart[face + 1]) if (predicate(neighbors[k])) count++
         return count
     }
 
@@ -77,7 +87,7 @@ class Sphere(
     inline fun minNeighborBy(face: Int, selector: (neighbor: Int) -> Float): Int {
         var best = -1
         var bestValue = Float.POSITIVE_INFINITY
-        for (k in cornerStart[face] until cornerStart[face + 1]) {
+        for (k in neighborStart[face] until neighborStart[face + 1]) {
             val n = neighbors[k]
             val value = selector(n)
             if (best == -1 || value < bestValue) {
