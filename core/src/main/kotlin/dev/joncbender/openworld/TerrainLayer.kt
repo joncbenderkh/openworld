@@ -145,6 +145,9 @@ class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val f
      */
     fun releaseSource() {
         source = null
+        // Nothing can be built any more, so the scratch arrays (~1.8 MB) are dead weight too.
+        vertexData = null
+        indexData = null
     }
 
     /** Releases [patch]'s mesh; it can be rebuilt later with [build]. */
@@ -156,7 +159,7 @@ class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val f
     fun dispose() {
         for (patch in 0 until patchCount) release(patch)
         // A disposed layer is finished; don't keep the world it was built from alive.
-        source = null
+        releaseSource()
     }
 
     private fun appendVertex(data: FloatArray, offset: Int, x: Float, y: Float, z: Float, colorBits: Float, u: Float, v: Float): Int {
