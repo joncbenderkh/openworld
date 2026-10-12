@@ -25,7 +25,7 @@ object CoarseWorldBuilder {
      * Bump whenever the mapping or the vote changes what [build] produces, so a [CoarseWorldCache]
      * written by an older version is discarded instead of being drawn.
      */
-    const val ALGORITHM_VERSION = 1
+    const val ALGORITHM_VERSION = 2
 
     /**
      * A biome's votes per fine tile. Most terrain counts once; features that are only a
@@ -101,7 +101,8 @@ object CoarseWorldBuilder {
      * Walks from [start] to the face nearest the point, moving to the best of the current
      * face's neighbors and *their* neighbors until nothing is closer. Looking two rings out
      * (rather than one) guards against stopping at a local maximum on a tiling that is only
-     * approximately Delaunay.
+     * approximately Delaunay. A tie goes to the lower index, as in [bruteForceNearest], so a tile
+     * exactly between two faces belongs to the same one however it is looked up.
      */
     private fun descend(sphere: Sphere, start: Int, x: Float, y: Float, z: Float): Int {
         var current = start
@@ -111,10 +112,10 @@ object CoarseWorldBuilder {
             var bestDot = currentDot
             sphere.forEachNeighbor(current) { n ->
                 val dn = dot(sphere, n, x, y, z)
-                if (dn > bestDot) { bestDot = dn; best = n }
+                if (dn > bestDot || (dn == bestDot && n < best)) { bestDot = dn; best = n }
                 sphere.forEachNeighbor(n) { m ->
                     val dm = dot(sphere, m, x, y, z)
-                    if (dm > bestDot) { bestDot = dm; best = m }
+                    if (dm > bestDot || (dm == bestDot && m < best)) { bestDot = dm; best = m }
                 }
             }
             if (best == current) return current

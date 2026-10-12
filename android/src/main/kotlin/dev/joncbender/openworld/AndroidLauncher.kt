@@ -355,7 +355,7 @@ class AndroidLauncher : AndroidApplication() {
     }
 
     private fun showTileInfo(info: TileInfo) {
-        tileBiomeText.text = "Biome: ${info.biome.name.toDisplayName()}"
+        tileBiomeText.text = "Biome: ${info.biome.name.toDisplayName()}${if (info.isOpenOcean) " (open ocean)" else ""}"
         tileResourceText.text = if (info.resources.isEmpty()) {
             "Resources: none"
         } else {

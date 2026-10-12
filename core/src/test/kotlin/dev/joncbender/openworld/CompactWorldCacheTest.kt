@@ -104,6 +104,19 @@ class CompactWorldCacheTest {
     }
 
     @Test
+    fun `isCurrent agrees with load on keys and length, without reading the world`() {
+        val file = saved()
+        assertTrue(CompactWorldCache.isCurrent(file, frequency, seed, density, coarseFrequency, rings))
+        assertTrue(!CompactWorldCache.isCurrent(file, frequency, seed + 1, density, coarseFrequency, rings))
+        assertTrue(!CompactWorldCache.isCurrent(file, frequency, seed, density + 0.1f, coarseFrequency, rings))
+        val missing = tempFile().also { it.delete() }
+        assertTrue(!CompactWorldCache.isCurrent(missing, frequency, seed, density, coarseFrequency, rings))
+        val bytes = file.readBytes()
+        val shorter = tempFile().also { it.writeBytes(bytes.copyOf(bytes.size - 1), false) }
+        assertTrue(!CompactWorldCache.isCurrent(shorter, frequency, seed, density, coarseFrequency, rings))
+    }
+
+    @Test
     fun `an unwritable location is ignored`() {
         CompactWorldCache.save(FileHandle(File("/nonexistent-dir/\u0000/cache.bin")), full, frequency, seed, density, coarseFrequency, rings)
     }

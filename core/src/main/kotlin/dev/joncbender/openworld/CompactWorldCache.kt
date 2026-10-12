@@ -34,6 +34,47 @@ object CompactWorldCache {
     // A multiple of 4, so a float or int never straddles two chunks.
     private const val CHUNK_BYTES = 256 * 1024
 
+    /**
+     * Whether [file] looks like a cache [load] would accept - its header matches the keys and its
+     * length matches the header - without reading the world. Lets a caller decide to generate
+     * *before* it has spent heap on anything else.
+     */
+    fun isCurrent(
+        file: FileHandle,
+        frequency: Int,
+        seed: Long,
+        resourceDensity: Float,
+        coarseFrequency: Int = WorldCompactor.COARSE_FREQUENCY,
+        rings: Int = WorldCompactor.COAST_RINGS,
+    ): Boolean {
+        if (!file.exists()) return false
+        return try {
+            DataInputStream(file.read()).use { input ->
+                val headerBytes = ByteArray(HEADER_BYTES)
+                input.readFully(headerBytes)
+                val layout = readLayout(ByteBuffer.wrap(headerBytes).order(ByteOrder.LITTLE_ENDIAN), frequency, seed, resourceDensity, coarseFrequency, rings)
+                layout != null && layout.totalBytes == file.length()
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** The counts in [header], or null if it is not for the world described by the other arguments. */
+    private fun readLayout(header: ByteBuffer, frequency: Int, seed: Long, resourceDensity: Float, coarseFrequency: Int, rings: Int): Layout? {
+        if (header.getInt(0) != FORMAT_VERSION) return null
+        if (header.getInt(4) != frequency) return null
+        if (header.getLong(8) != seed) return null
+        if (header.getFloat(16) != resourceDensity) return null
+        if (header.getInt(20) != coarseFrequency) return null
+        if (header.getInt(24) != rings) return null
+        val layout = Layout(
+            tileCount = header.getInt(28), fineCount = header.getInt(32), cornerTotal = header.getInt(36),
+            neighborTotal = header.getInt(40), vertexCount = header.getInt(44), resourceTotal = header.getInt(48),
+        )
+        return if (layout.isSane) layout else null
+    }
+
     fun load(
         file: FileHandle,
         frequency: Int,
@@ -49,27 +90,18 @@ object CompactWorldCache {
                 val headerBytes = ByteArray(HEADER_BYTES)
                 input.readFully(headerBytes)
                 val header = ByteBuffer.wrap(headerBytes).order(ByteOrder.LITTLE_ENDIAN)
-                if (header.getInt(0) != FORMAT_VERSION) return null
-                if (header.getInt(4) != frequency) return null
-                if (header.getLong(8) != seed) return null
-                if (header.getFloat(16) != resourceDensity) return null
-                if (header.getInt(20) != coarseFrequency) return null
-                if (header.getInt(24) != rings) return null
-                val layout = Layout(
-                    tileCount = header.getInt(28), fineCount = header.getInt(32), cornerTotal = header.getInt(36),
-                    neighborTotal = header.getInt(40), vertexCount = header.getInt(44), resourceTotal = header.getInt(48),
-                )
-                if (!layout.isSane || layout.totalBytes != file.length()) return null
+                val layout = readLayout(header, frequency, seed, resourceDensity, coarseFrequency, rings) ?: return null
+                if (layout.totalBytes != file.length()) return null
 
                 val chunk = ByteArray(CHUNK_BYTES)
-                val centers = WorldCache.readFloats(input, layout.tileCount * 3, chunk)
-                val cornerStart = WorldCache.readInts(input, layout.tileCount + 1, chunk)
-                val cornerVertex = WorldCache.readInts(input, layout.cornerTotal, chunk)
-                val vertexPositions = WorldCache.readFloats(input, layout.vertexCount * 3, chunk)
-                val neighborStart = WorldCache.readInts(input, layout.tileCount + 1, chunk)
-                val neighbors = WorldCache.readInts(input, layout.neighborTotal, chunk)
-                val sourceFace = WorldCache.readInts(input, layout.fineCount, chunk)
-                val coarseFace = WorldCache.readInts(input, layout.oceanCount, chunk)
+                val centers = readFloats(input, layout.tileCount * 3, chunk)
+                val cornerStart = readInts(input, layout.tileCount + 1, chunk)
+                val cornerVertex = readInts(input, layout.cornerTotal, chunk)
+                val vertexPositions = readFloats(input, layout.vertexCount * 3, chunk)
+                val neighborStart = readInts(input, layout.tileCount + 1, chunk)
+                val neighbors = readInts(input, layout.neighborTotal, chunk)
+                val sourceFace = readInts(input, layout.fineCount, chunk)
+                val coarseFace = readInts(input, layout.oceanCount, chunk)
                 val biomeBytes = ByteArray(layout.tileCount).also { input.readFully(it) }
                 val resourceCounts = ByteArray(layout.fineCount).also { input.readFully(it) }
                 val resourceBytes = ByteArray(layout.resourceTotal).also { input.readFully(it) }
@@ -147,6 +179,30 @@ object CompactWorldCache {
         } catch (e: Exception) {
             // Ignored - see doc comment above.
         }
+    }
+
+    private fun readFloats(input: DataInputStream, count: Int, chunk: ByteArray): FloatArray {
+        val out = FloatArray(count)
+        var done = 0
+        while (done < count) {
+            val n = minOf(count - done, chunk.size / Float.SIZE_BYTES)
+            input.readFully(chunk, 0, n * Float.SIZE_BYTES)
+            ByteBuffer.wrap(chunk, 0, n * Float.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(out, done, n)
+            done += n
+        }
+        return out
+    }
+
+    private fun readInts(input: DataInputStream, count: Int, chunk: ByteArray): IntArray {
+        val out = IntArray(count)
+        var done = 0
+        while (done < count) {
+            val n = minOf(count - done, chunk.size / Int.SIZE_BYTES)
+            input.readFully(chunk, 0, n * Int.SIZE_BYTES)
+            ByteBuffer.wrap(chunk, 0, n * Int.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer().get(out, done, n)
+            done += n
+        }
+        return out
     }
 
     /** Batches values into one reusable chunk and writes it out whenever it fills. Call [flush] when done. */

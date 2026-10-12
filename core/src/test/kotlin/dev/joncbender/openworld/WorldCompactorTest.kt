@@ -103,6 +103,16 @@ class WorldCompactorTest {
     }
 
     @Test
+    fun `the tiles worth drawing in detail are the same in the compact world as in the full one`() {
+        // rings = 1 is the coast width the world was compacted with.
+        val before = DeepOcean.tilesToDraw(full, rings = 1)
+        val after = DeepOcean.tilesToDraw(world, rings = 1)
+        for (t in 0 until compact.fineCount) assertEquals(before[compact.sourceFace[t]], after[t], "fine tile $t")
+        // Every tile worth drawing was kept, so nothing the full world would have drawn is lost.
+        assertEquals(before.count { it }, (0 until compact.fineCount).count { after[it] })
+    }
+
+    @Test
     fun `an all-ocean world compacts to coarse tiles alone`() {
         val bare = SphereWorld(full.sphere, ByteArray(full.sphere.faceCount) { Biome.OCEAN.ordinal.toByte() })
         val result = WorldCompactor.compact(bare, coarse, rings = 1)
