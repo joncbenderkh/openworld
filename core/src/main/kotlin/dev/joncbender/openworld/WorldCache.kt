@@ -126,7 +126,7 @@ object WorldCache {
         }
     }
 
-    private fun readFloats(input: DataInputStream, count: Int, chunk: ByteArray): FloatArray {
+    internal fun readFloats(input: DataInputStream, count: Int, chunk: ByteArray): FloatArray {
         val out = FloatArray(count)
         var done = 0
         while (done < count) {
@@ -138,7 +138,7 @@ object WorldCache {
         return out
     }
 
-    private fun readInts(input: DataInputStream, count: Int, chunk: ByteArray): IntArray {
+    internal fun readInts(input: DataInputStream, count: Int, chunk: ByteArray): IntArray {
         val out = IntArray(count)
         var done = 0
         while (done < count) {
