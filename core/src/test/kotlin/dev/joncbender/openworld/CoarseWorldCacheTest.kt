@@ -5,7 +5,9 @@ import java.io.DataOutputStream
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class CoarseWorldCacheTest {
 
@@ -82,5 +84,22 @@ class CoarseWorldCacheTest {
             out.write(biomes())
         }
         assertNull(CoarseWorldCache.load(file, 40, coarseFrequency, 7L))
+    }
+
+    @Test
+    fun `a biome byte out of range is a miss`() {
+        val file = saved()
+        val bytes = file.readBytes()
+        bytes[bytes.size - 1] = Biome.entries.size.toByte()
+        val damaged = tempFile().also { it.writeBytes(bytes, false) }
+        assertNull(CoarseWorldCache.load(damaged, 40, coarseFrequency, 7L))
+    }
+
+    @Test
+    fun `a save reports whether it wrote, and leaves no temporary file`() {
+        val file = tempFile()
+        assertTrue(CoarseWorldCache.save(file, biomes(), 40, coarseFrequency, 7L))
+        assertFalse(File(file.path() + ".tmp").exists())
+        assertFalse(CoarseWorldCache.save(FileHandle(File("/nonexistent-dir/\u0000/c.bin")), biomes(), 40, coarseFrequency, 7L))
     }
 }

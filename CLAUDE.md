@@ -106,6 +106,13 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   full world is freed *before* the compact one is loaded (ART's interpreter keeps a dead reference in a
   live frame, so do not hold the full world in a caller's frame). Tap-picking resolves a point to its
   coarse cell first (`TilePicker`): an ocean tile owns its cell, otherwise the nearest fine tile wins.
+- Cache files (`CacheFiles.kt`, `CompactWorldCache.kt`, `CoarseWorldCache.kt`) are written to a temporary
+  sibling and renamed over the target, so a failed write never leaves a partial file; `save` returns
+  whether it wrote. `CompactWorldCache.load` rejects a file whose indices do not point at real tiles. If
+  the world cannot be stored (not enough free storage, or a write fails), `GlobeScreen` leaves the globe
+  bare - underlay only, taps ignored - and tells the player through `onMessage` (a Toast on Android, the
+  overlay on the desktop) instead of crashing; `regenerateWorld` checks free storage first and keeps the
+  current world if there is not enough.
 - Open ocean (`DeepOcean.kt`, `GlobeScreen.kt`): ocean tiles with no land within 2 (far) / 3 (near) tiles are
   deliberately *omitted* from the layers - `PatchLayout`'s `keep` mask leaves them out of every patch (the
   big ocean tiles are always left out of the near layer), so missing meshes in deep ocean are intentional,

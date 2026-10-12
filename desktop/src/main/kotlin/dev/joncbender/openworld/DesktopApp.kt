@@ -30,6 +30,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
 
     override fun create() {
         game.onTileSelected = { selected = it }
+        game.onMessage = { notice = it }
         game.create()
         batch = SpriteBatch()
         font = BitmapFont()
