@@ -56,9 +56,39 @@ class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val f
     /** The built mesh for [patch], or null if it hasn't been built (or was released). */
     fun meshOrNull(patch: Int): Mesh? = meshes[patch]
 
+    /**
+     * One patch's vertices (x, y, z, packed color, u, v per vertex) and triangle indices, as filled
+     * into this layer's shared scratch arrays - valid only until the next [geometry] or [build] call.
+     */
+    internal class PatchGeometry(
+        val vertices: FloatArray,
+        val vertexFloats: Int,
+        val vertexCount: Int,
+        val indices: ShortArray,
+        val indexCount: Int,
+    )
+
     /** Builds [patch]'s mesh if it isn't already, and returns it. */
     fun build(patch: Int): Mesh {
         meshes[patch]?.let { return it }
+        val geometry = geometry(patch)
+
+        val mesh = Mesh(
+            true,
+            geometry.vertexCount,
+            geometry.indexCount,
+            VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
+            VertexAttribute.ColorPacked(),
+            VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
+        )
+        mesh.setVertices(geometry.vertices, 0, geometry.vertexFloats)
+        mesh.setIndices(geometry.indices, 0, geometry.indexCount)
+        meshes[patch] = mesh
+        return mesh
+    }
+
+    /** Fills the scratch arrays with [patch]'s geometry. Needs no GL, so it can be tested directly. */
+    internal fun geometry(patch: Int): PatchGeometry {
         val (world, layout) = source?.let { it.world to it.layout }
             ?: error("TerrainLayer source was released; patch $patch cannot be built")
         val sphere = world.sphere
@@ -99,18 +129,7 @@ class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val f
             }
         }
 
-        val mesh = Mesh(
-            true,
-            vertexCount,
-            indexCount,
-            VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
-            VertexAttribute.ColorPacked(),
-            VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
-        )
-        mesh.setVertices(vertices, 0, vertexFloatPos)
-        mesh.setIndices(indices, 0, indexCount)
-        meshes[patch] = mesh
-        return mesh
+        return PatchGeometry(vertices, vertexFloatPos, vertexCount, indices, indexCount)
     }
 
     /** Builds every patch's mesh, logging how long the whole layer took. */
