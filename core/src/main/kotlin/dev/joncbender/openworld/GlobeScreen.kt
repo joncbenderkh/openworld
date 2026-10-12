@@ -199,7 +199,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val perf = PerfTimer()
         // Two attempts: the second only happens if a cache that looked current could not be read.
         repeat(2) {
-            if (!cachesAreCurrent()) {
+            var coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
+            if (coarseBiomes == null || !CompactWorldCache.isCurrent(compactCacheFile, frequency, seed, resourceDensity)) {
                 // A miss can mean this is a genuinely different world from whatever the inventory
                 // was tracking - e.g. a stale/missing cache, or a frequency bump from an app update
                 // changing the whole tile layout even with the same seed. Clearing keeps the same
@@ -207,8 +208,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                 // harmless on a first-ever launch, where the inventory is already empty.
                 inventory.clear()
                 generateAndCacheWorld()
+                coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
             }
-            val coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
             if (coarseBiomes != null) {
                 farTerrain = buildFarLayer(CoarseWorldBuilder.fromBiomes(coarseBiomes))
                 perf.lap("far layer from cached coarse biomes")
@@ -232,10 +233,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private fun placeholderWorld() = CompactWorld(
         SphereWorld(GeodesicSphere.generate(1), ByteArray(12)), fineCount = 12, sourceFace = IntArray(12) { it }, coarseFace = IntArray(0),
     )
-
-    private fun cachesAreCurrent(): Boolean =
-        CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed) != null &&
-            CompactWorldCache.isCurrent(compactCacheFile, frequency, seed, resourceDensity)
 
     /** Generates the world and caches it. The full world never leaves this frame, so it is freed on return. */
     private fun generateAndCacheWorld() {
