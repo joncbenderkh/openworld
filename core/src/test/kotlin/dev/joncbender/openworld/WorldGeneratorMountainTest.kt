@@ -67,4 +67,40 @@ class WorldGeneratorMountainTest {
             )
         }
     }
+
+    @Test
+    fun `mountains form narrow ranges, not solid blobs, across several seeds`() {
+        // A blob has a deep interior; a range is mostly edge. Measured as the share of mountain tiles
+        // that touch a non-mountain tile (the old threshold-only mountains scored 0.14 on seed 0, ridged ones 0.57-0.63).
+        for (seed in 0L until 8L) {
+            val world = WorldGenerator(seed).generate(frequency = 120)
+            var mountain = 0
+            var edge = 0
+            var largest = 0
+            val seen = BooleanArray(world.sphere.faceCount)
+            for (i in world.sphere.indices) {
+                if (world[i] != Biome.MOUNTAIN) continue
+                mountain++
+                var touchesOther = false
+                world.sphere.forEachNeighbor(i) { n -> if (world[n] != Biome.MOUNTAIN) touchesOther = true }
+                if (touchesOther) edge++
+            }
+            // Not speckle either: some range is a connected chain of tiles (measured 900-1600 at this frequency).
+            for (start in world.sphere.indices) {
+                if (seen[start] || world[start] != Biome.MOUNTAIN) continue
+                var size = 0
+                val queue = ArrayDeque<Int>().apply { add(start) }
+                seen[start] = true
+                while (queue.isNotEmpty()) {
+                    val i = queue.removeFirst()
+                    size++
+                    world.sphere.forEachNeighbor(i) { n -> if (!seen[n] && world[n] == Biome.MOUNTAIN) { seen[n] = true; queue.add(n) } }
+                }
+                largest = maxOf(largest, size)
+            }
+            assertTrue(largest >= 200, "seed $seed: the largest mountain range is only $largest tiles")
+            val edgeShare = edge.toFloat() / mountain
+            assertTrue(edgeShare >= 0.5f, "seed $seed: only ${edgeShare * 100}% of mountain tiles are on an edge")
+        }
+    }
 }

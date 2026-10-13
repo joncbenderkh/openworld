@@ -28,7 +28,7 @@ import java.nio.ByteOrder
  * bumped for any change to the layout or to how [WorldCompactor] decides what to keep.
  */
 object CompactWorldCache {
-    private const val FORMAT_VERSION = 4
+    private const val FORMAT_VERSION = 5
     private const val HEADER_BYTES = 52
 
     // A multiple of 4, so a float or int never straddles two chunks.
