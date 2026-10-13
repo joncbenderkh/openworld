@@ -33,6 +33,12 @@ class SphereWorld(val sphere: Sphere, private val biomes: ByteArray) {
         return List(count) { RESOURCES[(packed ushr (COUNT_BITS + it * RESOURCE_BITS)) and RESOURCE_MASK] }
     }
 
+    /** How many resources [faceIndex] holds, without building a list. */
+    fun resourceCount(faceIndex: Int): Int = resources[faceIndex] and COUNT_MASK
+
+    /** The [k]th (0 until [resourceCount]) resource of [faceIndex], without building a list. */
+    fun resourceAt(faceIndex: Int, k: Int): Resource = RESOURCES[(resources[faceIndex] ushr (COUNT_BITS + k * RESOURCE_BITS)) and RESOURCE_MASK]
+
     fun setResources(faceIndex: Int, value: List<Resource>) {
         require(value.size <= MAX_RESOURCES) { "a tile holds at most $MAX_RESOURCES resources, got ${value.size}" }
         resources[faceIndex] = 0

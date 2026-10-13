@@ -165,6 +165,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private lateinit var underlay: TerrainLayer
     private var nearTerrain: TerrainLayer? = null
     private var nearStreamer: NearPatchStreamer? = null
+    private var icons: ResourceIconLayer? = null
+    private var iconsActive = false
     private var nearVisible = IntArray(0)
     private var nearPriority = FloatArray(0)
     private var nearActive = false
@@ -175,11 +177,13 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private lateinit var highlight: TileHighlight
     private lateinit var shader: ShaderProgram
     private lateinit var biomeTexture: Texture
+    private lateinit var iconTexture: Texture
     private lateinit var compass: Compass
 
     override fun show() {
         val perf = PerfTimer()
         biomeTexture = BiomeTextures.build()
+        iconTexture = ResourceIcons.build()
         perf.lap("BiomeTextures.build")
         loadTerrain()
         perf.lap("terrain")
@@ -363,7 +367,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app?.log("perf", "near layer covers ${draw.count { it }} of ${draw.size} tiles (the rest is open ocean)")
         val near = TerrainLayer(world, draw)
         nearTerrain = near
-        nearStreamer = NearPatchStreamer(near.patchCount, options.maxNearPatches, { near.build(it) }, { near.release(it) })
+        val layer = ResourceIconLayer(near, world)
+        icons = layer
+        iconsActive = false
+        nearStreamer = NearPatchStreamer(
+            near.patchCount, options.maxNearPatches,
+            { near.build(it) },
+            { near.release(it); layer.release(it) },
+        )
         nearVisible = IntArray(near.patchCount)
         nearPriority = FloatArray(near.patchCount)
         nearActive = false
@@ -372,6 +383,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     private fun disposeTerrain() {
         nearStreamer?.releaseAll()
+        icons?.releaseAll()
+        icons = null
         farTerrain?.dispose()
         farTerrain = null
         nearTerrain?.dispose()
@@ -524,6 +537,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
         nearWindowBuilds += streamer.update(frameCount, nearVisible, visibleCount, nearPriority, NEAR_BUILD_BUDGET_NANOS)
         for (k in 0 until visibleCount) near.meshOrNull(nearVisible[k])?.render(shader, GL20.GL_TRIANGLES)
+        drawIcons(near, visibleCount)
 
         if (frameCount % NEAR_LOG_EVERY_FRAMES == 0) {
             Gdx.app?.log(
@@ -533,6 +547,46 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             )
             nearWindowBuilds = 0
         }
+    }
+
+    /**
+     * Draws the resource glyphs over the near layer's visible patches while the camera is close enough for a
+     * tile to be several pixels wide. Icon meshes are built a few per frame for patches in view and released
+     * once a patch leaves the view or the camera pulls back.
+     */
+    private fun drawIcons(near: TerrainLayer, visibleCount: Int) {
+        val layer = icons ?: return
+        if (!iconsActive && distance < ICON_ENTER_DISTANCE) iconsActive = true
+        else if (iconsActive && distance > ICON_EXIT_DISTANCE) iconsActive = false
+        if (!iconsActive) {
+            layer.releaseAll()
+            return
+        }
+
+        var built = 0
+        for (k in 0 until visibleCount) {
+            val patch = nearVisible[k]
+            if (near.meshOrNull(patch) == null || layer.meshOrNull(patch) != null) continue
+            if (built++ < ICON_BUILDS_PER_FRAME) layer.build(patch)
+        }
+        // A patch out of view keeps no icons.
+        if (layer.builtCount > 0) {
+            for (patch in 0 until near.patchCount) {
+                if (layer.meshOrNull(patch) != null && !isVisible(near.cap(patch))) layer.release(patch)
+            }
+        }
+
+        iconTexture.bind(0)
+        Gdx.gl.glDisable(GL20.GL_CULL_FACE)
+        Gdx.gl.glEnable(GL20.GL_BLEND)
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
+        Gdx.gl.glEnable(GL20.GL_POLYGON_OFFSET_FILL)
+        Gdx.gl.glPolygonOffset(-2f, -2f)
+        for (k in 0 until visibleCount) layer.render(nearVisible[k], shader)
+        Gdx.gl.glDisable(GL20.GL_POLYGON_OFFSET_FILL)
+        Gdx.gl.glDisable(GL20.GL_BLEND)
+        Gdx.gl.glEnable(GL20.GL_CULL_FACE)
+        biomeTexture.bind(0)
     }
 
     /** Whether any part of [cap] can be seen. Call after [cameraDirection] is set for this frame. */
@@ -641,6 +695,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         highlight.dispose()
         shader.dispose()
         biomeTexture.dispose()
+        iconTexture.dispose()
         compass.dispose()
     }
 
@@ -663,6 +718,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // Level of detail. The near layer switches on once a full-resolution tile is a few
         // pixels wide (at a 5x tile count, around this camera distance) and off again
         // slightly further out, so hovering at the threshold doesn't flicker.
+        // Resource glyphs show below ENTER and hide above EXIT (a gap, like the near layer's); a tile is then
+        // at least ~40 px wide. A few icon meshes are built per frame, each a quick pass over one patch's tiles.
+        private const val ICON_ENTER_DISTANCE = 1.25f
+        private const val ICON_EXIT_DISTANCE = 1.3f
+        private const val ICON_BUILDS_PER_FRAME = 2
+
         private const val NEAR_ENTER_DISTANCE = 2.2f
         private const val NEAR_EXIT_DISTANCE = 2.4f
         // Frames out of use (3 s at 60 fps) before the near layer's patches are freed.
