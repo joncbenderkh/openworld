@@ -162,7 +162,7 @@ class InkTheme(private val context: Context) {
     fun segmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit): LinearLayout {
         val row = object : LinearLayout(context) {
             // Equal shares while every segment keeps its 48 dp; otherwise natural widths (the row overflows, but
-            // a weighted row would shrink the segments below the touch target).
+            // a constrained row would shrink the later segments below the touch target).
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 val room = MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
                 val fits = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED ||
@@ -172,7 +172,10 @@ class InkTheme(private val context: Context) {
                     params.weight = if (fits) 1f else 0f
                     params.width = if (fits) 0 else ViewGroup.LayoutParams.WRAP_CONTENT
                 }
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                super.onMeasure(
+                    if (fits) widthMeasureSpec else MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                    heightMeasureSpec,
+                )
             }
         }.apply {
             orientation = LinearLayout.HORIZONTAL
