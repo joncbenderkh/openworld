@@ -88,16 +88,18 @@ class SettingsSheet(
 
         content.addView(group("Resource density") {
             val selected = DENSITIES.indexOfFirst { it.second == screen.resourceDensity }.takeIf { it >= 0 } ?: 1
-            addView(
-                ink.segmented(DENSITIES.map { it.first }, selected) { i ->
-                    val value = DENSITIES[i].second
+            lateinit var segments: InkSegmentedRow
+            segments = ink.segmented(DENSITIES.map { it.first }, selected) { i ->
+                val value = DENSITIES[i].second
+                newWorld.confirmReplace(onKeep = { segments.show(selected) }) {
                     dialog.dismiss()
                     newWorld.begin {
                         screen.resourceDensity = value
                         screen.regenerateWorld()
                     }
-                },
-            )
+                }
+            }
+            addView(segments)
         })
 
         content.addView(group(null) {

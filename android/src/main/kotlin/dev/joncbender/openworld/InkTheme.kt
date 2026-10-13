@@ -175,8 +175,8 @@ class InkTheme(private val context: Context) {
         button(label, Color.TRANSPARENT, InkPalette.TEXT_2, null, onClick)
 
     /** One choice out of several, shown as a row of segments (e.g. Low / Medium / High). [onSelect] gets the index. */
-    fun segmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit): LinearLayout {
-        val row = object : LinearLayout(context) {
+    fun segmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit): InkSegmentedRow {
+        val row = object : InkSegmentedRow(context) {
             // Equal shares while every segment keeps its 48 dp; otherwise natural widths (the row overflows, but
             // a constrained row would shrink the later segments below the touch target).
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -230,6 +230,7 @@ class InkTheme(private val context: Context) {
             row.addView(segment, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
         paint(selected)
+        row.showSelected = ::paint
         return row
     }
 
@@ -374,6 +375,13 @@ class InkSwitch(context: Context, private val density: Float) : View(context) {
     }
 }
 
+/** The row [InkTheme.segmented] builds; [show] moves the highlight without calling the selection listener. */
+open class InkSegmentedRow(context: Context) : LinearLayout(context) {
+    internal var showSelected: (Int) -> Unit = {}
+
+    fun show(index: Int) = showSelected(index)
+}
+
 /** A track with a segment that slides back and forth while the view is on screen. */
 class InkBusyBar(context: Context, private val density: Float) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -396,7 +404,26 @@ class InkBusyBar(context: Context, private val density: Float) : View(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        animator.start()
+        updateAnimation()
+    }
+
+    // Also called when an ancestor is shown or hidden, so a bar under a hidden screen does not keep the UI thread busy.
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        updateAnimation()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        updateAnimation()
+    }
+
+    private fun updateAnimation() {
+        if (isShown && windowVisibility == VISIBLE) {
+            if (!animator.isStarted) animator.start()
+        } else {
+            animator.cancel()
+        }
     }
 
     override fun onDetachedFromWindow() {

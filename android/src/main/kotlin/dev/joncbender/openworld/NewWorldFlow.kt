@@ -62,8 +62,8 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
         addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
     }
 
-    /** Asks before the current world is replaced; [onGenerate] runs on the UI thread if the player agrees. */
-    fun confirmReplace(onGenerate: () -> Unit) {
+    /** Asks before the current world is replaced; [onGenerate] runs on the UI thread if the player agrees, [onKeep] if not. */
+    fun confirmReplace(onKeep: () -> Unit = {}, onGenerate: () -> Unit) {
         lateinit var dialog: android.app.Dialog
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -81,7 +81,12 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.END
-                    addView(ink.textButton("Keep this world") { dialog.dismiss() })
+                    addView(
+                        ink.textButton("Keep this world") {
+                            dialog.dismiss()
+                            onKeep()
+                        },
+                    )
                     addView(
                         ink.primaryButton("Generate") {
                             dialog.dismiss()
