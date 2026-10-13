@@ -10,7 +10,7 @@ import com.badlogic.gdx.Preferences
  * Persists across app restarts via the given [Preferences] (same store
  * GlobeScreen uses for settings, under an "inventory_" key prefix), but
  * belongs to one world, not the app install - see [clear], called whenever
- * GlobeScreen generates a new world.
+ * GlobeScreen switches to a new seed (not when it only has to rebuild the same world's cache).
  */
 class Inventory(private val preferences: Preferences) {
 
