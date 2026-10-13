@@ -677,9 +677,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // frequency (~16k tiles, each ~1.7 degrees across) the polygons stray from a true sphere by
         // well under a pixel, and it builds far faster than a finer one.
         private const val UNDERLAY_FREQUENCY = 40
-        // Open ocean is one flat color: the average of the ocean texture's base blue (0.11, 0.29,
-        // 0.55) and its wave highlight (0.33, 0.47, 0.66), which shows ~43% of the time.
-        private val UNDERLAY_COLOR = Color(0.20f, 0.37f, 0.60f, 1f)
+        // Open ocean is one flat color: what the ocean's art averages to (see BiomeArt.meanColor).
+        private val UNDERLAY_COLOR = BiomeArt.meanColor(Biome.OCEAN).let { Color(it[0], it[1], it[2], 1f) }
 
         private const val PREF_SEED = "seed"
         private const val PREF_RESOURCE_DENSITY = "resource_density"

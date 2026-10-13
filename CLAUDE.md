@@ -154,4 +154,12 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   re-measured on the phone). The 192 MB-heap
   emulator can now generate this world.
 
+- Tile art (`BiomeArt.kt`, `BiomeTextures.kt`): one 512x512 atlas of 64 px cells, three pixel-art variants per
+  biome (drafted by Codex from a written spec, then integrated and tuned). A tile picks its variant and, unless its
+  biome is a relief biome (mountain, foothills, volcano: painted with a fixed upper-left light, so never rotated),
+  one of six rotations from a hash of its id (`BiomeTextures.look`). Every cell averages to `BiomeArt.meanColor` (the
+  biome's color; ocean averages to the flat underlay's blue so the two blend). The atlas has mipmaps built by
+  halving, which never mixes two cells down to level 6 (a cell is 64 px); min filter `MipMapNearestLinear` (nearest
+  texel within a level, linear between levels), mag `Nearest`. A faraway tile therefore shows its biome's mean color
+  instead of grain. `core/build/atlas-preview.png` (written by `BiomeArtTest`) shows every cell at 3x.
 - No lighting or biome-color blending at tile boundaries yet.
