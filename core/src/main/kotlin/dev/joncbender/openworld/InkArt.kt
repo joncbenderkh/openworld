@@ -14,8 +14,8 @@ import kotlin.math.sin
  * tiles are turned to face north (see [BiomeTextures.uprightUVs]) rather than rotated at random.
  */
 internal object InkArt {
-    private val INK = floatArrayOf(0.20f, 0.13f, 0.08f)
-    private val WATER_INK = floatArrayOf(0.22f, 0.30f, 0.38f)
+    internal val INK = floatArrayOf(0.20f, 0.13f, 0.08f)
+    internal val WATER_INK = floatArrayOf(0.22f, 0.30f, 0.38f)
 
     private fun parchment(biome: Biome): FloatArray = when (biome) {
         Biome.OCEAN -> floatArrayOf(0.66f, 0.73f, 0.72f)

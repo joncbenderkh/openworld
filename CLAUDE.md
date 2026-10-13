@@ -173,3 +173,9 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
   the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set
   (`BiomeArt.kt`). `BiomeTextures.meanColor` is measured from the painted cells, so the flat ocean underlay matches.
+- Android chrome theme (`InkPalette.kt` in core, `InkTheme.kt` in android): the controls are printed onto the map - ivory
+  surfaces, an ink edge, serif type. The two inks are `InkArt`'s pen colors (a test keeps them equal), so chrome and tiles read
+  as one drawing; `InkPalette` is pure Kotlin so contrast (text >= 4.5:1, ink on ivory >= 7:1) and the 48 dp touch rule are unit
+  tested. `InkTheme` builds the views (medallion, primary/secondary/text buttons, segmented control, a canvas-drawn `InkSwitch`,
+  bottom sheet) from shapes, not from the app's old non-Material base theme, which renders stock Switch widgets invisibly.
+  New UI uses these; do not add raw `Color.argb(...)` backgrounds.
