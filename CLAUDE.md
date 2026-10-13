@@ -133,8 +133,9 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
 - Measured on the phone (Android, seed 123456789; 1,980,252 source tiles, 809,555 after compaction). Warm
   start: Java heap 196 -> 94 MB once loaded, PSS 403 -> 311 MB (zoomed out), cache file 180 -> 80 MB, world
   load 0.78 -> 0.33 s, drag fps unchanged (~120 out, ~105 in). Headroom (heap held back by a ballast array
-  before a start still succeeds): warm 60-80 -> ~160 MB. Cold start (generating) is unchanged: ~250 MB peak,
-  ~30-40 MB headroom before #52 (see the corner-free generation above for what it lowered). The 192 MB-heap
+  before a start still succeeds): warm 60-80 -> ~160 MB. Cold start (generating) measured before the corner-free
+  generation (#64): ~250 MB peak, ~30-40 MB headroom; after it the desktop floor fell from ~230 to ~150 MB (not yet
+  re-measured on the phone). The 192 MB-heap
   emulator can now generate this world.
 
 - No lighting or biome-color blending at tile boundaries yet.

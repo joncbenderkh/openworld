@@ -148,4 +148,24 @@ class WorldCompactorTest {
         // A corner on the seam with an ocean tile is also a corner of that ocean tile, so fine corners are used 1-3 times.
         for (v in 0 until sphere.vertexCount) assertTrue(uses[v] in 1..3, "vertex $v used ${uses[v]} times")
     }
+
+    @Test
+    fun `rebuilt corners sit where the source corners are, including on pentagons, at every size`() {
+        var checked = 0
+        for (frequency in intArrayOf(1, 2, 3, 12)) {
+            val source = WorldGenerator(3L).generate(frequency)
+            val result = WorldCompactor.compact(source, GeodesicSphere.generate(1), rings = 1)
+            val rebuilt = result.world.sphere
+            checked += result.fineCount
+            for (t in 0 until result.fineCount) {
+                val face = result.sourceFace[t]
+                for (k in 0 until rebuilt.cornerCount(t)) {
+                    assertEquals(source.sphere.cornerX(face, k), rebuilt.cornerX(t, k), 1e-6f, "freq $frequency tile $t corner $k")
+                    assertEquals(source.sphere.cornerY(face, k), rebuilt.cornerY(t, k), 1e-6f, "freq $frequency tile $t corner $k")
+                    assertEquals(source.sphere.cornerZ(face, k), rebuilt.cornerZ(t, k), 1e-6f, "freq $frequency tile $t corner $k")
+                }
+            }
+        }
+        assertTrue(checked > 0, "no tile was kept, so nothing was compared")
+    }
 }
