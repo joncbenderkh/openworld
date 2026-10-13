@@ -19,6 +19,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.FrameLayout
@@ -172,6 +173,7 @@ class InkTheme(private val context: Context) {
                 textSize = InkPalette.TEXT_BASE_SP
                 gravity = Gravity.CENTER
                 minHeight = dp(InkPalette.TOUCH_DP)
+                minWidth = dp(InkPalette.TOUCH_DP)
                 isClickable = true
                 isFocusable = true
             }
@@ -295,6 +297,11 @@ class InkSwitch(context: Context, private val density: Float) : View(context) {
     }
 
     override fun getAccessibilityClassName(): CharSequence = "android.widget.Switch"
+
+    override fun onInitializeAccessibilityEvent(event: AccessibilityEvent) {
+        super.onInitializeAccessibilityEvent(event)
+        event.isChecked = isChecked
+    }
 
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)
