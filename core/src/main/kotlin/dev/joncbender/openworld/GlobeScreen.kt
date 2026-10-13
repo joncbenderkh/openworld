@@ -456,7 +456,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (tile < 0 || !worldReady) return
         val sphere = compact.world.sphere
         val pixel = CameraRig.pixelSize(distance, camera.viewportHeight)
-        highlight.update(sphere, tile, maxOf(pixel * HIGHLIGHT_MIN_HALF_WIDTH_PIXELS, HIGHLIGHT_RELATIVE_HALF_WIDTH * tileRadius(sphere, tile)))
+        highlight.update(sphere, tile, maxOf(pixel * maxOf(HIGHLIGHT_MIN_HALF_WIDTH_PIXELS, HIGHLIGHT_MIN_HALF_WIDTH_DP * Gdx.graphics.density), HIGHLIGHT_RELATIVE_HALF_WIDTH * tileRadius(sphere, tile)))
         highlight.render(shader)
     }
 
@@ -620,7 +620,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         private const val WORLD_NOT_SAVED = "The world could not be saved, so it cannot be shown. Free some storage and start a new world."
         private const val WORLD_UNREADABLE = "The saved world could not be read. Start a new world."
 
+        // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f
+        private const val HIGHLIGHT_MIN_HALF_WIDTH_DP = 2.2f
         private const val HIGHLIGHT_RELATIVE_HALF_WIDTH = 0.08f
 
         private const val ROTATE_SPEED_DEG = 0.3f
