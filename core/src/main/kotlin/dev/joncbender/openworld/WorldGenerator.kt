@@ -92,9 +92,21 @@ class WorldGenerator(private val seed: Long) {
 
     private val elevationNoise = Noise3D(seed)
     private val moistureNoise = Noise3D(seed xor 0x9E3779B97F4A7C15UL.toLong())
+    private val ridgeNoise = Noise3D(seed xor 0x5851F42D4C957F2DUL.toLong())
 
     companion object {
         const val DEFAULT_RESOURCE_DENSITY = 0.18f
+
+        // Ridge field (see [ridgeness]): sampled in 3D at a fixed scale, so ranges look the same at any
+        // tile frequency. A smaller scale than elevation's 2.2 makes the chains narrower.
+        private const val RIDGE_SCALE = 5.5f
+        private const val MOUNTAIN_ELEVATION = 0.55f
+        private const val FOOTHILLS_ELEVATION = 0.53f
+        private const val MOUNTAIN_RIDGE = 0.92f
+        private const val FOOTHILLS_RIDGE = 0.84f
+
+        /** 1 along the ridge lines (where a noise value crosses its midpoint), falling to 0 at its extremes. */
+        private fun ridgeness(noise: Float): Float = 1f - abs(2f * noise - 1f)
 
         // An ocean component smaller than this fraction of the largest one
         // is treated as a landlocked lake instead of part of the ocean.
@@ -109,7 +121,7 @@ class WorldGenerator(private val seed: Long) {
 
         // Applied on top of the (already small) coastal-mountain pool, so
         // the final volcano count stays a small fraction of a percent of land.
-        private const val VOLCANO_CHANCE = 0.3f
+        private const val VOLCANO_CHANCE = 0.2f
 
         // A standalone landmass this size or smaller is a candidate "hot spot"
         // island volcano - empirically, real islands of this scale sit only
@@ -157,8 +169,11 @@ class WorldGenerator(private val seed: Long) {
         // foreshortened sample of the true global distribution); foothillsLevel
         // adds another ~14% of land as a transitional band below the mountains.
         val seaLevel = 0.48f
-        val foothillsLevel = 0.58f
-        val mountainLevel = 0.62f
+        // High ground only becomes mountains where a ridge field runs through it, so ranges are long
+        // chains rather than every broad highland turning solid; foothills are the wider band of that
+        // field around them, on lower ground.
+        val foothillsLevel = FOOTHILLS_ELEVATION
+        val mountainLevel = MOUNTAIN_ELEVATION
 
         Parallel.forEachIndex(sphere.faceCount) { i ->
             val x = sphere.centerX(i)
@@ -166,12 +181,13 @@ class WorldGenerator(private val seed: Long) {
             val z = sphere.centerZ(i)
             val e = elevation[i]
             val m = moistureNoise.fbm(x * moistureScale, y * moistureScale, z * moistureScale, octaves = 4)
+            val ridge = ridgeness(ridgeNoise.fbm(x * RIDGE_SCALE, y * RIDGE_SCALE, z * RIDGE_SCALE, octaves = 3))
             val latitude = abs(y)
 
             biomes[i] = when {
                 e < seaLevel -> Biome.OCEAN
-                e >= mountainLevel -> Biome.MOUNTAIN
-                e >= foothillsLevel -> Biome.FOOTHILLS
+                e >= mountainLevel && ridge >= MOUNTAIN_RIDGE -> Biome.MOUNTAIN
+                e >= foothillsLevel && ridge >= FOOTHILLS_RIDGE -> Biome.FOOTHILLS
                 latitude >= 0.88f -> Biome.ARCTIC
                 m > 0.75f && e < seaLevel + 0.08f && latitude < 0.75f -> Biome.SWAMP
                 latitude >= 0.75f -> if (m > 0.40f) Biome.TAIGA else Biome.TUNDRA
@@ -418,7 +434,8 @@ class WorldGenerator(private val seed: Long) {
         val sourceCount = world.sphere.faceCount / 6
         repeat(sourceCount) {
             var current = rng.nextInt(world.sphere.faceCount)
-            if (elevation[current] < 0.65f) return@repeat
+            // Rivers rise in the ranges: a highland with no ridge through it is plain ground, not a source.
+            if (world[current] != Biome.MOUNTAIN) return@repeat
 
             var steps = 0
             while (steps < 200) {

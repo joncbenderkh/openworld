@@ -104,7 +104,7 @@ class CoarseWorldTest {
     @Test
     fun `a volcano outweighs two mountain tiles`() {
         val world = fineWorld(7 to Biome.VOLCANO, 169 to Biome.MOUNTAIN, 331 to Biome.MOUNTAIN)
-        assertEquals(Biome.VOLCANO, coarseBiomeOf(7, world), "volcano (3) vs 2 mountain (2)")
+        assertEquals(Biome.VOLCANO, coarseBiomeOf(7, world), "volcano (5) vs 2 mountain (4)")
     }
 
     @Test

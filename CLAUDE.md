@@ -77,7 +77,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   vertices (pentagons). Total tiles = `10n² + 2`. Sampling noise directly at
   each face's 3D center has no seams to stitch, unlike a flat wrapped map.
 - Biome assignment: elevation + moisture 3D fBm noise (`Noise3D.kt`), plus
-  latitude from the sphere's Y coordinate, thresholded into the nine biomes
+  latitude from the sphere's Y coordinate, thresholded into the biomes (mountains and foothills also need a ridged-noise field, so they form chains, not blobs; changing world generation means bumping the cache versions)
   (`WorldGenerator.kt`). Rivers/lakes are a separate hydrology pass
   (steepest-descent walk / local-minima detection) over the sphere's
   face-adjacency graph — no map edges to special-case at all.

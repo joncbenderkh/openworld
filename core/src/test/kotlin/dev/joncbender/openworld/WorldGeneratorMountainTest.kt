@@ -67,4 +67,24 @@ class WorldGeneratorMountainTest {
             )
         }
     }
+
+    @Test
+    fun `mountains form narrow ranges, not solid blobs, across several seeds`() {
+        // A blob has a deep interior; a range is mostly edge. Measured as the share of mountain tiles
+        // that touch a non-mountain tile (the old threshold-only mountains scored 0.14 on seed 0, ridged ones 0.57-0.63).
+        for (seed in 0L until 8L) {
+            val world = WorldGenerator(seed).generate(frequency = 120)
+            var mountain = 0
+            var edge = 0
+            for (i in world.sphere.indices) {
+                if (world[i] != Biome.MOUNTAIN) continue
+                mountain++
+                var touchesOther = false
+                world.sphere.forEachNeighbor(i) { n -> if (world[n] != Biome.MOUNTAIN) touchesOther = true }
+                if (touchesOther) edge++
+            }
+            val edgeShare = edge.toFloat() / mountain
+            assertTrue(edgeShare >= 0.5f, "seed $seed: only ${edgeShare * 100}% of mountain tiles are on an edge")
+        }
+    }
 }

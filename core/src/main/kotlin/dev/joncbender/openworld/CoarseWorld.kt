@@ -25,7 +25,7 @@ object CoarseWorldBuilder {
      * Bump whenever the mapping or the vote changes what [build] produces, so a [CoarseWorldCache]
      * written by an older version is discarded instead of being drawn.
      */
-    const val ALGORITHM_VERSION = 2
+    const val ALGORITHM_VERSION = 3
 
     /**
      * A biome's votes per fine tile. Most terrain counts once; features that are only a
@@ -34,8 +34,8 @@ object CoarseWorldBuilder {
      * chunkier those features look when zoomed out.
      */
     private fun weightOf(biome: Biome): Int = when (biome) {
-        Biome.RIVER, Biome.LAKE -> 2
-        Biome.VOLCANO -> 3
+        Biome.RIVER, Biome.LAKE, Biome.MOUNTAIN -> 2
+        Biome.VOLCANO -> 5
         else -> 1
     }
 
