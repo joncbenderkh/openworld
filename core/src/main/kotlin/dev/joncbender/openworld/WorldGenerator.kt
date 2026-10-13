@@ -162,12 +162,12 @@ class WorldGenerator(private val seed: Long) {
         // threshold made mountains all but impossible). seaLevel targets
         // ~30-40% land coverage (avg ~35%, vs. Earth's real ~29% - not
         // matched deliberately, just landing close); mountainLevel then
-        // averages ~14% of that land (undershooting the real-world ~24%
+        // (with its ridge gate, see below) averages ~10-12% of that land (undershooting the real-world ~24%
         // figure on purpose, since a single top-down screenshot of one
         // hemisphere isn't a reliable way to validate that figure - elevation
         // noise clusters spatially and a sphere's near side is a biased,
         // foreshortened sample of the true global distribution); foothillsLevel
-        // adds another ~14% of land as a transitional band below the mountains.
+        // adds another ~13-16% of land as a transitional band below the mountains.
         val seaLevel = 0.48f
         // High ground only becomes mountains where a ridge field runs through it, so ranges are long
         // chains rather than every broad highland turning solid; foothills are the wider band of that
