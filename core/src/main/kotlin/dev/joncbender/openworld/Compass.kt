@@ -46,11 +46,13 @@ class Compass {
 
     fun resize(width: Int, height: Int) {
         camera.setToOrtho(false, width.toFloat(), height.toFloat())
-        radius = minOf(width, height) * RADIUS_FRACTION
         // A desktop reports a density under 1; the seals should not shrink below their nominal size there.
         val density = Gdx.graphics.density.coerceAtLeast(1f)
         edge = InkPalette.LINE_DP * density
         sealRadius = InkPalette.SEAL_DP * density / 2f
+        // Keep the whole seal (lobes and outline included) inside the shorter side of the screen.
+        val shorter = minOf(width, height)
+        radius = minOf(shorter * RADIUS_FRACTION, shorter / 2f - outerRadius())
         font.data.setScale(InkPalette.TEXT_MD_SP * density / FONT_NATIVE_PX)
     }
 
@@ -71,7 +73,7 @@ class Compass {
         shapes.color = argb(InkPalette.SURFACE)
         for (label in LABELS) {
             val (x, y) = badgePosition(label.offsetDeg, cx, cy)
-            shapes.circle(x, y, sealRadius * (1f + LOBE_FRACTION) + edge, SEAL_SEGMENTS)
+            shapes.circle(x, y, outerRadius(), SEAL_SEGMENTS)
         }
         for (label in LABELS) {
             val (x, y) = badgePosition(label.offsetDeg, cx, cy)
@@ -115,6 +117,8 @@ class Compass {
         shapes.dispose()
         font.dispose()
     }
+
+    private fun outerRadius() = sealRadius * (1f + LOBE_FRACTION) + edge
 
     private fun argb(value: Int, alpha: Float = 1f): Color {
         Color.argb8888ToColor(color, value)
