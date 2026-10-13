@@ -26,8 +26,12 @@ internal object CameraRig {
     /** Far clip plane: just past the globe's far side. */
     fun farPlane(distance: Float): Float = distance + 1.1f
 
+    /** About how wide one screen pixel is on the surface under the middle of the view, for the camera's 60 degree field of view. */
+    fun pixelSize(distance: Float, viewportHeight: Float): Float = (distance - 1f) * PIXEL_SCALE / viewportHeight
+
     /** Fraction of the usual rotation per dragged pixel: the surface moves slower under the finger the closer the camera is. */
     fun dragScale(distance: Float): Float = ((distance - 1f) / DRAG_FULL_SPEED_HEIGHT).coerceIn(0f, 1f)
 
+    private const val PIXEL_SCALE = 1.1547f // 2 * tan(30 degrees)
     private const val DRAG_FULL_SPEED_HEIGHT = 2f
 }
