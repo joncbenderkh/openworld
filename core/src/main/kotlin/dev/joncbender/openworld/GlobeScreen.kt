@@ -450,13 +450,20 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (nearInactiveFrames == NEAR_RELEASE_AFTER_FRAMES) nearStreamer?.releaseAll()
     }
 
-    /** Outlines the selected tile, at least a couple of pixels thick however far out the camera is. */
+    /**
+     * Outlines the selected tile, at least a couple of pixels thick however far out the camera is. It is
+     * drawn over everything else (the depth buffer is cleared first) so that nothing covers it and it can
+     * lie exactly on the tile; a tile on the far side of the globe is skipped instead.
+     */
     private fun drawHighlight() {
         val tile = selectedTile
         if (tile < 0 || !worldReady) return
         val sphere = compact.world.sphere
+        val toTile = sphere.centerX(tile) * cameraDirection.x + sphere.centerY(tile) * cameraDirection.y + sphere.centerZ(tile) * cameraDirection.z
+        if (toTile < 1f / distance) return
         val pixel = CameraRig.pixelSize(distance, camera.viewportHeight)
         highlight.update(sphere, tile, maxOf(pixel * maxOf(HIGHLIGHT_MIN_HALF_WIDTH_PIXELS, HIGHLIGHT_MIN_HALF_WIDTH_DP * Gdx.graphics.density), HIGHLIGHT_RELATIVE_HALF_WIDTH * tileRadius(sphere, tile)))
+        Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT)
         highlight.render(shader)
     }
 

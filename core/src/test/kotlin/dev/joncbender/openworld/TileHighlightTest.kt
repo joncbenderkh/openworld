@@ -28,7 +28,7 @@ class TileHighlightTest {
     }
 
     @Test
-    fun `every point lies on the sphere just above the lines`() {
+    fun `every point lies on the sphere`() {
         val tile = hexagon()
         val used = TileHighlight.ring(sphere, tile, 0.01f, buffer)
         for (i in 0 until used step 3) {

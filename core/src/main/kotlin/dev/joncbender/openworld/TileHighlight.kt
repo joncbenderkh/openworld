@@ -12,8 +12,9 @@ import kotlin.math.sqrt
 /**
  * The outline drawn around the selected tile: a ring between a shrunken and a grown copy of the
  * tile's polygon, as its own small mesh in the terrain's vertex layout (see [Graticule]) so the
- * shader's white texel and the vertex color give its colour. It sits just above the graticule, so
- * neither the terrain layers' draw order nor the lines cover it.
+ * shader's white texel and the vertex color give its colour. It lies on the tile itself, not above
+ * it (a lifted ring would slide off the tile at a close zoom, where a hundredth of the radius is
+ * many pixels of parallax); the caller draws it last, over a cleared depth buffer.
  */
 internal class TileHighlight {
     private val mesh = Mesh(
@@ -27,17 +28,24 @@ internal class TileHighlight {
     private val vertices = FloatArray(MAX_VERTICES * VERTEX_SIZE)
     private val triangles = FloatArray(MAX_VERTICES * 3)
     private var vertexCount = 0
+    private val u: Float
+    private val v: Float
+    private val colorBits = COLOR.toFloatBits()
+
+    init {
+        val white = BiomeTextures.whiteUV()
+        u = white.first
+        v = white.second
+    }
 
     /** Rebuilds the ring for [tile], [halfWidth] being half its thickness measured on the globe. */
     fun update(sphere: Sphere, tile: Int, halfWidth: Float) {
         vertexCount = ring(sphere, tile, halfWidth, triangles) / 3
-        val (u, v) = BiomeTextures.whiteUV()
-        val color = COLOR.toFloatBits()
         for (i in 0 until vertexCount) {
             vertices[i * VERTEX_SIZE] = triangles[i * 3]
             vertices[i * VERTEX_SIZE + 1] = triangles[i * 3 + 1]
             vertices[i * VERTEX_SIZE + 2] = triangles[i * 3 + 2]
-            vertices[i * VERTEX_SIZE + 3] = color
+            vertices[i * VERTEX_SIZE + 3] = colorBits
             vertices[i * VERTEX_SIZE + 4] = u
             vertices[i * VERTEX_SIZE + 5] = v
         }
@@ -51,8 +59,8 @@ internal class TileHighlight {
     fun dispose() = mesh.dispose()
 
     companion object {
-        /** Just proud of the graticule's lines (1.004), so the outline is the topmost thing on the tile. */
-        const val RADIUS = 1.006f
+        /** The ring lies on the unit sphere. */
+        const val RADIUS = 1f
 
         private const val VERTEX_SIZE = 6 // position(3) + packed color(1) + texCoord(2)
         private const val MAX_CORNERS = 6
@@ -63,7 +71,7 @@ internal class TileHighlight {
          * Writes the ring's triangles as x, y, z triples into [out] and returns how many floats it wrote.
          * The ring runs from the polygon shrunk about the tile's center by [halfWidth] (to the center
          * itself if that is more than the tile's radius) to the polygon grown by the same, every point
-         * pushed out to [RADIUS].
+         * put on the sphere at [RADIUS].
          */
         fun ring(sphere: Sphere, tile: Int, halfWidth: Float, out: FloatArray): Int {
             val corners = sphere.cornerCount(tile)
