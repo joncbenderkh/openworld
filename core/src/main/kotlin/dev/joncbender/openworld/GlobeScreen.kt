@@ -686,7 +686,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val tile = pickTile(point.x, point.y, point.z)
         val world = compact.world
         selectedTile = tile
-        onTileSelected?.invoke(TileInfo(tile, world[tile], world.resourcesAt(tile), compact.isOpenOcean(tile)))
+        val centers = world.sphere.centers
+        onTileSelected?.invoke(
+            TileInfo(
+                tile, world[tile], world.resourcesAt(tile), compact.isOpenOcean(tile),
+                TileCoordinates.latitudeDeg(centers[tile * 3 + 1]),
+                TileCoordinates.longitudeDeg(centers[tile * 3], centers[tile * 3 + 2]),
+            ),
+        )
         return true
     }
 

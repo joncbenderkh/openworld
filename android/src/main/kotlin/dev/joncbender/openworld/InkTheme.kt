@@ -129,6 +129,22 @@ class InkTheme(private val context: Context) {
             layoutParams = FrameLayout.LayoutParams(size, size)
         }
 
+    /** A round 48dp close button for a panel or sheet: a warm disc with a cross. */
+    fun closeButton(description: String, onClick: () -> Unit): View =
+        TextView(context).apply {
+            text = "✕"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(InkPalette.INK)
+            background = rippled(disc(InkPalette.SURFACE_WARM, null), disc(Color.WHITE, null))
+            contentDescription = description
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+            val size = dp(InkPalette.TOUCH_DP)
+            layoutParams = LinearLayout.LayoutParams(size, size)
+        }
+
     /** A text button at least 48dp tall: [fill] and [labelColor] with an optional [edge]. */
     private fun button(label: String, fill: Int, labelColor: Int, edge: Int?, onClick: () -> Unit): Button =
         Button(context).apply {
