@@ -163,3 +163,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   texel within a level, linear between levels), mag `Nearest`. A faraway tile therefore shows its biome's mean color
   instead of grain. `core/build/atlas-preview.png` (written by `BiomeArtTest`) shows every cell at 3x.
 - No lighting or biome-color blending at tile boundaries yet.
+- Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
+  waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
+  the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set
+  (`BiomeArt.kt`). `BiomeTextures.meanColor` is measured from the painted cells, so the flat ocean underlay matches.

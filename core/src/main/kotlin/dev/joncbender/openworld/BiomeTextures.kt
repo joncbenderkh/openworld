@@ -28,6 +28,12 @@ object BiomeTextures {
     const val ROWS = 8 // 16 biomes x 3 variants + 1 reserved white cell = 49, fits in 8 * 8 = 64 (a power of two for mipmaps)
     const val ROTATIONS = 6
 
+    /** Inked-map tiles (see [InkArt]) instead of the pixel-art ones; their tiles are turned to face north. */
+    const val INK = true
+
+    /** The average color of [biome]'s art. */
+    fun meanColor(biome: Biome): FloatArray = if (INK) InkArt.meanColor(biome) else BiomeArt.meanColor(biome)
+
     // Corners sit this far from a face's center, as a fraction of one atlas cell - close enough
     // to the edge to use most of the cell's art, far enough that the nearest-filtered samples
     // never reach a neighbor's cell.
@@ -44,7 +50,7 @@ object BiomeTextures {
         val cell = IntArray(CELL_SIZE * CELL_SIZE)
         for (biome in Biome.entries) {
             for (variant in 0 until variants) {
-                BiomeArt.paint(biome, variant, CELL_SIZE, cell)
+                if (INK) InkArt.paint(biome, variant, CELL_SIZE, cell) else BiomeArt.paint(biome, variant, CELL_SIZE, cell)
                 val (x0, y0) = cellOrigin(cellOf(biome, variant))
                 for (y in 0 until CELL_SIZE) {
                     for (x in 0 until CELL_SIZE) pixmap.drawPixel(x0 + x, y0 + y, cell[y * CELL_SIZE + x])
@@ -127,6 +133,30 @@ object BiomeTextures {
                 offsets[c * 2 + 1] = MathUtils.sin(angle) * rv
             }
         }
+    }
+
+    /**
+     * Writes into [out] the UV of corner [c] of a face so that the art's up is north: the corner's bearing on the
+     * sphere (seen from outside, east to the right) becomes its angle in the cell. [px],[py],[pz] is the face
+     * center (a unit vector), [dx],[dy],[dz] the offset of the corner from it.
+     */
+    fun uprightUV(biome: Biome, variant: Int, px: Float, py: Float, pz: Float, dx: Float, dy: Float, dz: Float, out: FloatArray, at: Int) {
+        // east = Y x p, north = p x east
+        var ex = pz
+        val ey = 0f
+        var ez = -px
+        var el = kotlin.math.sqrt(ex * ex + ez * ez)
+        if (el < 1e-6f) { ex = 1f; ez = 0f; el = 1f }
+        ex /= el; ez /= el
+        val nx = py * ez - pz * ey
+        val ny = pz * ex - px * ez
+        val nz = px * ey - py * ex
+        val east = dx * ex + dy * ey + dz * ez
+        val north = dx * nx + dy * ny + dz * nz
+        val len = kotlin.math.sqrt(east * east + north * north)
+        val k = if (len < 1e-9f) 0f else CORNER_RADIUS_FRACTION / len
+        out[at] = centerU(biome, variant) + east * k / COLS
+        out[at + 1] = centerV(biome, variant) - north * k / ROWS
     }
 
     /** UV of the reserved solid-white cell, for geometry that just wants its own vertex color. */

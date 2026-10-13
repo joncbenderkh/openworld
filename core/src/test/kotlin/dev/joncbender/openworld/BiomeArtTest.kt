@@ -72,19 +72,20 @@ class BiomeArtTest {
         }
     }
 
-    /** Not a check: writes the atlas art to build/atlas-preview.png (3x) so it can be looked at without a GL context. */
+    /** Not a check: writes the atlas art to build/atlas-preview.png (2x) so it can be looked at without a GL context. */
     @Test
     fun `writes a preview of every cell`() {
-        val scale = 3
+        val scale = 2
         val size = 64
-        val image = BufferedImage(BiomeArt.VARIANTS * size * scale, Biome.entries.size * size * scale, BufferedImage.TYPE_INT_RGB)
+        val image = BufferedImage(2 * BiomeArt.VARIANTS * size * scale, Biome.entries.size / 2 * size * scale, BufferedImage.TYPE_INT_RGB)
         for (biome in Biome.entries) {
             for (variant in 0 until BiomeArt.VARIANTS) {
-                val pixels = paint(biome, variant, size)
+                val pixels = IntArray(size * size).also { if (BiomeTextures.INK) InkArt.paint(biome, variant, size, it) else BiomeArt.paint(biome, variant, size, it) }
+                val column = biome.ordinal / 8 * BiomeArt.VARIANTS + variant
                 for (y in 0 until size * scale) {
                     for (x in 0 until size * scale) {
                         val p = pixels[(y / scale) * size + x / scale]
-                        image.setRGB(variant * size * scale + x, biome.ordinal * size * scale + y, p ushr 8)
+                        image.setRGB(column * size * scale + x, biome.ordinal % 8 * size * scale + y, p ushr 8)
                     }
                 }
             }

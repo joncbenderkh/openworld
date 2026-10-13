@@ -678,7 +678,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // well under a pixel, and it builds far faster than a finer one.
         private const val UNDERLAY_FREQUENCY = 40
         // Open ocean is one flat color: what the ocean's art averages to (see BiomeArt.meanColor).
-        private val UNDERLAY_COLOR = BiomeArt.meanColor(Biome.OCEAN).let { Color(it[0], it[1], it[2], 1f) }
+        private val UNDERLAY_COLOR = BiomeTextures.meanColor(Biome.OCEAN).let { Color(it[0], it[1], it[2], 1f) }
 
         private const val PREF_SEED = "seed"
         private const val PREF_RESOURCE_DENSITY = "resource_density"
