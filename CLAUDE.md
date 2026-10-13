@@ -127,6 +127,12 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   the corner between two consecutive neighbors is named by the neighbor-list slot of the lowest of the three
   tiles meeting there, and sits at the average of their centers. Measured on a desktop JVM (smallest `-Xmx`
   that cold-starts): frequency 445 needs ~150 MB, down from ~230; 540 needs ~180; 600 ~240.
+- Camera (`CameraRig.kt`): the globe has radius 1 and the camera sits 1.04..6 from its center. Zoom scales the
+  camera's *height above the surface* (`distance - 1`), not the distance, so the last steps do not leap. The near
+  and far clip planes follow the height (near is half of it), which keeps depth precision where the surface is
+  and the near plane out of the terrain; dragging slows with the height so the surface tracks the finger; the
+  graticule is not drawn below distance 1.3 because its fixed-width lines would cover the tiles. At the closest
+  zoom a full-resolution tile (frequency 540) is ~100 px wide.
 - Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): generation builds
   a full sphere without corners (~120 MB at 540: centers, starts and neighbors), so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.

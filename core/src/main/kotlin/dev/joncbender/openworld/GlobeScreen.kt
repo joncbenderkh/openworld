@@ -107,8 +107,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         up.set(0f, 1f, 0f)
     }
     private var distance = 3f
-    private val minDistance = 1.6f
-    private val maxDistance = 6f
     private var zoomStartDistance: Float? = null
     private var twistStartRotation: Quaternion? = null
     private var twistStartAngleDeg: Float? = null
@@ -350,9 +348,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         nearStreamer = null
     }
 
-    /** Moves the camera to [factor] times its current distance, within the zoom limits. */
+    /** Scales the camera's height above the surface by [factor], within the zoom limits. */
     fun zoomBy(factor: Float) {
-        distance = (distance * factor).coerceIn(minDistance, maxDistance)
+        distance = CameraRig.zoomed(distance, factor)
     }
 
     /** Turns the globe by [degrees] about the camera's view axis - what a two-finger twist does. */
@@ -370,6 +368,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
         camera.position.set(0f, 0f, distance)
+        camera.near = CameraRig.nearPlane(distance)
+        camera.far = CameraRig.farPlane(distance)
         camera.update()
 
         modelMatrix.idt().rotate(rotation)
@@ -386,7 +386,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.gl.glCullFace(GL20.GL_BACK)
         drawVisibleTerrain()
         Gdx.gl.glDisable(GL20.GL_CULL_FACE)
-        graticule.render(shader, GL20.GL_TRIANGLES)
+        // Its lines are a fixed width on the globe, so up close they would cover the tiles.
+        if (distance > CameraRig.GRATICULE_HIDDEN_BELOW) graticule.render(shader, GL20.GL_TRIANGLES)
 
         compass.render(rotation)
     }
@@ -495,8 +496,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // regardless of how the globe has already been spun - exactly how
         // spinning a ball with a finger works, with no special axis anywhere.
         val sign = if (navigationFlipped) -1f else 1f
-        rotation.mulLeft(Quaternion(Vector3.Y, -deltaX * sign * ROTATE_SPEED_DEG))
-        rotation.mulLeft(Quaternion(Vector3.X, -deltaY * sign * ROTATE_SPEED_DEG))
+        val speed = ROTATE_SPEED_DEG * CameraRig.dragScale(distance)
+        rotation.mulLeft(Quaternion(Vector3.Y, -deltaX * sign * speed))
+        rotation.mulLeft(Quaternion(Vector3.X, -deltaY * sign * speed))
         return true
     }
 
@@ -508,7 +510,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // compounding the same ratio again on every callback.
         val start = zoomStartDistance ?: this.distance.also { zoomStartDistance = it }
         val ratio = initialDistance / distance
-        this.distance = (start * ratio).coerceIn(minDistance, maxDistance)
+        this.distance = CameraRig.zoomed(start, ratio)
         return true
     }
 
