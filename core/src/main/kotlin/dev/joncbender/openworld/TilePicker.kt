@@ -10,7 +10,7 @@ import dev.joncbender.openworld.geo.Sphere
  * [coarse] must be the sphere the world was compacted with (see [WorldCompactor.COARSE_FREQUENCY]).
  * A scan per tap is fine: this runs once per tap, not per frame.
  */
-class TilePicker(private val compact: CompactWorld, private val coarse: Sphere) {
+class TilePicker(val compact: CompactWorld, private val coarse: Sphere) {
 
     fun pick(x: Float, y: Float, z: Float): Int {
         val cell = nearestCenter(coarse, coarse.faceCount, x, y, z)

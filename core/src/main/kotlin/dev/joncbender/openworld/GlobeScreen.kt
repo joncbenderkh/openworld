@@ -85,12 +85,32 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         selectedTile = -1
     }
 
-    // Built on the first tap after a world loads, since only picking needs it.
+    // Built on a background thread once a world has loaded (see [prepareTilePicker]). Only picking
+    // needs it, and building its coarse sphere on the render thread at the first tap is a visible hitch.
+    @Volatile
     private var picker: TilePicker? = null
 
     private fun pickTile(x: Float, y: Float, z: Float): Int {
-        val current = picker ?: TilePicker(compact, GeodesicSphere.generate(WorldCompactor.COARSE_FREQUENCY)).also { picker = it }
+        val world = compact
+        // A picker made for another world (a new one replaced it while this was being built) is not used.
+        val current = picker?.takeIf { it.compact === world } ?: newTilePicker(world).also { picker = it }
         return current.pick(x, y, z)
+    }
+
+    private fun newTilePicker(world: CompactWorld) = TilePicker(world, GeodesicSphere.generate(WorldCompactor.COARSE_FREQUENCY))
+
+    /** Builds the picker for the world that just loaded without making the first tap wait for it. */
+    private fun prepareTilePicker() {
+        val world = compact
+        Thread {
+            val perf = PerfTimer()
+            val built = newTilePicker(world)
+            perf.lap("tile picker built")
+            if (compact === world) picker = built
+        }.apply {
+            name = "tile-picker"
+            isDaemon = true
+        }.start()
     }
 
     /** Reverses the sense of one- and two-finger drag gestures. Settable from outside (the Android settings menu). */
@@ -244,6 +264,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val problem = loadWorldOrExplain()
         worldReady = problem == null
         loadedDensity = if (problem == null) resourceDensity else null
+        if (problem == null) prepareTilePicker()
         if (problem != null) {
             picker = null
             compact = placeholderWorld()
@@ -259,13 +280,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             var coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
             if (coarseBiomes == null || !CompactWorldCache.isCurrent(compactCacheFile, frequency, seed, resourceDensity)) {
                 generateAndCacheWorld()?.let { return it }
-                // A miss can mean this is a genuinely different world from whatever the inventory
-                // was tracking - e.g. a stale/missing cache, or a frequency bump from an app update
-                // changing the whole tile layout even with the same seed. Clearing keeps the same
-                // "persists between restarts, not between worlds" rule regenerateWorld() follows;
-                // harmless on a first-ever launch, where the inventory is already empty. It waits for
-                // the world to exist: a world that cannot be stored must not cost the player their items.
-                inventory.clear()
+                // The inventory stays: it belongs to the seed, which regenerateWorld() resets it for. A
+                // miss here only means the cache is stale or missing (an app update that changed the
+                // tile layout, say), not that the player's world is a different one.
                 coarseBiomes = CoarseWorldCache.load(coarseCacheFile, frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
             }
             if (coarseBiomes != null) {
