@@ -71,7 +71,7 @@ class Compass {
         shapes.color = argb(InkPalette.SURFACE)
         for (label in LABELS) {
             val (x, y) = badgePosition(label.offsetDeg, cx, cy)
-            shapes.circle(x, y, sealRadius + edge, SEAL_SEGMENTS)
+            shapes.circle(x, y, sealRadius * (1f + LOBE_FRACTION) + edge, SEAL_SEGMENTS)
         }
         for (label in LABELS) {
             val (x, y) = badgePosition(label.offsetDeg, cx, cy)
