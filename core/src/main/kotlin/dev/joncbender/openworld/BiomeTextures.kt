@@ -1,5 +1,7 @@
 package dev.joncbender.openworld
 
+import dev.joncbender.openworld.geo.Sphere
+
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
@@ -28,6 +30,12 @@ object BiomeTextures {
     const val ROWS = 8 // 16 biomes x 3 variants + 1 reserved white cell = 49, fits in 8 * 8 = 64 (a power of two for mipmaps)
     const val ROTATIONS = 6
 
+    /** Inked-map tiles (see [InkArt]) instead of the pixel-art ones; their tiles are turned to face north. */
+    const val INK = true
+
+    /** The average color of [biome]'s art. */
+    fun meanColor(biome: Biome): FloatArray = if (INK) InkArt.meanColor(biome) else BiomeArt.meanColor(biome)
+
     // Corners sit this far from a face's center, as a fraction of one atlas cell - close enough
     // to the edge to use most of the cell's art, far enough that the nearest-filtered samples
     // never reach a neighbor's cell.
@@ -44,7 +52,7 @@ object BiomeTextures {
         val cell = IntArray(CELL_SIZE * CELL_SIZE)
         for (biome in Biome.entries) {
             for (variant in 0 until variants) {
-                BiomeArt.paint(biome, variant, CELL_SIZE, cell)
+                if (INK) InkArt.paint(biome, variant, CELL_SIZE, cell) else BiomeArt.paint(biome, variant, CELL_SIZE, cell)
                 val (x0, y0) = cellOrigin(cellOf(biome, variant))
                 for (y in 0 until CELL_SIZE) {
                     for (x in 0 until CELL_SIZE) pixmap.drawPixel(x0 + x, y0 + y, cell[y * CELL_SIZE + x])
@@ -126,6 +134,38 @@ object BiomeTextures {
                 offsets[c * 2] = MathUtils.cos(angle) * ru
                 offsets[c * 2 + 1] = MathUtils.sin(angle) * rv
             }
+        }
+    }
+
+    /**
+     * Writes into [out] the UVs (u0, v0, u1, v1, ...) of the [n] corners of [face] so that the art's up is
+     * north: a corner's bearing on the sphere (seen from outside, east to the right) becomes its angle in the cell.
+     */
+    internal fun uprightUVs(biome: Biome, variant: Int, sphere: Sphere, face: Int, n: Int, out: FloatArray) {
+        val px = sphere.centerX(face)
+        val py = sphere.centerY(face)
+        val pz = sphere.centerZ(face)
+        // east = Y x p, north = p x east
+        var ex = pz
+        var ez = -px
+        var el = kotlin.math.sqrt(ex * ex + ez * ez)
+        if (el < 1e-6f) { ex = 1f; ez = 0f; el = 1f }
+        ex /= el; ez /= el
+        val nx = py * ez
+        val ny = pz * ex - px * ez
+        val nz = -py * ex
+        val cu = centerU(biome, variant)
+        val cv = centerV(biome, variant)
+        for (c in 0 until n) {
+            val dx = sphere.cornerX(face, c) - px
+            val dy = sphere.cornerY(face, c) - py
+            val dz = sphere.cornerZ(face, c) - pz
+            val east = dx * ex + dz * ez
+            val north = dx * nx + dy * ny + dz * nz
+            val len = kotlin.math.sqrt(east * east + north * north)
+            val k = if (len < 1e-9f) 0f else CORNER_RADIUS_FRACTION / len
+            out[c * 2] = cu + east * k / COLS
+            out[c * 2 + 1] = cv - north * k / ROWS
         }
     }
 

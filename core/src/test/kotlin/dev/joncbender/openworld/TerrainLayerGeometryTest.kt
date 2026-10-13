@@ -47,20 +47,15 @@ class TerrainLayerGeometryTest {
     @Test
     fun `a textured layer is white-tinted and samples its biome's cells`() {
         val layer = TerrainLayer(world(Biome.DESERT))
-        val allowed = HashSet<Pair<Float, Float>>().apply {
-            for (variant in 0 until BiomeArt.VARIANTS) {
-                add(BiomeTextures.centerU(Biome.DESERT, variant) to BiomeTextures.centerV(Biome.DESERT, variant))
-                for (corners in 5..6) {
-                    for (rotation in 0 until BiomeTextures.ROTATIONS) {
-                        val uvs = BiomeTextures.cornerUVs(Biome.DESERT, corners, variant, rotation)
-                        for (c in 0 until corners) add(uvs[c * 2] to uvs[c * 2 + 1])
-                    }
-                }
-            }
-        }
+        val radius = BiomeTextures.CORNER_RADIUS_FRACTION / BiomeTextures.COLS + 1e-4f
         for ((color, u, v) in allVertices(layer)) {
             assertEquals(whiteBits, color)
-            assertTrue((u to v) in allowed, "uv ($u, $v) is not in one of the desert cells' center or corner sets")
+            val inACell = (0 until BiomeArt.VARIANTS).any { variant ->
+                val du = u - BiomeTextures.centerU(Biome.DESERT, variant)
+                val dv = v - BiomeTextures.centerV(Biome.DESERT, variant)
+                du * du + dv * dv <= radius * radius
+            }
+            assertTrue(inACell, "uv ($u, $v) is outside every desert cell's disc")
         }
     }
 

@@ -97,6 +97,7 @@ class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val f
 
         val flatUV = flatColor?.let { BiomeTextures.whiteUV() }
         val vertexColor = flatColor?.toFloatBits() ?: WHITE_BITS
+        val uprightScratch = FloatArray(12)
         var vertexFloatPos = 0
         var vertexCount = 0
         var indexCount = 0
@@ -108,7 +109,11 @@ class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val f
             val centerU = flatUV?.first ?: BiomeTextures.centerU(biome, variant)
             val centerV = flatUV?.second ?: BiomeTextures.centerV(biome, variant)
             val n = sphere.cornerCount(i)
-            val cornerUVs = BiomeTextures.cornerUVs(biome, n, variant, BiomeTextures.rotationOf(look))
+            val cornerUVs = when {
+                flatUV != null -> uprightScratch
+                BiomeTextures.INK -> uprightScratch.also { BiomeTextures.uprightUVs(biome, variant, sphere, i, n, it) }
+                else -> BiomeTextures.cornerUVs(biome, n, variant, BiomeTextures.rotationOf(look))
+            }
 
             val centerIndex = vertexCount
             vertexFloatPos = appendVertex(vertices, vertexFloatPos, sphere.centerX(i), sphere.centerY(i), sphere.centerZ(i), vertexColor, centerU, centerV)
