@@ -128,7 +128,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   tiles meeting there, and sits at the average of their centers. Measured on a desktop JVM (smallest `-Xmx`
   that cold-starts): frequency 445 needs ~150 MB, down from ~230; 540 needs ~180; 600 ~240.
 - Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): generation builds
-  a ~175 MB full sphere, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
+  a full sphere without corners (~120 MB at 540: centers, starts and neighbors), so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
 - Frequency 540 on the phone (2,916,002 source tiles, 1,171,533 after compaction): cache file 116 MB, warm world
   load 0.73 s, cold start (generate + save + load) ~26 s, drag fps unchanged (~60 vsync-capped, ~120 idle).
