@@ -56,47 +56,25 @@ class AndroidLauncher : AndroidApplication() {
         goEdgeToEdge()
     }
 
-    private fun buildSettingsButton(): View {
-        val density = resources.displayMetrics.density
-        val button = Button(this).apply {
-            text = "⚙"
-            textSize = 20f
-            setBackgroundColor(Color.argb(140, 0, 0, 0))
-            setTextColor(Color.WHITE)
-            setOnClickListener { showSettingsDialog() }
-        }
-        button.layoutParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            val margin = (16 * density).toInt()
-            topMargin = margin
-            rightMargin = margin
-        }
-        return button
-    }
+    private val ink by lazy { InkTheme(this) }
+
+    private fun buildSettingsButton(): View =
+        ink.medallion("⚙", "Settings") { showSettingsDialog() }.apply { layoutParams = cornerParams(Gravity.TOP or Gravity.END) }
 
     /** Spins the globe back to its starting orientation - a standalone button, not a settings option. */
-    private fun buildResetOrientationButton(): View {
-        val density = resources.displayMetrics.density
-        val button = Button(this).apply {
-            text = "⟲"
-            textSize = 20f
-            setBackgroundColor(Color.argb(140, 0, 0, 0))
-            setTextColor(Color.WHITE)
-            setOnClickListener { Gdx.app.postRunnable { game.globeScreen.resetOrientation() } }
-        }
-        button.layoutParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            val margin = (16 * density).toInt()
+    private fun buildResetOrientationButton(): View =
+        ink.medallion("⟲", "Reset orientation") { Gdx.app.postRunnable { game.globeScreen.resetOrientation() } }
+            .apply { layoutParams = cornerParams(Gravity.TOP or Gravity.START) }
+
+    private fun cornerParams(gravity: Int): FrameLayout.LayoutParams {
+        val size = ink.dp(InkPalette.MAP_BUTTON_DP)
+        return FrameLayout.LayoutParams(size, size).apply {
+            this.gravity = gravity
+            val margin = ink.dp(InkPalette.EDGE_DP + 4f)
             topMargin = margin
-            leftMargin = margin
+            marginStart = margin
+            marginEnd = margin
         }
-        return button
     }
 
     private object SettingsPalette {
