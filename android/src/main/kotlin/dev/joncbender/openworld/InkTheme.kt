@@ -160,7 +160,21 @@ class InkTheme(private val context: Context) {
 
     /** One choice out of several, shown as a row of segments (e.g. Low / Medium / High). [onSelect] gets the index. */
     fun segmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit): LinearLayout {
-        val row = LinearLayout(context).apply {
+        val row = object : LinearLayout(context) {
+            // Equal shares while every segment keeps its 48 dp; otherwise natural widths (the row overflows, but
+            // a weighted row would shrink the segments below the touch target).
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val room = MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
+                val fits = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED ||
+                    room >= childCount * dp(InkPalette.TOUCH_DP)
+                for (i in 0 until childCount) {
+                    val params = getChildAt(i).layoutParams as LayoutParams
+                    params.weight = if (fits) 1f else 0f
+                    params.width = if (fits) 0 else ViewGroup.LayoutParams.WRAP_CONTENT
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+        }.apply {
             orientation = LinearLayout.HORIZONTAL
             background = box(InkPalette.BACKDROP, InkPalette.RADIUS_MD_DP, InkPalette.BORDER_SOFT, 1f)
             val pad = dp(3f)
