@@ -1,24 +1,13 @@
 package dev.joncbender.openworld
 
-import android.app.Dialog
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.graphics.Color
 import android.graphics.Rect
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
-import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
-import android.widget.Button
-import android.widget.CheckBox
-import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.backends.android.AndroidApplication
@@ -59,7 +48,7 @@ class AndroidLauncher : AndroidApplication() {
     private val ink by lazy { InkTheme(this) }
 
     private fun buildSettingsButton(): View =
-        ink.medallion("⚙", "Settings") { showSettingsDialog() }.apply { layoutParams = cornerParams(Gravity.TOP or Gravity.END) }
+        ink.medallion("⚙", "Settings") { settingsSheet.show() }.apply { layoutParams = cornerParams(Gravity.TOP or Gravity.END) }
 
     /** Spins the globe back to its starting orientation - a standalone button, not a settings option. */
     private fun buildResetOrientationButton(): View =
@@ -77,206 +66,7 @@ class AndroidLauncher : AndroidApplication() {
         }
     }
 
-    private object SettingsPalette {
-        val PANEL_BG = Color.argb(245, 26, 28, 34)
-        val ACCENT = Color.argb(255, 235, 168, 77)
-        val PILL_UNSELECTED = Color.argb(255, 47, 51, 60)
-        const val TEXT_PRIMARY = Color.WHITE
-        val TEXT_SECONDARY = Color.argb(178, 255, 255, 255)
-        val TEXT_FOOTER = Color.argb(120, 255, 255, 255)
-        val DIVIDER = Color.argb(40, 255, 255, 255)
-    }
-
-    private fun dp(value: Float): Int = (value * resources.displayMetrics.density).toInt()
-
-    private fun roundedDrawable(fillColor: Int, cornerRadiusDp: Float): GradientDrawable =
-        GradientDrawable().apply {
-            setColor(fillColor)
-            cornerRadius = dp(cornerRadiusDp).toFloat()
-        }
-
-    private fun pillButton(text: String, selected: Boolean, onClick: () -> Unit): Button =
-        Button(this).apply {
-            this.text = text
-            isAllCaps = false
-            setTextColor(if (selected) Color.BLACK else SettingsPalette.TEXT_PRIMARY)
-            background = roundedDrawable(if (selected) SettingsPalette.ACCENT else SettingsPalette.PILL_UNSELECTED, 10f)
-            setPadding(dp(4f), dp(10f), dp(4f), dp(10f))
-            setOnClickListener { onClick() }
-        }
-
-    private fun sectionLabel(text: String): TextView =
-        TextView(this).apply {
-            this.text = text
-            setTextColor(SettingsPalette.TEXT_SECONDARY)
-            textSize = 13f
-            setPadding(0, dp(16f), 0, dp(6f))
-        }
-
-    private fun divider(): View =
-        View(this).apply {
-            setBackgroundColor(SettingsPalette.DIVIDER)
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1f)).apply {
-                topMargin = dp(16f)
-            }
-        }
-
-    private fun showSettingsDialog() {
-        val screen = game.globeScreen
-        val padding = dp(24f)
-
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(padding, padding, padding, padding)
-            background = roundedDrawable(SettingsPalette.PANEL_BG, 20f)
-        }
-
-        layout.addView(
-            TextView(this).apply {
-                text = "Settings"
-                setTextColor(SettingsPalette.TEXT_PRIMARY)
-                textSize = 20f
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-            },
-        )
-
-        // A Switch rendered invisible against this dialog on-device (twice, even
-        // with explicit tint colors) - probably the app's old, non-Material base
-        // theme (Theme.NoTitleBar.Fullscreen) failing to resolve its track/thumb
-        // drawables. CheckBox has much simpler, more universally reliable
-        // rendering across themes, so use that instead.
-        layout.addView(
-            CheckBox(this).apply {
-                text = "Flip navigation direction"
-                setTextColor(SettingsPalette.TEXT_PRIMARY)
-                isChecked = screen.navigationFlipped
-                setPadding(paddingLeft, dp(16f), paddingRight, 0)
-                setOnCheckedChangeListener { _, isChecked ->
-                    Gdx.app.postRunnable { screen.navigationFlipped = isChecked }
-                }
-            },
-        )
-
-        layout.addView(sectionLabel("Resource density"))
-        val densityRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val densityOptions = listOf("Sparse" to 0.12f, "Normal" to 0.18f, "Abundant" to 0.28f)
-        lateinit var densityButtons: List<Button>
-        densityButtons = densityOptions.map { (label, value) ->
-            pillButton(label, selected = screen.resourceDensity == value) {
-                Gdx.app.postRunnable {
-                    screen.resourceDensity = value
-                    screen.regenerateWorld()
-                }
-                densityButtons.forEachIndexed { i, button ->
-                    val isSelected = densityOptions[i].second == value
-                    button.setTextColor(if (isSelected) Color.BLACK else SettingsPalette.TEXT_PRIMARY)
-                    button.background = roundedDrawable(
-                        if (isSelected) SettingsPalette.ACCENT else SettingsPalette.PILL_UNSELECTED,
-                        10f,
-                    )
-                }
-            }
-        }
-        densityButtons.forEach { button ->
-            val margin = dp(6f)
-            densityRow.addView(
-                button,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginStart = margin
-                    marginEnd = margin
-                },
-            )
-        }
-        layout.addView(densityRow)
-
-        layout.addView(divider())
-
-        layout.addView(sectionLabel("World seed"))
-        val seedInput = EditText(this).apply {
-            setText(screen.seed.toString())
-            setTextColor(SettingsPalette.TEXT_PRIMARY)
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
-            background = roundedDrawable(SettingsPalette.PILL_UNSELECTED, 10f)
-            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
-        }
-        val seedRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(
-                seedInput,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8f) },
-            )
-            addView(
-                pillButton("Copy", selected = false) {
-                    val clipboard = getSystemService(ClipboardManager::class.java)
-                    clipboard.setPrimaryClip(ClipData.newPlainText("World seed", seedInput.text.toString()))
-                    Toast.makeText(this@AndroidLauncher, "Seed copied", Toast.LENGTH_SHORT).show()
-                },
-            )
-        }
-        layout.addView(seedRow)
-
-        layout.addView(
-            Button(this).apply {
-                text = "Use this seed"
-                isAllCaps = false
-                setTextColor(Color.BLACK)
-                background = roundedDrawable(SettingsPalette.ACCENT, 10f)
-                setOnClickListener {
-                    val parsed = seedInput.text.toString().trim().toLongOrNull()
-                    if (parsed == null) {
-                        Toast.makeText(this@AndroidLauncher, "Invalid seed", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Gdx.app.postRunnable { screen.regenerateWorld(parsed) }
-                    }
-                }
-            },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10f)
-            },
-        )
-
-        layout.addView(
-            Button(this).apply {
-                text = "New world seed"
-                isAllCaps = false
-                setTextColor(Color.BLACK)
-                background = roundedDrawable(SettingsPalette.ACCENT, 10f)
-                setOnClickListener {
-                    val newSeed = System.nanoTime()
-                    Gdx.app.postRunnable { screen.regenerateWorld(newSeed) }
-                    seedInput.setText(newSeed.toString())
-                }
-            },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8f)
-            },
-        )
-
-        layout.addView(
-            TextView(this).apply {
-                text = "v${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_ID}"
-                setTextColor(SettingsPalette.TEXT_FOOTER)
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setPadding(0, dp(20f), 0, 0)
-            },
-        )
-
-        val margin = dp(24f)
-        val outer = FrameLayout(this).apply {
-            setPadding(margin, margin, margin, margin)
-            addView(layout, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
-        }
-
-        Dialog(this).apply {
-            requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
-            window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-            setContentView(outer)
-            window?.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
-        }.show()
-    }
+    private val settingsSheet by lazy { SettingsSheet(this, ink, game) }
 
     private val tilePanel: TilePanel by lazy {
         TilePanel(this, ink) {
