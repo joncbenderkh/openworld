@@ -162,7 +162,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   halving, which never mixes two cells down to level 6 (a cell is 64 px); min filter `MipMapNearestLinear` (nearest
   texel within a level, linear between levels), mag `Nearest`. A faraway tile therefore shows its biome's mean color
   instead of grain. `core/build/atlas-preview.png` (written by `BiomeArtTest`) shows every cell at 3x.
-- No lighting or biome-color blending at tile boundaries yet.
+- Lighting (`Lighting.kt`, `GlobeScreen` shaders): one light fixed in view space (upper left), applied per vertex as ambient 0.62 + diffuse 0.38 * max(dot(position, light), 0) - a unit sphere's position is its normal. `u_lit` is 1 for terrain and 0 for the graticule and selection ring. No biome-color blending at tile boundaries yet.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
   the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set
