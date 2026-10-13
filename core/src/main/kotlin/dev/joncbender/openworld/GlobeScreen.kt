@@ -23,9 +23,9 @@ import dev.joncbender.openworld.geo.GeodesicSphere
 
 class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, GestureDetector.GestureAdapter() {
 
-    // total tiles = 10*frequency^2 + 2 = 1,980,252 (~5x the previous 396,012). Too many to draw
-    // at once: see CoarseWorldBuilder and the near/far terrain layers below.
-    private val frequency = 445
+    // total tiles = 10*frequency^2 + 2 = 2,916,002 (~7.4x the 396,012 before the compact world). Too many
+    // to draw at once: see CoarseWorldBuilder and the near/far terrain layers below.
+    private val frequency = 540
 
     // Gdx.app.getPreferences is libGDX's own cross-platform settings store
     // (backed by SharedPreferences on Android) - using it here instead of an
@@ -292,7 +292,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         cacheFiles().forEach { it.delete() }
         if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD)) return NOT_ENOUGH_STORAGE
         val perf = PerfTimer()
-        val full = WorldGenerator(seed).generate(frequency, resourceDensity)
+        val full = WorldGenerator(seed).generate(frequency, resourceDensity, corners = false)
         perf.lap("world: generated")
         if (!cacheCoarseBiomes(full)) return WORLD_NOT_SAVED
         if (!CompactWorldCache.save(compactCacheFile, full, frequency, seed, resourceDensity)) return WORLD_NOT_SAVED

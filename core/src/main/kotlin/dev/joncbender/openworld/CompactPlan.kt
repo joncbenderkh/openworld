@@ -1,5 +1,6 @@
 package dev.joncbender.openworld
 
+import com.badlogic.gdx.math.Vector3
 import dev.joncbender.openworld.geo.Sphere
 
 internal fun interface IntSink { fun put(value: Int) }
@@ -31,7 +32,12 @@ internal class BitRank(size: Int, isMember: (Int) -> Boolean) {
  * full world is still resident, never holding both worlds at once.
  *
  * Tile ids: kept fine tiles first, in source order, then ocean tiles in coarse-tile order.
- * Vertex ids: used fine vertices in source order, then used coarse vertices in coarse order.
+ * Vertex ids: used fine vertices in order of [cornerSlot], then used coarse vertices in coarse order.
+ *
+ * The source world may have no corners at all (see [Sphere.hasCorners]): a fine tile's corners are
+ * rebuilt from centers and neighbors. The corner between two consecutive neighbors is where those
+ * two tiles and this one meet, so it is named by the lowest of the three tiles and its place in
+ * that tile's neighbor list, which all three tiles agree on, and sits at the average of their centers.
  */
 internal class CompactPlan(private val full: SphereWorld, private val coarse: Sphere, rings: Int) {
     private val fine = full.sphere
@@ -76,10 +82,10 @@ internal class CompactPlan(private val full: SphereWorld, private val coarse: Sp
         borderStart = borders.first
         borderList = borders.second
 
-        fineVertices = usedVertices(fine.vertexCount) { used ->
+        fineVertices = usedVertices(fine.neighbors.size) { used ->
             for (t in 0 until fineCount) {
                 val source = sourceFace[t]
-                for (k in fine.cornerStart[source] until fine.cornerStart[source + 1]) used[fine.cornerVertex[k]] = true
+                for (g in 0 until fine.neighborCount(source)) used[cornerSlot(source, g)] = true
             }
         }
         coarseVertices = usedVertices(coarse.vertexCount) { used ->
@@ -98,6 +104,28 @@ internal class CompactPlan(private val full: SphereWorld, private val coarse: Sp
         cornerTotal = corners
         neighborTotal = neighbors
         perf.lap("compact.plan")
+    }
+
+    /**
+     * The neighbor-list slot that names corner [g] of [tile], the one between neighbors `g - 1` and `g`:
+     * a slot of the lowest of the three tiles meeting there, whichever of them asks.
+     */
+    private fun cornerSlot(tile: Int, g: Int): Int {
+        val start = fine.neighborStart[tile]
+        val degree = fine.neighborCount(tile)
+        val before = fine.neighbors[start + (g + degree - 1) % degree]
+        val after = fine.neighbors[start + g]
+        if (tile < before && tile < after) return start + g
+        val owner = minOf(before, after)
+        val other = if (owner == before) after else before
+        val ownerStart = fine.neighborStart[owner]
+        val ownerDegree = fine.neighborCount(owner)
+        for (p in 0 until ownerDegree) {
+            val a = fine.neighbors[ownerStart + (p + ownerDegree - 1) % ownerDegree]
+            val b = fine.neighbors[ownerStart + p]
+            if ((a == tile && b == other) || (a == other && b == tile)) return ownerStart + p
+        }
+        error("tiles $owner, $tile and $other meet at no corner of $owner")
     }
 
     private inline fun usedVertices(count: Int, mark: (BooleanArray) -> Unit): BitRank {
@@ -178,7 +206,7 @@ internal class CompactPlan(private val full: SphereWorld, private val coarse: Sp
     fun emitCornerVertex(sink: IntSink) {
         for (t in 0 until fineCount) {
             val source = sourceFace[t]
-            for (k in fine.cornerStart[source] until fine.cornerStart[source + 1]) sink.put(fineVertices.rank(fine.cornerVertex[k]))
+            for (g in 0 until fine.neighborCount(source)) sink.put(fineVertices.rank(cornerSlot(source, g)))
         }
         for (o in 0 until oceanCount) {
             val c = coarseFace[o]
@@ -189,8 +217,24 @@ internal class CompactPlan(private val full: SphereWorld, private val coarse: Sp
     }
 
     fun emitVertexPositions(sink: FloatSink) {
-        for (v in 0 until fine.vertexCount) {
-            if (v in fineVertices) { sink.put(fine.vertexPositions[v * 3]); sink.put(fine.vertexPositions[v * 3 + 1]); sink.put(fine.vertexPositions[v * 3 + 2]) }
+        val sum = Vector3()
+        for (tile in 0 until fine.faceCount) {
+            val start = fine.neighborStart[tile]
+            val degree = fine.neighborCount(tile)
+            for (g in 0 until degree) {
+                if (start + g !in fineVertices) continue
+                val a = fine.neighbors[start + (g + degree - 1) % degree]
+                val b = fine.neighbors[start + g]
+                // Added lowest tile first, so the sum does not depend on which tile the corner is reached from.
+                val lo = minOf(a, b)
+                val hi = maxOf(a, b)
+                sum.set(
+                    (fine.centerX(tile) + fine.centerX(lo) + fine.centerX(hi)) / 3f,
+                    (fine.centerY(tile) + fine.centerY(lo) + fine.centerY(hi)) / 3f,
+                    (fine.centerZ(tile) + fine.centerZ(lo) + fine.centerZ(hi)) / 3f,
+                ).nor()
+                sink.put(sum.x); sink.put(sum.y); sink.put(sum.z)
+            }
         }
         for (v in 0 until coarse.vertexCount) {
             if (v in coarseVertices) { sink.put(coarse.vertexPositions[v * 3]); sink.put(coarse.vertexPositions[v * 3 + 1]); sink.put(coarse.vertexPositions[v * 3 + 2]) }

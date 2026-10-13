@@ -15,6 +15,10 @@ package dev.joncbender.openworld.geo
  * [vertexPositions] - a corner is shared by the three tiles that meet there,
  * so positions are stored once per vertex, not once per tile corner.
  *
+ * A sphere may be built without corners ([hasCorners] false): empty [cornerVertex] and
+ * [vertexPositions], leaving centers and neighbors. That is all world generation reads, and corners
+ * are 55% of the arrays, so the full-size world is generated without them.
+ *
  * The arrays are exposed (rather than hidden behind accessors) so the inline
  * neighbor helpers below can read them without a call per element; treat
  * them as read-only.
@@ -40,13 +44,15 @@ class Sphere(
     val faceCount: Int get() = centers.size / 3
     val vertexCount: Int get() = vertexPositions.size / 3
     val cornerTotal: Int get() = cornerVertex.size
+    val hasCorners: Boolean get() = cornerVertex.isNotEmpty()
 
     val indices: IntRange get() = 0 until faceCount
 
     init {
         require(centers.size % 3 == 0 && vertexPositions.size % 3 == 0) { "position arrays must hold x, y, z triples" }
         require(cornerStart.size == faceCount + 1) { "cornerStart must have faceCount + 1 entries" }
-        require(cornerStart[faceCount] == cornerVertex.size) { "cornerVertex must match cornerStart's total" }
+        require(!hasCorners || cornerStart[faceCount] == cornerVertex.size) { "cornerVertex must match cornerStart's total" }
+        require(hasCorners || vertexPositions.isEmpty()) { "vertexPositions without cornerVertex" }
         require(neighborStart.size == faceCount + 1 && neighborStart[faceCount] == neighbors.size) {
             "neighbors must match neighborStart's total"
         }

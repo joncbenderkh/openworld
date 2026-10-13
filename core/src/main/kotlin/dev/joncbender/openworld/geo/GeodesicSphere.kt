@@ -14,13 +14,17 @@ import kotlin.math.sqrt
  */
 object GeodesicSphere {
 
-    /** [frequency] controls tile count: total faces = 10*frequency^2 + 2. */
-    fun generate(frequency: Int): Sphere {
+    /**
+     * [frequency] controls tile count: total faces = 10*frequency^2 + 2. With [corners] false the
+     * sphere has only centers and neighbors (see [Sphere.hasCorners]), which peaks ~95 MB lower at
+     * the production frequency; its centers and neighbors are identical to the full sphere's.
+     */
+    fun generate(frequency: Int, corners: Boolean = true): Sphere {
         require(frequency >= 1) { "frequency must be >= 1" }
         val perf = PerfTimer()
         val (vertices, triangles) = subdivideIcosahedron(frequency)
         perf.lap("subdivideIcosahedron")
-        val sphere = buildDual(vertices, triangles)
+        val sphere = if (corners) buildDual(vertices, triangles) else buildNeighborsOnly(vertices, triangles)
         perf.lap("buildDual")
         return sphere
     }
@@ -298,6 +302,93 @@ object GeodesicSphere {
         // array is handed over rather than copied.
         return Sphere(vertices, cornerStart, cornerVertex, vertexPositions, neighbors)
     }
+
+    /**
+     * The neighbor lists of [buildDual] without its corner arrays, by the same winding walk (so the
+     * lists are identical). The walk needs each vertex's incident triangles; instead of one list
+     * for every vertex at once (as large as the neighbors themselves), they are gathered for a
+     * range of vertices at a time, bounding that scratch to [chunkEntries] ints.
+     */
+    private fun buildNeighborsOnly(vertices: FloatArray, triangles: IntArray): Sphere {
+        val perf = PerfTimer()
+        val vertexCount = vertices.size / 3
+        val triangleCount = triangles.size / 3
+
+        val cornerStart = IntArray(vertexCount + 1)
+        for (v in triangles) cornerStart[v + 1]++
+        for (v in 0 until vertexCount) cornerStart[v + 1] += cornerStart[v]
+        val neighbors = IntArray(cornerStart[vertexCount])
+
+        val incident = IntArray(minOf(neighbors.size, chunkEntries + MAX_DEGREE))
+        var chunkFrom = 0
+        while (chunkFrom < vertexCount) {
+            var chunkTo = chunkFrom + 1
+            while (chunkTo < vertexCount && cornerStart[chunkTo + 1] - cornerStart[chunkFrom] <= chunkEntries) chunkTo++
+            gatherIncident(triangles, triangleCount, cornerStart, chunkFrom, chunkTo, incident)
+            walkNeighbors(triangles, cornerStart, incident, cornerStart[chunkFrom], chunkFrom, chunkTo, neighbors)
+            chunkFrom = chunkTo
+        }
+        perf.lap("buildNeighborsOnly")
+        return Sphere(vertices, cornerStart, IntArray(0), FloatArray(0), neighbors)
+    }
+
+    /** Fills [incident] with, per vertex of the range, its triangles in ascending order, laid out as the vertex's slice of [cornerStart] less the range's first offset. */
+    private fun gatherIncident(
+        triangles: IntArray, triangleCount: Int, cornerStart: IntArray, from: Int, to: Int, incident: IntArray,
+    ) {
+        val base = cornerStart[from]
+        val cursor = IntArray(to - from)
+        for (ti in 0 until triangleCount) {
+            for (k in 0..2) {
+                val v = triangles[ti * 3 + k]
+                if (v < from || v >= to) continue
+                incident[cornerStart[v] - base + cursor[v - from]++] = ti
+            }
+        }
+    }
+
+    private fun walkNeighbors(
+        triangles: IntArray, cornerStart: IntArray, incident: IntArray, base: Int, from: Int, to: Int, neighbors: IntArray,
+    ) {
+        fun thirdVertexAfter(tri: Int, v: Int): Int {
+            val t = tri * 3
+            val i = if (triangles[t] == v) 0 else if (triangles[t + 1] == v) 1 else 2
+            return triangles[t + (i + 2) % 3]
+        }
+        Parallel.forRanges(to - from) { rangeFrom, rangeTo ->
+            for (v in from + rangeFrom until from + rangeTo) {
+                val first = cornerStart[v] - base
+                val last = cornerStart[v + 1] - base
+                val degree = last - first
+                check(degree <= MAX_DEGREE) { "vertex $v: degree $degree exceeds $MAX_DEGREE - malformed mesh" }
+                val startTri = incident[first]
+                var current = startTri
+                var guard = 0
+                do {
+                    check(guard < degree) { "vertex $v: dual walk did not close within $degree steps - malformed mesh" }
+                    val target = thirdVertexAfter(current, v)
+                    neighbors[cornerStart[v] + guard] = target
+                    var next = -1
+                    for (k in first until last) {
+                        val cand = incident[k]
+                        if (cand == current) continue
+                        val t = cand * 3
+                        if (triangles[t] == target || triangles[t + 1] == target || triangles[t + 2] == target) {
+                            next = cand
+                            break
+                        }
+                    }
+                    check(next != -1) { "vertex $v: no other triangle shares edge with vertex $target - malformed mesh" }
+                    current = next
+                    guard++
+                } while (current != startTri)
+                check(guard == degree) { "vertex $v: dual walk closed after $guard steps, expected exactly $degree - malformed mesh" }
+            }
+        }
+    }
+
+    /** Scratch ints per range of vertices in [buildNeighborsOnly]: 6 MB, and ~8 passes over the triangles at the production frequency. */
+    internal var chunkEntries = 1_500_000
 
     // Pentagons have 5 corners and hexagons 6; nothing on this sphere has more.
     private const val MAX_DEGREE = 6

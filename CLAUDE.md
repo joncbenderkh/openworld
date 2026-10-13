@@ -97,7 +97,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   within a per-frame time budget. Both layers are split into compact `PatchLayout` cells with bounding
   `SphereCap`s so culling against the horizon and view frustum is tight.
 - The world itself is compact (`WorldCompactor.kt`, `CompactPlan.kt`, `CompactWorldCache.kt`,
-  `TilePicker.kt`): it is generated at full resolution (frequency 445, ~2M tiles), then every tile far from
+  `TilePicker.kt`): it is generated at full resolution (frequency 540, ~2.9M tiles), then every tile far from
   land is replaced. Tile ids `0 until fineCount` are fine tiles (land, a 3-tile coast, and any frequency-66
   coarse cell that holds those); ids from `fineCount` on are one large ocean tile per all-ocean coarse cell
   (~26k of them), with their own corners and any number of neighbors (`Sphere.neighborStart`). That is
@@ -120,16 +120,26 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   times the vertex color) sits under everything and shows through. Draw order is underlay, far, near, each
   pushed behind the next with `glPolygonOffset` (underlay 4/8, far 2/4 while the near layer is up, near
   none), so a new draw call must respect it.
+- The full-size world is generated without corners (`GeodesicSphere.generate(f, corners = false)`,
+  `Sphere.hasCorners`): generation reads only centers and neighbors, and corners are 55% of the sphere's
+  arrays. The neighbor lists are built by the same winding walk over a range of vertices at a time, so they
+  are identical to the full sphere's. `CompactPlan` rebuilds a kept tile's corners from centers and neighbors:
+  the corner between two consecutive neighbors is named by the neighbor-list slot of the lowest of the three
+  tiles meeting there, and sits at the average of their centers. Measured on a desktop JVM (smallest `-Xmx`
+  that cold-starts): frequency 445 needs ~150 MB, down from ~230; 540 needs ~180; 600 ~240.
 - Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): generation builds
-  a ~175 MB full sphere, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
+  a full sphere without corners (~120 MB at 540: centers, starts and neighbors), so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
+- Frequency 540 on the phone (2,916,002 source tiles, 1,171,533 after compaction): cache file 116 MB, warm world
+  load 0.73 s, cold start (generate + save + load) ~26 s, drag fps unchanged (~60 vsync-capped, ~120 idle).
+  Headroom with a ballast array: warm 130 OK / 160 fail (~145 MB), cold 62 OK / 70 fail (~65 MB, was 30-40 at
+  445). The numbers below are from frequency 445, before this.
 - Measured on the phone (Android, seed 123456789; 1,980,252 source tiles, 809,555 after compaction). Warm
   start: Java heap 196 -> 94 MB once loaded, PSS 403 -> 311 MB (zoomed out), cache file 180 -> 80 MB, world
   load 0.78 -> 0.33 s, drag fps unchanged (~120 out, ~105 in). Headroom (heap held back by a ballast array
-  before a start still succeeds): warm 60-80 -> ~160 MB. Cold start (generating) is unchanged: ~250 MB peak,
-  ~30-40 MB headroom, and the limit is generation's own allocations (`GeodesicSphere.buildDual`), not the
-  compaction. Raising the frequency further therefore needs the generation peak lowered first (#52). A
-  192 MB-heap emulator cannot generate this world at all; seed its app files with caches built on the
-  desktop instead.
+  before a start still succeeds): warm 60-80 -> ~160 MB. Cold start (generating) measured before the corner-free
+  generation (#64): ~250 MB peak, ~30-40 MB headroom; after it the desktop floor fell from ~230 to ~150 MB (not yet
+  re-measured on the phone). The 192 MB-heap
+  emulator can now generate this world.
 
 - No lighting or biome-color blending at tile boundaries yet.
