@@ -588,7 +588,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         private const val WORLD_UNREADABLE = "The saved world could not be read. Start a new world."
 
         private const val ROTATE_SPEED_DEG = 0.3f
-        // Camera distance change per wheel notch.
+        // Fraction of the camera's height above the surface changed per wheel notch.
         private const val SCROLL_ZOOM_STEP = 0.1f
 
         // Level of detail. The near layer switches on once a full-resolution tile is a few
