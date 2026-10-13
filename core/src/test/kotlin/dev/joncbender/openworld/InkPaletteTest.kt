@@ -48,6 +48,12 @@ class InkPaletteTest {
     }
 
     @Test
+    fun `compass letters are readable on their wax`() {
+        assertTrue(InkPalette.contrastRatio(InkPalette.SURFACE, InkPalette.INK) >= 7.0)
+        assertTrue(InkPalette.contrastRatio(InkPalette.ACCENT_ON, InkPalette.ACCENT) >= 4.5)
+    }
+
+    @Test
     fun `a control's ink edge stands out against the ivory it sits on`() {
         assertTrue(InkPalette.contrastRatio(InkPalette.INK, InkPalette.SURFACE) >= 3.0)
         assertTrue(InkPalette.contrastRatio(InkPalette.INK, InkPalette.SURFACE_WARM) >= 3.0)
