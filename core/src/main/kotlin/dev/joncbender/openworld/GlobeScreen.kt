@@ -167,6 +167,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private var nearStreamer: NearPatchStreamer? = null
     private var icons: ResourceIconLayer? = null
     private var iconsActive = false
+    private var iconLastSeen = IntArray(0)
     private var nearVisible = IntArray(0)
     private var nearPriority = FloatArray(0)
     private var nearActive = false
@@ -370,6 +371,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val layer = ResourceIconLayer(near, world)
         icons = layer
         iconsActive = false
+        iconLastSeen = IntArray(near.patchCount)
         nearStreamer = NearPatchStreamer(
             near.patchCount, options.maxNearPatches,
             { near.build(it) },
@@ -557,7 +559,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     /**
      * Draws the resource glyphs over the near layer's visible patches while the camera is close enough for a
      * tile to be several pixels wide. Icon meshes are built a few per frame for patches in view and released
-     * once a patch leaves the view or the camera pulls back.
+     * once a patch has been out of view for a while or the camera pulls back.
      */
     private fun drawIcons(near: TerrainLayer, visibleCount: Int) {
         val layer = icons ?: return
@@ -568,16 +570,21 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             return
         }
 
-        var built = 0
-        for (k in 0 until visibleCount) {
-            val patch = nearVisible[k]
-            if (near.meshOrNull(patch) == null || layer.isBuilt(patch)) continue
-            if (built++ < ICON_BUILDS_PER_FRAME) layer.build(patch)
+        for (k in 0 until visibleCount) iconLastSeen[nearVisible[k]] = frameCount
+        // Build the patches closest to the middle of the view first.
+        repeat(ICON_BUILDS_PER_FRAME) {
+            var best = -1
+            for (k in 0 until visibleCount) {
+                val patch = nearVisible[k]
+                if (near.meshOrNull(patch) == null || layer.isBuilt(patch)) continue
+                if (best == -1 || nearPriority[patch] > nearPriority[best]) best = patch
+            }
+            if (best != -1) layer.build(best)
         }
-        // A patch out of view keeps no icons.
+        // A patch keeps its icons for a while after it leaves the view, so panning back is instant.
         if (layer.builtCount > 0) {
             for (patch in 0 until near.patchCount) {
-                if (layer.meshOrNull(patch) != null && !isVisible(near.cap(patch))) layer.release(patch)
+                if (layer.meshOrNull(patch) != null && frameCount - iconLastSeen[patch] > ICON_KEEP_FRAMES) layer.release(patch)
             }
         }
 
@@ -728,6 +735,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         private const val ICON_ENTER_DISTANCE = 1.25f
         private const val ICON_EXIT_DISTANCE = 1.3f
         private const val ICON_BUILDS_PER_FRAME = 2
+        // Frames a patch keeps its icons after leaving the view (~1.5 s at 60 fps).
+        private const val ICON_KEEP_FRAMES = 90
 
         private const val NEAR_ENTER_DISTANCE = 2.2f
         private const val NEAR_EXIT_DISTANCE = 2.4f

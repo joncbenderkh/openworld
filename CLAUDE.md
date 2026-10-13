@@ -166,7 +166,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   instead of grain. `core/build/atlas-preview.png` (written by `BiomeArtTest`) shows every cell at 3x.
 - Resource icons (`ResourceIconArt.kt`, `ResourceIcons.kt`, `ResourceIconLayer.kt`): an 18-glyph atlas of its own (8 x 4 cells of 32 px, linear
   filter, drawn blended with the terrain shader). Below camera distance 1.25 (off above 1.3) each visible near patch gets one small icon mesh
-  (a north-facing quad per resource, laid out by count inside the hexagon); built 2 per frame, released with the patch, when it leaves the view,
+  (a north-facing quad per resource, laid out by count inside the hexagon); built 2 per frame, released with the patch, ~1.5 s after it leaves the view,
   or when the camera pulls back. `core/build/icon-preview.png` (written by `ResourceIconArtTest`) shows every glyph at 4x.
 - Lighting (`Lighting.kt`, `GlobeScreen` shaders): one light fixed in view space (upper left), applied per vertex as ambient 0.62 + diffuse 0.38 * max(dot(position, light), 0) - a unit sphere's position is its normal. `u_lit` is 1 for terrain and 0 for the graticule and selection ring. No biome-color blending at tile boundaries yet.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
