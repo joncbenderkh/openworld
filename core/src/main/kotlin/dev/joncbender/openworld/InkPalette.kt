@@ -39,6 +39,10 @@ object InkPalette {
     /** Smallest size of anything tappable. */
     const val TOUCH_DP = 48f
 
+    /** The track of an on/off switch; the view around it is [TOUCH_DP] tall. */
+    const val SWITCH_WIDTH_DP = 52f
+    const val SWITCH_HEIGHT_DP = 32f
+
     /** The round buttons printed over the map. */
     const val MAP_BUTTON_DP = 52f
 

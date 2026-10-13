@@ -80,6 +80,14 @@ class InkPaletteTest {
     }
 
     @Test
+    fun `a switch's track fits inside its touch area and its thumb inside the track`() {
+        assertTrue(InkPalette.SWITCH_HEIGHT_DP <= InkPalette.TOUCH_DP)
+        assertTrue(InkPalette.SWITCH_WIDTH_DP > InkPalette.SWITCH_HEIGHT_DP)
+        val thumb = 20f
+        assertTrue(thumb + 2 * InkPalette.LINE_DP < InkPalette.SWITCH_HEIGHT_DP)
+    }
+
+    @Test
     fun `contrast of black on white is 21 and a color on itself is 1`() {
         assertEquals(21.0, InkPalette.contrastRatio(0xFF000000.toInt(), 0xFFFFFFFF.toInt()), 1e-6)
         assertEquals(1.0, InkPalette.contrastRatio(InkPalette.INK, InkPalette.INK), 1e-9)

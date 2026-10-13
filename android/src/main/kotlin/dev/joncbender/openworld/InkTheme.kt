@@ -171,7 +171,7 @@ class InkTheme(private val context: Context) {
                 typeface = displayFace
                 textSize = InkPalette.TEXT_BASE_SP
                 gravity = Gravity.CENTER
-                minHeight = dp(44f)
+                minHeight = dp(InkPalette.TOUCH_DP)
                 isClickable = true
                 isFocusable = true
             }
@@ -236,7 +236,10 @@ class InkTheme(private val context: Context) {
 }
 
 @SuppressLint("ViewConstructor") // only built in code, by InkTheme.switch
-/** A 52 x 32dp track with a round thumb, inside a 48dp-tall touch area. Checked: ink track, ivory thumb on the right. */
+/**
+ * A 52 x 32dp track with a round thumb, centered in a 48dp-tall touch area (the view takes whatever size its parent
+ * gives it, at least 52 x 48dp when free). Checked: ink track, ivory thumb on the right.
+ */
 class InkSwitch(context: Context, private val density: Float) : View(context) {
     var onChange: ((Boolean) -> Unit)? = null
 
@@ -256,14 +259,19 @@ class InkSwitch(context: Context, private val density: Float) : View(context) {
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension((52f * density).roundToInt(), (InkPalette.TOUCH_DP * density).roundToInt())
+        setMeasuredDimension(
+            resolveSize((InkPalette.SWITCH_WIDTH_DP * density).roundToInt(), widthMeasureSpec),
+            resolveSize((InkPalette.TOUCH_DP * density).roundToInt(), heightMeasureSpec),
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
-        val trackHeight = 32f * density
+        val trackWidth = InkPalette.SWITCH_WIDTH_DP * density
+        val trackHeight = InkPalette.SWITCH_HEIGHT_DP * density
+        val left = (width - trackWidth) / 2f
         val top = (height - trackHeight) / 2f
         val edge = InkPalette.LINE_DP * density
-        track.set(edge / 2f, top + edge / 2f, width - edge / 2f, top + trackHeight - edge / 2f)
+        track.set(left + edge / 2f, top + edge / 2f, left + trackWidth - edge / 2f, top + trackHeight - edge / 2f)
         val radius = track.height() / 2f
         paint.style = Paint.Style.FILL
         paint.color = if (isChecked) InkPalette.INK else InkPalette.SURFACE_WARM
@@ -274,7 +282,7 @@ class InkSwitch(context: Context, private val density: Float) : View(context) {
         canvas.drawRoundRect(track, radius, radius, paint)
 
         val thumbRadius = 10f * density
-        val thumbX = if (isChecked) width - 16f * density else 16f * density
+        val thumbX = if (isChecked) left + trackWidth - 16f * density else left + 16f * density
         paint.style = Paint.Style.FILL
         paint.color = if (isChecked) InkPalette.SURFACE else InkPalette.TEXT_2
         canvas.drawCircle(thumbX, top + trackHeight / 2f, thumbRadius, paint)
