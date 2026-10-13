@@ -327,7 +327,10 @@ class AndroidLauncher : AndroidApplication() {
             text = "✕"
             setBackgroundColor(Color.TRANSPARENT)
             setTextColor(Color.WHITE)
-            setOnClickListener { tileInfoPanel.visibility = View.GONE }
+            setOnClickListener {
+                tileInfoPanel.visibility = View.GONE
+                game.globeScreen.clearSelection()
+            }
         }
 
         val headerRow = LinearLayout(this).apply {

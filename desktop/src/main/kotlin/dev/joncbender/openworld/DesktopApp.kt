@@ -59,6 +59,10 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                     screen.regenerateWorld(System.nanoTime())
                     selected = null
                 }
+                Input.Keys.X -> {
+                    screen.clearSelection()
+                    selected = null
+                }
                 Input.Keys.C -> {
                     Gdx.app.clipboard.contents = screen.seed.toString()
                     notice = "Seed ${screen.seed} copied"
@@ -95,7 +99,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
             font.draw(batch, s, MARGIN, top - line++ * LINE_HEIGHT)
         }
         if (showHelp) {
-            text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile")
+            text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear")
             text("R: reset view   F: flip drag   1 2 3: resource density   N: new world   C: copy seed   H: hide help   Esc: quit")
         }
         text("seed ${game.globeScreen.seed}")

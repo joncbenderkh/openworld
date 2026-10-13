@@ -20,6 +20,7 @@ import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.math.Vector3
 import com.badlogic.gdx.math.collision.Ray
 import dev.joncbender.openworld.geo.GeodesicSphere
+import dev.joncbender.openworld.geo.Sphere
 
 class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, GestureDetector.GestureAdapter() {
 
@@ -74,6 +75,15 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     // False while there is no world to inspect: before it loads, or when it could not be stored.
     private var worldReady = false
+
+    // The tile outlined on the globe, or -1. Set by a tap; cleared by [clearSelection] and whenever the world goes away.
+    @Volatile
+    private var selectedTile = -1
+
+    /** Removes the outline from the globe - what dismissing the tile's panel does. */
+    fun clearSelection() {
+        selectedTile = -1
+    }
 
     // Built on the first tap after a world loads, since only picking needs it.
     private var picker: TilePicker? = null
@@ -141,6 +151,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private var nearWindowBuilds = 0
     private var frameCount = 0
     private lateinit var graticule: Mesh
+    private lateinit var highlight: TileHighlight
     private lateinit var shader: ShaderProgram
     private lateinit var biomeTexture: Texture
     private lateinit var compass: Compass
@@ -152,6 +163,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         loadTerrain()
         perf.lap("terrain")
         graticule = Graticule.build()
+        highlight = TileHighlight()
         perf.lap("Graticule.build")
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         check(shader.isCompiled) { shader.log }
@@ -197,6 +209,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         disposeTerrain()
         picker = null
         worldReady = false
+        selectedTile = -1
         compact = placeholderWorld()
         loadWorld()
     }
@@ -388,6 +401,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.gl.glDisable(GL20.GL_CULL_FACE)
         // Its lines are a fixed width on the globe, so up close they would cover the tiles.
         if (distance > CameraRig.GRATICULE_HIDDEN_BELOW) graticule.render(shader, GL20.GL_TRIANGLES)
+        drawHighlight()
 
         compass.render(rotation)
     }
@@ -434,6 +448,23 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
         nearInactiveFrames = if (nearActive) 0 else nearInactiveFrames + 1
         if (nearInactiveFrames == NEAR_RELEASE_AFTER_FRAMES) nearStreamer?.releaseAll()
+    }
+
+    /** Outlines the selected tile, at least a couple of pixels thick however far out the camera is. */
+    private fun drawHighlight() {
+        val tile = selectedTile
+        if (tile < 0 || !worldReady) return
+        val sphere = compact.world.sphere
+        val pixel = CameraRig.pixelSize(distance, camera.viewportHeight)
+        highlight.update(sphere, tile, maxOf(pixel * HIGHLIGHT_MIN_HALF_WIDTH_PIXELS, HIGHLIGHT_RELATIVE_HALF_WIDTH * tileRadius(sphere, tile)))
+        highlight.render(shader)
+    }
+
+    private fun tileRadius(sphere: Sphere, tile: Int): Float {
+        val dx = sphere.cornerX(tile, 0) - sphere.centerX(tile)
+        val dy = sphere.cornerY(tile, 0) - sphere.centerY(tile)
+        val dz = sphere.cornerZ(tile, 0) - sphere.centerZ(tile)
+        return kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     /** Draws every visible, built patch of an eagerly built [layer]. */
@@ -557,6 +588,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val point = hit.nor()
         val tile = pickTile(point.x, point.y, point.z)
         val world = compact.world
+        selectedTile = tile
         onTileSelected?.invoke(TileInfo(tile, world[tile], world.resourcesAt(tile), compact.isOpenOcean(tile)))
         return true
     }
@@ -575,6 +607,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         disposeTerrain()
         underlay.dispose()
         graticule.dispose()
+        highlight.dispose()
         shader.dispose()
         biomeTexture.dispose()
         compass.dispose()
@@ -586,6 +619,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         private const val NOT_ENOUGH_STORAGE = "Not enough free storage to create the world (about 160 MB is needed)."
         private const val WORLD_NOT_SAVED = "The world could not be saved, so it cannot be shown. Free some storage and start a new world."
         private const val WORLD_UNREADABLE = "The saved world could not be read. Start a new world."
+
+        private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f
+        private const val HIGHLIGHT_RELATIVE_HALF_WIDTH = 0.08f
 
         private const val ROTATE_SPEED_DEG = 0.3f
         // Fraction of the camera's height above the surface changed per wheel notch.

@@ -133,6 +133,11 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   and the near plane out of the terrain; dragging slows with the height so the surface tracks the finger; the
   graticule is not drawn below distance 1.3 because its fixed-width lines would cover the tiles. At the closest
   zoom a full-resolution tile (frequency 540) is ~100 px wide.
+- Selection (`TileHighlight.kt`): tapping a tile outlines it with a ring between its polygon shrunk and grown about
+  its center (own small mesh, drawn last at radius 1.006, above the graticule's 1.004). The ring is at least a few
+  pixels thick at any zoom (`CameraRig.pixelSize`), so a tile too small to see is still marked. It works for open-
+  ocean tiles too, which have their own corners. `GlobeScreen.clearSelection()` removes it (the Android panel's X,
+  the desktop's X key); a new or reloaded world clears it.
 - Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): generation builds
   a full sphere without corners (~120 MB at 540: centers, starts and neighbors), so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
