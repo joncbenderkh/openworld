@@ -150,6 +150,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private val rotation = Quaternion()
     private val modelMatrix = Matrix4()
     private val mvpMatrix = Matrix4()
+    private val lightDirection = Vector3()
     private val cameraDirection = Vector3()
     private val capCenter = Vector3()
     private val inverseRotation = Quaternion()
@@ -409,6 +410,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         shader.bind()
         shader.setUniformMatrix("u_projViewTrans", mvpMatrix)
         shader.setUniformi("u_texture", 0)
+        // The light is fixed in view space; the shader works in the globe's frame, so turn it back.
+        lightDirection.set(Lighting.LIGHT_X, Lighting.LIGHT_Y, Lighting.LIGHT_Z)
+        inverseRotation.set(rotation).conjugate().transform(lightDirection)
+        shader.setUniformf("u_lightDir", lightDirection)
+        shader.setUniformf("u_lit", 1f)
         // Only the terrain is back-face culled: its triangles are known to wind
         // counter-clockwise from outside (see GeodesicSphereTest), while the
         // graticule's quads make no such promise.
@@ -416,6 +422,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.gl.glCullFace(GL20.GL_BACK)
         drawVisibleTerrain()
         Gdx.gl.glDisable(GL20.GL_CULL_FACE)
+        shader.setUniformf("u_lit", 0f)
         // Its lines are a fixed width on the globe, so up close they would cover the tiles.
         if (distance > CameraRig.GRATICULE_HIDDEN_BELOW) graticule.render(shader, GL20.GL_TRIANGLES)
         drawHighlight()
@@ -689,10 +696,13 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             attribute vec4 a_color;
             attribute vec2 a_texCoord0;
             uniform mat4 u_projViewTrans;
+            uniform vec3 u_lightDir;
+            uniform float u_lit;
             varying vec4 v_color;
             varying vec2 v_texCoord;
             void main() {
-                v_color = a_color;
+                float shade = ${Lighting.AMBIENT} + ${Lighting.DIFFUSE} * max(dot(a_position.xyz, u_lightDir), 0.0);
+                v_color = a_color * vec4(vec3(mix(1.0, shade, u_lit)), 1.0);
                 v_texCoord = a_texCoord0;
                 gl_Position = u_projViewTrans * a_position;
             }
