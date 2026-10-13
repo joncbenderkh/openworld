@@ -33,17 +33,27 @@ class Compass {
 
     private val batch = SpriteBatch()
     private val shapes = ShapeRenderer()
-    private val font = BitmapFont().apply { data.setScale(1.4f) }
+    private val font = BitmapFont()
     private val camera = OrthographicCamera()
     private val layout = GlyphLayout()
 
     private val rotatedNorth = Vector3()
     private var azimuthDeg = 0f
     private var radius = 0f
+    private var sealRadius = 0f
+    private var edge = 0f
+    private val color = Color()
 
     fun resize(width: Int, height: Int) {
         camera.setToOrtho(false, width.toFloat(), height.toFloat())
-        radius = minOf(width, height) * RADIUS_FRACTION
+        // A desktop reports a density under 1; the seals should not shrink below their nominal size there.
+        val density = Gdx.graphics.density.coerceAtLeast(1f)
+        edge = InkPalette.LINE_DP * density
+        sealRadius = InkPalette.SEAL_DP * density / 2f
+        // Keep the whole seal (lobes and outline included) inside the shorter side of the screen.
+        val shorter = minOf(width, height)
+        radius = minOf(shorter * RADIUS_FRACTION, shorter / 2f - outerRadius())
+        font.data.setScale(InkPalette.TEXT_MD_SP * density / FONT_NATIVE_PX)
     }
 
     fun render(rotation: Quaternion) {
@@ -59,10 +69,28 @@ class Compass {
 
         shapes.projectionMatrix = camera.combined
         shapes.begin(ShapeRenderer.ShapeType.Filled)
-        shapes.color = BADGE_COLOR
+        // The seals sit on the dark backdrop, so an ivory edge keeps ink-colored wax from vanishing into it.
+        shapes.color = argb(InkPalette.SURFACE)
         for (label in LABELS) {
             val (x, y) = badgePosition(label.offsetDeg, cx, cy)
-            shapes.circle(x, y, BADGE_RADIUS, 20)
+            shapes.circle(x, y, outerRadius(), SEAL_SEGMENTS)
+        }
+        for (label in LABELS) {
+            val (x, y) = badgePosition(label.offsetDeg, cx, cy)
+            shapes.color = argb(label.wax)
+            shapes.circle(x, y, sealRadius, SEAL_SEGMENTS)
+            // Scalloped edge: small lobes of wax around the rim.
+            for (i in 0 until LOBES) {
+                val a = i * MathUtils.PI2 / LOBES
+                shapes.circle(x + MathUtils.cos(a) * sealRadius, y + MathUtils.sin(a) * sealRadius, sealRadius * LOBE_FRACTION, 8)
+            }
+        }
+        shapes.end()
+        shapes.begin(ShapeRenderer.ShapeType.Line)
+        shapes.color = argb(InkPalette.SURFACE, RIM_ALPHA)
+        for (label in LABELS) {
+            val (x, y) = badgePosition(label.offsetDeg, cx, cy)
+            shapes.circle(x, y, sealRadius * RIM_FRACTION, SEAL_SEGMENTS)
         }
         shapes.end()
 
@@ -70,7 +98,7 @@ class Compass {
         batch.begin()
         for (label in LABELS) {
             val (x, y) = badgePosition(label.offsetDeg, cx, cy)
-            font.color = label.color
+            font.color = argb(label.ink)
             layout.setText(font, label.text)
             font.draw(batch, layout, x - layout.width / 2f, y + layout.height / 2f)
         }
@@ -90,7 +118,15 @@ class Compass {
         font.dispose()
     }
 
-    private data class Label(val text: String, val offsetDeg: Float, val color: Color)
+    private fun outerRadius() = sealRadius * (1f + LOBE_FRACTION) + edge
+
+    private fun argb(value: Int, alpha: Float = 1f): Color {
+        Color.argb8888ToColor(color, value)
+        color.a = alpha
+        return color
+    }
+
+    private data class Label(val text: String, val offsetDeg: Float, val wax: Int, val ink: Int)
 
     companion object {
         private val NORTH_LOCAL = Vector3(0f, 1f, 0f)
@@ -119,17 +155,21 @@ class Compass {
         // radius - the globe can be zoomed in well past the screen's edge,
         // and the ring still needs to stay fully visible.
         private const val RADIUS_FRACTION = 0.42f
-        private const val BADGE_RADIUS = 26f
         private const val MIN_PROJECTED_LENGTH = 0.05f
-        private val BADGE_COLOR = Color(0f, 0f, 0f, 0.45f)
-        private val NORTH_COLOR = Color(0.92f, 0.66f, 0.30f, 1f)
-        private val OTHER_COLOR = Color(1f, 1f, 1f, 0.9f)
+
+        // Proportions of the 34-unit wax seal in the mockup: 15 wide wax disc, a rim at 11.5, lobes on the edge.
+        private const val RIM_FRACTION = 11.5f / 17f
+        private const val RIM_ALPHA = 0.55f
+        private const val LOBES = 16
+        private const val LOBE_FRACTION = 0.1f
+        private const val SEAL_SEGMENTS = 28
+        private const val FONT_NATIVE_PX = 15f
 
         private val LABELS = listOf(
-            Label("N", 0f, NORTH_COLOR),
-            Label("E", 90f, OTHER_COLOR),
-            Label("S", 180f, OTHER_COLOR),
-            Label("W", 270f, OTHER_COLOR),
+            Label("N", 0f, InkPalette.ACCENT, InkPalette.ACCENT_ON),
+            Label("E", 90f, InkPalette.INK, InkPalette.SURFACE),
+            Label("S", 180f, InkPalette.INK, InkPalette.SURFACE),
+            Label("W", 270f, InkPalette.INK, InkPalette.SURFACE),
         )
     }
 }
