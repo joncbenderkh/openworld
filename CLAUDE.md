@@ -97,7 +97,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   within a per-frame time budget. Both layers are split into compact `PatchLayout` cells with bounding
   `SphereCap`s so culling against the horizon and view frustum is tight.
 - The world itself is compact (`WorldCompactor.kt`, `CompactPlan.kt`, `CompactWorldCache.kt`,
-  `TilePicker.kt`): it is generated at full resolution (frequency 445, ~2M tiles), then every tile far from
+  `TilePicker.kt`): it is generated at full resolution (frequency 540, ~2.9M tiles), then every tile far from
   land is replaced. Tile ids `0 until fineCount` are fine tiles (land, a 3-tile coast, and any frequency-66
   coarse cell that holds those); ids from `fineCount` on are one large ocean tile per all-ocean coarse cell
   (~26k of them), with their own corners and any number of neighbors (`Sphere.neighborStart`). That is
@@ -130,6 +130,10 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
 - Memory is the binding constraint at this size (a 256 MB Java heap, no `largeHeap`): generation builds
   a ~175 MB full sphere, so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
+- Frequency 540 on the phone (2,916,002 source tiles, 1,171,533 after compaction): cache file 116 MB, warm world
+  load 0.73 s, cold start (generate + save + load) ~26 s, drag fps unchanged (~60 vsync-capped, ~120 idle).
+  Headroom with a ballast array: warm 130 OK / 160 fail (~145 MB), cold 62 OK / 70 fail (~65 MB, was 30-40 at
+  445). The numbers below are from frequency 445, before this.
 - Measured on the phone (Android, seed 123456789; 1,980,252 source tiles, 809,555 after compaction). Warm
   start: Java heap 196 -> 94 MB once loaded, PSS 403 -> 311 MB (zoomed out), cache file 180 -> 80 MB, world
   load 0.78 -> 0.33 s, drag fps unchanged (~120 out, ~105 in). Headroom (heap held back by a ballast array

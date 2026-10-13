@@ -23,9 +23,9 @@ import dev.joncbender.openworld.geo.GeodesicSphere
 
 class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, GestureDetector.GestureAdapter() {
 
-    // total tiles = 10*frequency^2 + 2 = 1,980,252 (~5x the previous 396,012). Too many to draw
-    // at once: see CoarseWorldBuilder and the near/far terrain layers below.
-    private val frequency = 445
+    // total tiles = 10*frequency^2 + 2 = 2,916,002 (~7.4x the 396,012 before the compact world). Too many
+    // to draw at once: see CoarseWorldBuilder and the near/far terrain layers below.
+    private val frequency = 540
 
     // Gdx.app.getPreferences is libGDX's own cross-platform settings store
     // (backed by SharedPreferences on Android) - using it here instead of an
