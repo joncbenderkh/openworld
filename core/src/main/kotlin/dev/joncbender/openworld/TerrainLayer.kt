@@ -53,6 +53,12 @@ class TerrainLayer(world: SphereWorld, keep: BooleanArray? = null, private val f
 
     fun cap(patch: Int): SphereCap = caps[patch]!!
 
+    /** How many faces [patch] holds; only while the source is still held. */
+    fun faceCountOf(patch: Int): Int = source!!.layout.let { it.end(patch) - it.start(patch) }
+
+    /** The world face index of the [k]th face of [patch]. */
+    fun faceOf(patch: Int, k: Int): Int = source!!.layout.let { it.faceIndices[it.start(patch) + k] }
+
     /** The built mesh for [patch], or null if it hasn't been built (or was released). */
     fun meshOrNull(patch: Int): Mesh? = meshes[patch]
 
