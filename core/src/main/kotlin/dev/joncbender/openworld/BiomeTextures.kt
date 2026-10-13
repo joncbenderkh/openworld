@@ -1,5 +1,7 @@
 package dev.joncbender.openworld
 
+import dev.joncbender.openworld.geo.Sphere
+
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
@@ -136,27 +138,35 @@ object BiomeTextures {
     }
 
     /**
-     * Writes into [out] the UV of corner [c] of a face so that the art's up is north: the corner's bearing on the
-     * sphere (seen from outside, east to the right) becomes its angle in the cell. [px],[py],[pz] is the face
-     * center (a unit vector), [dx],[dy],[dz] the offset of the corner from it.
+     * Writes into [out] the UVs (u0, v0, u1, v1, ...) of the [n] corners of [face] so that the art's up is
+     * north: a corner's bearing on the sphere (seen from outside, east to the right) becomes its angle in the cell.
      */
-    fun uprightUV(biome: Biome, variant: Int, px: Float, py: Float, pz: Float, dx: Float, dy: Float, dz: Float, out: FloatArray, at: Int) {
+    internal fun uprightUVs(biome: Biome, variant: Int, sphere: Sphere, face: Int, n: Int, out: FloatArray) {
+        val px = sphere.centerX(face)
+        val py = sphere.centerY(face)
+        val pz = sphere.centerZ(face)
         // east = Y x p, north = p x east
         var ex = pz
-        val ey = 0f
         var ez = -px
         var el = kotlin.math.sqrt(ex * ex + ez * ez)
         if (el < 1e-6f) { ex = 1f; ez = 0f; el = 1f }
         ex /= el; ez /= el
-        val nx = py * ez - pz * ey
+        val nx = py * ez
         val ny = pz * ex - px * ez
-        val nz = px * ey - py * ex
-        val east = dx * ex + dy * ey + dz * ez
-        val north = dx * nx + dy * ny + dz * nz
-        val len = kotlin.math.sqrt(east * east + north * north)
-        val k = if (len < 1e-9f) 0f else CORNER_RADIUS_FRACTION / len
-        out[at] = centerU(biome, variant) + east * k / COLS
-        out[at + 1] = centerV(biome, variant) - north * k / ROWS
+        val nz = -py * ex
+        val cu = centerU(biome, variant)
+        val cv = centerV(biome, variant)
+        for (c in 0 until n) {
+            val dx = sphere.cornerX(face, c) - px
+            val dy = sphere.cornerY(face, c) - py
+            val dz = sphere.cornerZ(face, c) - pz
+            val east = dx * ex + dz * ez
+            val north = dx * nx + dy * ny + dz * nz
+            val len = kotlin.math.sqrt(east * east + north * north)
+            val k = if (len < 1e-9f) 0f else CORNER_RADIUS_FRACTION / len
+            out[c * 2] = cu + east * k / COLS
+            out[c * 2 + 1] = cv - north * k / ROWS
+        }
     }
 
     /** UV of the reserved solid-white cell, for geometry that just wants its own vertex color. */

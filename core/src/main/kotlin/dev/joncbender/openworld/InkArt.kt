@@ -176,8 +176,8 @@ internal object InkArt {
         pen.stroke(32f + vent, 18f, 49f, 46f, 0.75f, 1f, INK)
         pen.stroke(32f - vent, 18f, 32f + vent, 18f, 0.6f, 0.9f, INK)
         for (k in 1..4) pen.stroke(32f + vent + k * 3f, 18f + k * 5.5f, 32f + vent + k * 1.2f, 22f + k * 5.5f, 0.4f, 0.8f, INK)
-        pen.arc(32f, 12f, 3f + variant, 2.5f, 0.3f, 5.5f, 0.45f, INK)
-        pen.arc(35f, 6f, 2.5f, 2f, 0.3f, 5.5f, 0.4f, INK)
+        pen.arc(32f, 14f, 3f + variant, 2.5f, 0.3f, 5.5f, 0.45f, INK)
+        pen.arc(34f, 10f, 2.5f, 2f, 0.3f, 5.5f, 0.4f, INK)
     }
 
     private fun dunes(pen: Pen, variant: Int) {
