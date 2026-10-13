@@ -4,90 +4,125 @@ import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.math.MathUtils
-import kotlin.random.Random
 
 /**
- * Procedurally generated tile art: a small texture atlas with one hand-coded
- * pixel pattern per biome (no external art assets or image-gen tool
- * available), plus a reserved solid-white cell so non-terrain geometry
- * (the graticule lines) can share the same textured shader by sampling white
- * and relying on its own vertex color.
+ * Procedurally generated tile art: a texture atlas with [BiomeArt.VARIANTS] hand-coded pixel
+ * patterns per biome (no external art assets or image-gen tool available), plus a reserved
+ * solid-white cell so non-terrain geometry (the graticule lines) can share the same textured
+ * shader by sampling white and relying on its own vertex color.
+ *
+ * A tile's look is picked from its id: one of the biome's variants, and - for biomes that are not
+ * painted with a baked-in light (see [BiomeArt.isRelief]) - one of six rotations, so neighboring
+ * tiles of one biome do not repeat each other.
+ *
+ * The atlas has mipmaps, built by halving, which never mixes two cells while a cell is at least one
+ * texel across, i.e. down to level [CELL_LEVELS]; a tile samples a disc nearly a whole cell wide, so
+ * that is as far as it ever needs. Minification picks the nearest texel within a level and only
+ * blends between levels, so a faraway tile ends up as its biome's average color.
  */
 object BiomeTextures {
 
-    private const val CELL_SIZE = 32
-    private const val COLS = 5
-    private const val ROWS = 4 // 16 biomes + 1 reserved white cell = 17, fits in 5*4 = 20
+    const val CELL_SIZE = 64
+    const val CELL_LEVELS = 6 // CELL_SIZE = 2^6
+    const val COLS = 8
+    const val ROWS = 8 // 16 biomes x 3 variants + 1 reserved white cell = 49, fits in 8 * 8 = 64 (a power of two for mipmaps)
+    const val ROTATIONS = 6
 
-    // Corners sit this far from a face's center, as a fraction of one atlas
-    // cell - small enough that neighboring cells' patterns never bleed in.
-    private const val CORNER_RADIUS_FRACTION = 0.42f
+    // Corners sit this far from a face's center, as a fraction of one atlas cell - close enough
+    // to the edge to use most of the cell's art, far enough that the nearest-filtered samples
+    // never reach a neighbor's cell.
+    const val CORNER_RADIUS_FRACTION = 0.45f
 
-    private val biomeIndex: Map<Biome, Int> = Biome.entries.withIndex().associate { (i, b) -> b to i }
-    private val whiteIndex = Biome.entries.size
+    private val variants = BiomeArt.VARIANTS
+    private val whiteIndex = Biome.entries.size * variants
+
+    /** Index of the atlas cell holding [biome]'s [variant]. */
+    fun cellOf(biome: Biome, variant: Int): Int = biome.ordinal * variants + variant
 
     fun build(): Texture {
         val pixmap = Pixmap(COLS * CELL_SIZE, ROWS * CELL_SIZE, Pixmap.Format.RGBA8888)
-        val rng = Random(1234) // fixed: this is a visual art asset, not world data - no need to vary with the world seed
-
+        val cell = IntArray(CELL_SIZE * CELL_SIZE)
         for (biome in Biome.entries) {
-            val (x0, y0) = cellOrigin(biomeIndex.getValue(biome))
-            paintBiome(pixmap, x0, y0, biome, rng)
+            for (variant in 0 until variants) {
+                BiomeArt.paint(biome, variant, CELL_SIZE, cell)
+                val (x0, y0) = cellOrigin(cellOf(biome, variant))
+                for (y in 0 until CELL_SIZE) {
+                    for (x in 0 until CELL_SIZE) pixmap.drawPixel(x0 + x, y0 + y, cell[y * CELL_SIZE + x])
+                }
+            }
         }
         val (wx, wy) = cellOrigin(whiteIndex)
         pixmap.setColor(Color.WHITE)
         pixmap.fillRectangle(wx, wy, CELL_SIZE, CELL_SIZE)
 
-        val texture = Texture(pixmap)
+        val texture = Texture(pixmap, true)
         pixmap.dispose()
-        texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest)
+        texture.setFilter(Texture.TextureFilter.MipMapNearestLinear, Texture.TextureFilter.Nearest)
         texture.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
         return texture
     }
 
-    // A face's UVs depend only on its biome and whether it's a pentagon or
-    // hexagon, so they're computed once here and read by array index per
-    // face. The per-face alternative (a biome -> index map lookup plus a
-    // Pair<Float, Float> of boxed floats, twice per face) measured ~2.2s of
-    // a ~2.5s mesh build at ~396k tiles on the Android emulator - nearly all
-    // of it hashing enums and allocating, none of it actual work.
-    private val CENTER_UVS = FloatArray(Biome.entries.size * 2).also { out ->
+    // A face's UVs depend only on its biome, variant, rotation and whether it's a pentagon or
+    // hexagon, so they're computed once here and read by array index per face. The per-face
+    // alternative (a map lookup plus a Pair<Float, Float> of boxed floats, twice per face) measured
+    // ~2.2s of a ~2.5s mesh build at ~396k tiles on the Android emulator - nearly all of it hashing
+    // enums and allocating, none of it actual work.
+    private val CENTER_UVS = FloatArray(Biome.entries.size * variants * 2).also { out ->
         for (biome in Biome.entries) {
-            val (u, v) = cellCenterUV(biomeIndex.getValue(biome))
-            out[biome.ordinal * 2] = u
-            out[biome.ordinal * 2 + 1] = v
-        }
-    }
-
-    // [cornerCount][biome ordinal] -> (u0, v0, u1, v1, ...). Only 5 (pentagon)
-    // and 6 (hexagon) are populated, matching the only face shapes there are.
-    private val CORNER_UVS: Array<Array<FloatArray>?> = arrayOfNulls<Array<FloatArray>>(7).also { table ->
-        for (cornerCount in 5..6) {
-            val offsets = buildCornerOffsets(cornerCount)
-            table[cornerCount] = Array(Biome.entries.size) { ordinal ->
-                val (cu, cv) = cellCenterUV(biomeIndex.getValue(Biome.entries[ordinal]))
-                FloatArray(cornerCount * 2) { k -> (if (k % 2 == 0) cu else cv) + offsets[k] }
+            for (variant in 0 until variants) {
+                val (u, v) = cellCenterUV(cellOf(biome, variant))
+                out[cellOf(biome, variant) * 2] = u
+                out[cellOf(biome, variant) * 2 + 1] = v
             }
         }
     }
 
-    fun centerU(biome: Biome): Float = CENTER_UVS[biome.ordinal * 2]
-    fun centerV(biome: Biome): Float = CENTER_UVS[biome.ordinal * 2 + 1]
+    // [cornerCount][cell][rotation] -> (u0, v0, u1, v1, ...). Only 5 (pentagon) and 6 (hexagon) are
+    // populated, matching the only face shapes there are. Relief biomes have the same entry for every
+    // rotation: they are never rotated.
+    private val CORNER_UVS: Array<Array<Array<FloatArray>>?> = arrayOfNulls<Array<Array<FloatArray>>>(7).also { table ->
+        for (cornerCount in 5..6) {
+            table[cornerCount] = Array(Biome.entries.size * variants) { cell ->
+                val biome = Biome.entries[cell / variants]
+                val (cu, cv) = cellCenterUV(cell)
+                Array(ROTATIONS) { rotation ->
+                    val offsets = buildCornerOffsets(cornerCount, if (BiomeArt.isRelief(biome)) 0 else rotation)
+                    FloatArray(cornerCount * 2) { k -> (if (k % 2 == 0) cu else cv) + offsets[k] }
+                }
+            }
+        }
+    }
+
+    /** A tile's look, from its id: pass to [variantOf] and [rotationOf]. A cheap integer hash, so nearby ids differ. */
+    fun look(tile: Int): Int {
+        var h = tile * -0x61c88647
+        h = h xor (h ushr 15)
+        h *= 0x2c1b3c6d
+        return h xor (h ushr 12)
+    }
+
+    fun variantOf(look: Int): Int = ((look ushr 8) and 0xFFFF) % variants
+
+    fun rotationOf(look: Int): Int = ((look ushr 24) and 0xFF) % ROTATIONS
+
+    fun centerU(biome: Biome, variant: Int): Float = CENTER_UVS[cellOf(biome, variant) * 2]
+    fun centerV(biome: Biome, variant: Int): Float = CENTER_UVS[cellOf(biome, variant) * 2 + 1]
 
     /**
-     * The (u0, v0, u1, v1, ...) of every corner of a [cornerCount]-gon face
-     * (5 or 6) in [biome]. Shared and precomputed - read only, never modify.
+     * The (u0, v0, u1, v1, ...) of every corner of a [cornerCount]-gon face (5 or 6) painted with
+     * [biome]'s [variant], turned [rotation] corners (0 until [ROTATIONS]). Shared and
+     * precomputed - read only, never modify.
      */
-    fun cornerUVs(biome: Biome, cornerCount: Int): FloatArray =
-        (CORNER_UVS.getOrNull(cornerCount) ?: error("no UVs for a $cornerCount-corner face"))[biome.ordinal]
+    fun cornerUVs(biome: Biome, cornerCount: Int, variant: Int, rotation: Int): FloatArray =
+        (CORNER_UVS.getOrNull(cornerCount) ?: error("no UVs for a $cornerCount-corner face"))[cellOf(biome, variant)][rotation]
 
-    // Per-corner (cos, sin) offsets from the cell center, scaled to UV space.
-    private fun buildCornerOffsets(cornerCount: Int): FloatArray {
+    // Per-corner (cos, sin) offsets from the cell center, scaled to UV space; corner c sits where corner c + rotation would.
+    private fun buildCornerOffsets(cornerCount: Int, rotation: Int): FloatArray {
         val ru = CORNER_RADIUS_FRACTION / COLS
         val rv = CORNER_RADIUS_FRACTION / ROWS
         return FloatArray(cornerCount * 2).also { offsets ->
             for (c in 0 until cornerCount) {
-                val angle = MathUtils.PI2 * c / cornerCount
+                val angle = MathUtils.PI2 * ((c + rotation) % cornerCount) / cornerCount
                 offsets[c * 2] = MathUtils.cos(angle) * ru
                 offsets[c * 2 + 1] = MathUtils.sin(angle) * rv
             }
@@ -103,76 +138,5 @@ object BiomeTextures {
         val col = index % COLS
         val row = index / COLS
         return (col + 0.5f) / COLS to (row + 0.5f) / ROWS
-    }
-
-    private fun paintBiome(pixmap: Pixmap, x0: Int, y0: Int, biome: Biome, rng: Random) {
-        val base = biome.color
-        when (biome) {
-            Biome.OCEAN -> waves(pixmap, x0, y0, base, lighten(base, 0.25f), waveCount = 3, rng = rng)
-            Biome.RIVER -> waves(pixmap, x0, y0, base, lighten(base, 0.3f), waveCount = 5, rng = rng)
-            Biome.LAKE -> waves(pixmap, x0, y0, base, lighten(base, 0.2f), waveCount = 2, rng = rng)
-            Biome.DESERT -> dunes(pixmap, x0, y0, base, darken(base, 0.85f))
-            Biome.SAVANNAH -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.8f), lighten(base, 0.2f)), 0.08f, rng)
-            Biome.PLAINS -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.85f), lighten(base, 0.2f)), 0.12f, rng)
-            Biome.FOREST -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.6f), darken(base, 0.8f)), 0.28f, rng)
-            Biome.JUNGLE -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.6f), lighten(base, 0.3f)), 0.32f, rng)
-            Biome.DEEP_FOREST -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.5f), darken(base, 0.75f)), 0.35f, rng)
-            Biome.TAIGA -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.7f), lighten(base, 0.15f)), 0.20f, rng)
-            Biome.SWAMP -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.7f), Color(0.24f, 0.22f, 0.12f, 1f)), 0.18f, rng)
-            Biome.MOUNTAIN -> cracks(pixmap, x0, y0, base, darken(base, 0.6f), lighten(base, 0.25f), rng)
-            Biome.FOOTHILLS -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.65f), lighten(base, 0.2f)), 0.22f, rng)
-            Biome.VOLCANO -> cracks(pixmap, x0, y0, base, darken(base, 0.5f), Color(1f, 0.55f, 0.1f, 1f), rng)
-            Biome.TUNDRA -> speckles(pixmap, x0, y0, base, listOf(darken(base, 0.75f), lighten(base, 0.25f)), 0.06f, rng)
-            Biome.ARCTIC -> cracks(pixmap, x0, y0, base, darken(base, 0.85f), Color.WHITE, rng)
-        }
-    }
-
-    private fun darken(c: Color, factor: Float) = Color(c.r * factor, c.g * factor, c.b * factor, 1f)
-
-    private fun lighten(c: Color, factor: Float) =
-        Color(c.r + (1f - c.r) * factor, c.g + (1f - c.g) * factor, c.b + (1f - c.b) * factor, 1f)
-
-    private fun waves(pixmap: Pixmap, x0: Int, y0: Int, base: Color, highlight: Color, waveCount: Int, rng: Random) {
-        val phase = rng.nextFloat() * MathUtils.PI2
-        for (y in 0 until CELL_SIZE) {
-            for (x in 0 until CELL_SIZE) {
-                val t = MathUtils.sin((x.toFloat() / CELL_SIZE) * waveCount * MathUtils.PI2 + y * 0.3f + phase)
-                pixmap.drawPixel(x0 + x, y0 + y, Color.rgba8888(if (t > 0.2f) highlight else base))
-            }
-        }
-    }
-
-    private fun dunes(pixmap: Pixmap, x0: Int, y0: Int, base: Color, dark: Color) {
-        for (y in 0 until CELL_SIZE) {
-            val offset = (MathUtils.sin(y * 0.5f) * 3f).toInt()
-            for (x in 0 until CELL_SIZE) {
-                val stripe = ((x + offset) / 4) % 2 == 0
-                pixmap.drawPixel(x0 + x, y0 + y, Color.rgba8888(if (stripe) base else dark))
-            }
-        }
-    }
-
-    private fun speckles(pixmap: Pixmap, x0: Int, y0: Int, base: Color, speckleColors: List<Color>, density: Float, rng: Random) {
-        pixmap.setColor(base)
-        pixmap.fillRectangle(x0, y0, CELL_SIZE, CELL_SIZE)
-        val count = (CELL_SIZE * CELL_SIZE * density).toInt()
-        repeat(count) {
-            val x = rng.nextInt(CELL_SIZE)
-            val y = rng.nextInt(CELL_SIZE)
-            pixmap.drawPixel(x0 + x, y0 + y, Color.rgba8888(speckleColors[rng.nextInt(speckleColors.size)]))
-        }
-    }
-
-    private fun cracks(pixmap: Pixmap, x0: Int, y0: Int, base: Color, dark: Color, light: Color, rng: Random) {
-        speckles(pixmap, x0, y0, base, listOf(dark, light), 0.15f, rng)
-        repeat(3) {
-            var x = rng.nextInt(CELL_SIZE)
-            var y = 0
-            while (y < CELL_SIZE) {
-                pixmap.drawPixel(x0 + x.coerceIn(0, CELL_SIZE - 1), y0 + y, Color.rgba8888(dark))
-                x += rng.nextInt(3) - 1
-                y += 1
-            }
-        }
     }
 }

@@ -45,19 +45,22 @@ class TerrainLayerGeometryTest {
     }
 
     @Test
-    fun `a textured layer is white-tinted and samples its biome's cell`() {
+    fun `a textured layer is white-tinted and samples its biome's cells`() {
         val layer = TerrainLayer(world(Biome.DESERT))
-        val centerUV = BiomeTextures.centerU(Biome.DESERT) to BiomeTextures.centerV(Biome.DESERT)
         val allowed = HashSet<Pair<Float, Float>>().apply {
-            add(centerUV)
-            for (corners in 5..6) {
-                val uvs = BiomeTextures.cornerUVs(Biome.DESERT, corners)
-                for (c in 0 until corners) add(uvs[c * 2] to uvs[c * 2 + 1])
+            for (variant in 0 until BiomeArt.VARIANTS) {
+                add(BiomeTextures.centerU(Biome.DESERT, variant) to BiomeTextures.centerV(Biome.DESERT, variant))
+                for (corners in 5..6) {
+                    for (rotation in 0 until BiomeTextures.ROTATIONS) {
+                        val uvs = BiomeTextures.cornerUVs(Biome.DESERT, corners, variant, rotation)
+                        for (c in 0 until corners) add(uvs[c * 2] to uvs[c * 2 + 1])
+                    }
+                }
             }
         }
         for ((color, u, v) in allVertices(layer)) {
             assertEquals(whiteBits, color)
-            assertTrue((u to v) in allowed, "uv ($u, $v) is not in the desert cell's center or corner set")
+            assertTrue((u to v) in allowed, "uv ($u, $v) is not in one of the desert cells' center or corner sets")
         }
     }
 
