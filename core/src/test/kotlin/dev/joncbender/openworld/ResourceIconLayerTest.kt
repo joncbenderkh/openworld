@@ -75,4 +75,36 @@ class ResourceIconLayerTest {
     fun `a patch never exceeds what a 16-bit index can address`() {
         assertTrue(ResourceIconLayer.MAX_QUADS * 4 <= 65536)
     }
+
+    @Test
+    fun `every layout keeps its icons within the hexagon's inradius`() {
+        for (count in 1..SphereWorld.MAX_RESOURCES) {
+            val layout = ResourceIconLayer.LAYOUTS[count]
+            assertEquals(count * 3, layout.size)
+            for (slot in 0 until count) {
+                val far = sqrt(sq(kotlin.math.abs(layout[slot * 3]) + layout[slot * 3 + 2]) + sq(kotlin.math.abs(layout[slot * 3 + 1]) + layout[slot * 3 + 2]))
+                assertTrue(far <= 0.866f, "$count icons, slot $slot reaches $far")
+            }
+        }
+    }
+
+    @Test
+    fun `building into shared scratch arrays gives the same quads`() {
+        val world = world()
+        for (face in sphere.indices step 7) world.setResources(face, listOf(Resource.FISH, Resource.GOLD))
+        val layer = TerrainLayer(world)
+        val vertices = FloatArray(ResourceIconLayer.MAX_QUADS * 4 * stride)
+        val indices = ShortArray(ResourceIconLayer.MAX_QUADS * 6)
+        for (patch in 0 until layer.patchCount) {
+            val own = ResourceIconLayer.geometry(world, layer, patch)
+            val shared = ResourceIconLayer.geometry(world, layer, patch, vertices, indices)
+            assertEquals(own == null, shared == null)
+            if (own == null || shared == null) continue
+            assertEquals(own.vertexCount, shared.vertexCount)
+            for (k in 0 until own.vertexCount * stride) assertEquals(own.vertices[k], shared.vertices[k])
+            for (k in 0 until own.indexCount) assertEquals(own.indices[k], shared.indices[k])
+        }
+    }
+
+    private fun sq(v: Float) = v * v
 }

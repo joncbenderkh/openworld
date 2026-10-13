@@ -481,7 +481,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private fun updateNearActive() {
         if (nearTerrain == null) return
         if (!nearActive && distance < NEAR_ENTER_DISTANCE) nearActive = true
-        else if (nearActive && distance > NEAR_EXIT_DISTANCE) nearActive = false
+        else if (nearActive && distance > NEAR_EXIT_DISTANCE) {
+            nearActive = false
+            // drawIcons only runs while the near layer is drawn, so a jump out of range must drop them here.
+            iconsActive = false
+            icons?.releaseAll()
+        }
 
         nearInactiveFrames = if (nearActive) 0 else nearInactiveFrames + 1
         if (nearInactiveFrames == NEAR_RELEASE_AFTER_FRAMES) nearStreamer?.releaseAll()
@@ -566,7 +571,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         var built = 0
         for (k in 0 until visibleCount) {
             val patch = nearVisible[k]
-            if (near.meshOrNull(patch) == null || layer.meshOrNull(patch) != null) continue
+            if (near.meshOrNull(patch) == null || layer.isBuilt(patch)) continue
             if (built++ < ICON_BUILDS_PER_FRAME) layer.build(patch)
         }
         // A patch out of view keeps no icons.

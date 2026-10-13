@@ -16,28 +16,41 @@ import kotlin.math.sqrt
  */
 internal class ResourceIconLayer(private val near: TerrainLayer, private val world: SphereWorld) {
     private val meshes = arrayOfNulls<Mesh>(near.patchCount)
+    // A patch with no resources has no mesh but is still done, so it is not retried every frame.
+    private val done = BooleanArray(near.patchCount)
     var builtCount = 0
         private set
 
+    // Scratch arrays shared by every build, allocated on first use and dropped by releaseAll().
+    private var vertexScratch: FloatArray? = null
+    private var indexScratch: ShortArray? = null
+
     fun meshOrNull(patch: Int): Mesh? = meshes[patch]
 
-    /** Builds [patch]'s icons if they aren't built yet. A patch with no resources gets no mesh and is tried again, which is cheap. */
+    /** Whether [patch]'s icons have been built (or it has none), so there is nothing left to build. */
+    fun isBuilt(patch: Int): Boolean = done[patch]
+
+    /** Builds [patch]'s icons if that hasn't been done. */
     fun build(patch: Int) {
-        if (meshes[patch] != null) return
-        val geometry = geometry(world, near, patch) ?: return
+        if (done[patch]) return
+        done[patch] = true
+        val vertices = vertexScratch ?: FloatArray(MAX_QUADS * 4 * TerrainLayer.VERTEX_SIZE).also { vertexScratch = it }
+        val indices = indexScratch ?: ShortArray(MAX_QUADS * 6).also { indexScratch = it }
+        val geometry = geometry(world, near, patch, vertices, indices) ?: return
         val mesh = Mesh(
             true, geometry.vertexCount, geometry.indexCount,
             VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
             VertexAttribute.ColorPacked(),
             VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_texCoord0"),
         )
-        mesh.setVertices(geometry.vertices)
-        mesh.setIndices(geometry.indices)
+        mesh.setVertices(geometry.vertices, 0, geometry.vertexCount * TerrainLayer.VERTEX_SIZE)
+        mesh.setIndices(geometry.indices, 0, geometry.indexCount)
         meshes[patch] = mesh
         builtCount++
     }
 
     fun release(patch: Int) {
+        done[patch] = false
         meshes[patch]?.let {
             it.dispose()
             meshes[patch] = null
@@ -46,7 +59,9 @@ internal class ResourceIconLayer(private val near: TerrainLayer, private val wor
     }
 
     fun releaseAll() {
-        if (builtCount == 0) return
+        vertexScratch = null
+        indexScratch = null
+        if (builtCount == 0 && done.none { it }) return
         for (patch in meshes.indices) release(patch)
     }
 
@@ -59,11 +74,11 @@ internal class ResourceIconLayer(private val near: TerrainLayer, private val wor
     companion object {
         // Where icons sit relative to a tile's corner radius: (x, y, half size) of each icon for 1..4 icons,
         // x east and y north. Every icon square stays inside the hexagon.
-        private val LAYOUTS = arrayOf(
+        internal val LAYOUTS = arrayOf(
             floatArrayOf(),
             floatArrayOf(0f, 0f, 0.55f),
             floatArrayOf(-0.40f, 0f, 0.36f, 0.40f, 0f, 0.36f),
-            floatArrayOf(0f, 0.36f, 0.32f, -0.36f, -0.24f, 0.32f, 0.36f, -0.24f, 0.32f),
+            floatArrayOf(0f, 0.34f, 0.30f, -0.34f, -0.22f, 0.30f, 0.34f, -0.22f, 0.30f),
             floatArrayOf(-0.33f, 0.33f, 0.27f, 0.33f, 0.33f, 0.27f, -0.33f, -0.33f, 0.27f, 0.33f, -0.33f, 0.27f),
         )
 
@@ -72,8 +87,11 @@ internal class ResourceIconLayer(private val near: TerrainLayer, private val wor
 
         private val WHITE_BITS = Color.WHITE.toFloatBits()
 
-        /** The vertices and indices of [patch]'s icons, or null when none of its tiles holds a resource. Needs no GL. */
-        fun geometry(world: SphereWorld, near: TerrainLayer, patch: Int): Geometry? {
+        /** The vertices and indices of [patch]'s icons, or null when none of its tiles holds a resource. Fills the scratch arrays when given (they must hold [MAX_QUADS]), else its own. Needs no GL. */
+        fun geometry(
+            world: SphereWorld, near: TerrainLayer, patch: Int,
+            vertexScratch: FloatArray? = null, indexScratch: ShortArray? = null,
+        ): Geometry? {
             val sphere = world.sphere
             val faceCount = near.faceCountOf(patch)
             var quads = 0
@@ -82,8 +100,8 @@ internal class ResourceIconLayer(private val near: TerrainLayer, private val wor
             quads = minOf(quads, MAX_QUADS)
             if (quads == 0) return null
 
-            val vertices = FloatArray(quads * 4 * TerrainLayer.VERTEX_SIZE)
-            val indices = ShortArray(quads * 6)
+            val vertices = vertexScratch ?: FloatArray(quads * 4 * TerrainLayer.VERTEX_SIZE)
+            val indices = indexScratch ?: ShortArray(quads * 6)
             val uv = FloatArray(4)
             var quad = 0
             for (k in 0 until faceCount) {
