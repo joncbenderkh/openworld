@@ -130,6 +130,13 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
      */
     var onMessage: ((String) -> Unit)? = null
 
+    /**
+     * Fired with what the world is doing while it is not ready yet ("Shaping the terrain"), and with null once it is
+     * ready or could not be made. May be called on the GL thread, which is busy for all of it: a screen
+     * that shows the stage has to live in the UI.
+     */
+    var onGenerationStage: ((String?) -> Unit)? = null
+
     private val camera = PerspectiveCamera(60f, 1f, 1f).apply {
         near = 0.1f
         far = 20f
@@ -223,6 +230,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             // next launch would find the saved world does not match it and try to replace that world.
             loadedDensity?.let { resourceDensity = it }
             onMessage?.invoke(NOT_ENOUGH_STORAGE)
+            onGenerationStage?.invoke(null)
             return
         }
         seed = newSeed
@@ -276,6 +284,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             compact = placeholderWorld()
             onMessage?.invoke(problem)
         }
+        onGenerationStage?.invoke(null)
     }
 
     /** Null on success, otherwise what to tell the player. */
@@ -326,11 +335,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         cacheFiles().forEach { it.delete() }
         if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD)) return NOT_ENOUGH_STORAGE
         val perf = PerfTimer()
+        onGenerationStage?.invoke(STAGE_TERRAIN)
         val full = WorldGenerator(seed).generate(frequency, resourceDensity, corners = false)
         perf.lap("world: generated")
+        onGenerationStage?.invoke(STAGE_SAVING)
         if (!cacheCoarseBiomes(full)) return WORLD_NOT_SAVED
         if (!CompactWorldCache.save(compactCacheFile, full, frequency, seed, resourceDensity)) return WORLD_NOT_SAVED
         perf.lap("world: saved to cache")
+        onGenerationStage?.invoke(STAGE_DRAWING)
         return null
     }
 
@@ -721,6 +733,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     companion object {
         // The compact cache is ~80-90 MB; a world with more land is bigger, and the coarse cache is small.
         private const val MIN_FREE_BYTES_FOR_WORLD = 160L * 1024 * 1024
+        private const val STAGE_TERRAIN = "Shaping the terrain"
+        private const val STAGE_SAVING = "Saving the world"
+        private const val STAGE_DRAWING = "Drawing the map"
         private const val NOT_ENOUGH_STORAGE = "Not enough free storage to create the world (about 160 MB is needed)."
         private const val WORLD_NOT_SAVED = "The world could not be saved, so it cannot be shown. Free some storage and start a new world."
         private const val WORLD_UNREADABLE = "The saved world could not be read. Start a new world."

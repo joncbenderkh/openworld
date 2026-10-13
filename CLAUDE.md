@@ -179,4 +179,4 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   tested. `InkTheme` builds the views (medallion, primary/secondary/text buttons, segmented control, a canvas-drawn `InkSwitch`,
   bottom sheet) from shapes, not from the app's old non-Material base theme, which renders stock Switch widgets invisibly.
   New UI uses these; do not add raw `Color.argb(...)` backgrounds.
- `TilePanel` is the docked bottom panel for a tapped tile (biome, `TileCoordinates`, up to four glyphs from `ResourceGlyphs`, the same art as the in-game icons). `SettingsSheet` is the settings bottom sheet (seed, density, drag flip, new world) built on `InkTheme.sheet`.
+ `TilePanel` is the docked bottom panel for a tapped tile (biome, `TileCoordinates`, up to four glyphs from `ResourceGlyphs`, the same art as the in-game icons). `SettingsSheet` is the settings bottom sheet (seed, density, drag flip, new world) built on `InkTheme.sheet`. `NewWorldFlow` asks before a world is replaced and covers the map with a stage screen while it is made (fed by `GlobeScreen.onGenerationStage`).
