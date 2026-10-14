@@ -40,7 +40,7 @@ internal object ResourceIcons {
             ResourceIconArt.paint(resource, CELL_SIZE, cell)
             val x0 = resource.ordinal % COLS * CELL_SIZE
             val y0 = resource.ordinal / COLS * CELL_SIZE
-            for (y in 0 until CELL_SIZE) for (x in 0 until CELL_SIZE) pixmap.drawPixel(x0 + x, y0 + y, cell[y * CELL_SIZE + x])
+            pixmap.putCell(x0, y0, CELL_SIZE, cell)
         }
         val texture = Texture(pixmap)
         pixmap.dispose()

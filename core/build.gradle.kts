@@ -9,6 +9,7 @@ dependencies {
     api("com.badlogicgames.gdx:gdx:$gdxVersion")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testImplementation("com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
 }
 

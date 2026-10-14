@@ -54,9 +54,7 @@ object BiomeTextures {
             for (variant in 0 until variants) {
                 if (INK) InkArt.paint(biome, variant, CELL_SIZE, cell) else BiomeArt.paint(biome, variant, CELL_SIZE, cell)
                 val (x0, y0) = cellOrigin(cellOf(biome, variant))
-                for (y in 0 until CELL_SIZE) {
-                    for (x in 0 until CELL_SIZE) pixmap.drawPixel(x0 + x, y0 + y, cell[y * CELL_SIZE + x])
-                }
+                pixmap.putCell(x0, y0, CELL_SIZE, cell)
             }
         }
         val (wx, wy) = cellOrigin(whiteIndex)
