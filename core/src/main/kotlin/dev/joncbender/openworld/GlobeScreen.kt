@@ -240,7 +240,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             return
         }
         // Rebuilding the current world is not an answer to a refused replacement; that stays owed.
-        if (!keepInventory) dropPendingWorld()
+        if (!keepInventory || newSeed == pending?.seed) dropPendingWorld()
         seed = newSeed
         preferences.putLong(PREF_SEED, seed)
         preferences.flush()
@@ -271,7 +271,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             resourceDensity = wanted.density
             // The same seed is the same world, so what was collected still belongs to it.
             regenerateWorld(wanted.seed, keepInventory = wanted.seed == seed)
-            if (worldReady) dropPendingWorld()
         }
     }
 
