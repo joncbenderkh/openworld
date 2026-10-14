@@ -4,15 +4,19 @@ import com.badlogic.gdx.Preferences
 
 /**
  * Every settlement the player has founded in the current world, persisted in the given [Preferences] as one
- * string ("tile:tier,tile:tier"). Like [Inventory] it belongs to one world: GlobeScreen calls [clear] when a new
+ * string ("tile:tier:population,..."). Like [Inventory] it belongs to one world: GlobeScreen calls [clear] when a new
  * seed is made. Tile ids are stable for a seed and density, which is all a world is rebuilt from.
  */
 class SettlementBook(private val preferences: Preferences) {
     private val byTile = LinkedHashMap<Int, Settlement>().also { map ->
         preferences.getString(KEY, "").split(',').forEach { entry ->
-            val (tile, tier) = entry.split(':').takeIf { it.size == 2 } ?: return@forEach
-            val parsed = Settlement(tile.toIntOrNull()?.takeIf { it >= 0 } ?: return@forEach, SettlementTier.entries.firstOrNull { it.name == tier } ?: return@forEach)
-            map[parsed.tile] = parsed
+            val parts = entry.split(':')
+            if (parts.size !in 2..3) return@forEach
+            val tile = parts[0].toIntOrNull()?.takeIf { it >= 0 } ?: return@forEach
+            val tier = SettlementTier.entries.firstOrNull { it.name == parts[1] } ?: return@forEach
+            // An entry saved before population existed has none: it starts like a new one.
+            val population = parts.getOrNull(2)?.toFloatOrNull()?.takeIf { it.isFinite() } ?: PopulationModel.START
+            map[tile] = Settlement(tile, tier, population.coerceIn(PopulationModel.MIN, tier.populationCap.toFloat()))
         }
     }
 
@@ -34,6 +38,28 @@ class SettlementBook(private val preferences: Preferences) {
         return result
     }
 
+    /** Grows the settlement on [tile] into the next tier if the rules allow; returns why not otherwise. */
+    fun upgrade(world: CompactWorld, tile: Int): UpgradeResult {
+        val settlement = byTile[tile] ?: return UpgradeResult.MAX_TIER
+        val result = SettlementRules.canUpgrade(world, settlement, all)
+        if (result == UpgradeResult.OK) {
+            byTile[tile] = settlement.copy(tier = settlement.tier.next!!)
+            save(flush = true)
+        }
+        return result
+    }
+
+    /**
+     * Replaces every settlement with [change] of it (a simulation tick). This is not a structural change, so
+     * [version] stays and nothing is flushed: call [flush] now and then.
+     */
+    fun update(change: (Settlement) -> Settlement) {
+        for ((tile, settlement) in byTile.entries.toList()) byTile[tile] = change(settlement)
+        write()
+    }
+
+    fun flush() = preferences.flush()
+
     /** Drops any settlement whose tile is not a fine tile of the loaded world (a damaged save, say). */
     fun retainWithin(fineCount: Int) {
         if (byTile.keys.removeAll { it >= fineCount }) save(flush = true)
@@ -47,8 +73,12 @@ class SettlementBook(private val preferences: Preferences) {
 
     private fun save(flush: Boolean) {
         version++
-        if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}" })
+        write()
         if (flush) preferences.flush()
+    }
+
+    private fun write() {
+        if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" })
     }
 
     private companion object {
