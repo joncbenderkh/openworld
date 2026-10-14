@@ -93,9 +93,10 @@ class SettingsSheet(
                 val value = DENSITIES[i].second
                 newWorld.confirmReplace(onKeep = { segments.show(selected) }) {
                     dialog.dismiss()
+                    val newSeed = System.nanoTime()
                     newWorld.begin {
                         screen.resourceDensity = value
-                        screen.regenerateWorld()
+                        screen.regenerateWorld(newSeed)
                     }
                 }
             }
@@ -126,7 +127,8 @@ class SettingsSheet(
                 ink.secondaryButton("New world") {
                     newWorld.confirmReplace {
                         dialog.dismiss()
-                        newWorld.begin { screen.regenerateWorld(System.nanoTime()) }
+                        val newSeed = System.nanoTime()
+                        newWorld.begin { screen.regenerateWorld(newSeed) }
                     }
                 },
                 block(),

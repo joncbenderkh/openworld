@@ -112,7 +112,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   sibling and renamed over the target, so a failed write never leaves a partial file; `save` returns
   whether it wrote. `CompactWorldCache.load` rejects a file whose indices do not point at real tiles. If
   the world cannot be stored (not enough free storage, or a write fails), `GlobeScreen` leaves the globe
-  bare - underlay only, taps ignored - and tells the player through `onMessage` (a Toast on Android, the
+  bare - underlay only, taps ignored - and tells the player through `onWorldProblem` (a typed `WorldProblem` and the seed: the Android error screen in `NewWorldFlow`, the
   overlay on the desktop) instead of crashing; `regenerateWorld` checks free storage first and keeps the
   current world if there is not enough.
 - Open ocean (`DeepOcean.kt`, `GlobeScreen.kt`): ocean tiles with no land within 2 (far) / 3 (near) tiles are
