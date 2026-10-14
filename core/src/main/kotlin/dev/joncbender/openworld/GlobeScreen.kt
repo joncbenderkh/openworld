@@ -230,7 +230,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val reclaimable = cacheFiles().sumOf { it.lengthOrZero() }
         if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD, reclaimable)) {
             // What was asked for is remembered, with the density the menu just set, until it is made or dropped.
-            pending = PendingWorld(newSeed, resourceDensity).also { it.save(preferences) }
+            // Building the current world again is not a replacement: nothing new is owed.
+            if (!keepInventory) pending = PendingWorld(newSeed, resourceDensity).also { it.save(preferences) }
             // The settings menu may have changed the density just before asking; put it back, or the
             // next launch would find the saved world does not match it and try to replace that world.
             loadedDensity?.let { resourceDensity = it }
@@ -258,11 +259,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private var pending: PendingWorld? = PendingWorld.load(preferences)
 
     /**
-     * Tries again: the refused world with the seed and density it was asked for, else the current seed's world after it
-     * failed (what the player collected is theirs and stays).
+     * Tries again the world named by the error on screen, [shownSeed]: the refused world with the density it was asked
+     * for, else the current seed's world after it failed (what the player collected is theirs and stays).
      */
-    fun retryWorld() {
-        val wanted = pending
+    fun retryWorld(shownSeed: Long) {
+        val wanted = pending?.takeIf { it.seed == shownSeed }
         if (wanted == null) {
             regenerateWorld(seed, keepInventory = true)
         } else {

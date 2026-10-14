@@ -210,7 +210,7 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
         }
         val tryAgain = {
             failed.visibility = View.GONE
-            begin { game.globeScreen.retryWorld() }
+            begin { game.globeScreen.retryWorld(seed) }
         }
         if (problem.needsStorage) {
             column.addView(ink.primaryButton("Open storage settings") { openStorageSettings() }, gap(24f))
