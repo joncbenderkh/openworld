@@ -195,8 +195,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         perf.lap("BiomeTextures.build")
         loadTerrain()
         perf.lap("terrain")
-        // A refused world is still owed an answer after a restart.
-        pendingWorlds.pending?.let { if (worldReady) onWorldProblem?.invoke(WorldProblem.NO_ROOM_FOR_NEW, it.seed) }
+        remindOfPendingWorld()
         graticule = Graticule.build()
         highlight = TileHighlight()
         perf.lap("Graticule.build")
@@ -238,10 +237,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             onGenerationStage?.invoke(null)
             return
         }
-        pendingWorlds.accepted(newSeed, keepInventory)
         seed = newSeed
         preferences.putLong(PREF_SEED, seed)
         preferences.flush()
+        // After the seed is saved: a kill between the two writes then leaves the world made, not a promise lost.
+        pendingWorlds.accepted(newSeed, keepInventory)
         if (!keepInventory) inventory.clear()
         // Let go of everything that still references the old world before generating the new one:
         // the caches no longer match the seed, so loadWorld() generates, and the generator's full
@@ -252,6 +252,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         selectedTile = -1
         compact = placeholderWorld()
         loadWorld()
+        remindOfPendingWorld()
+    }
+
+    /** A refused world is still owed an answer once there is a world to go back to. */
+    private fun remindOfPendingWorld() {
+        pendingWorlds.pending?.let { if (worldReady) onWorldProblem?.invoke(WorldProblem.NO_ROOM_FOR_NEW, it.seed) }
     }
 
     private val pendingWorlds = PendingWorlds(preferences)
