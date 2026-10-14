@@ -78,32 +78,65 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
                 },
             )
             addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.END
-                    addView(
-                        ink.textButton("Keep this world") {
-                            dialog.dismiss()
-                            onKeep()
-                        },
-                    )
-                    addView(
-                        ink.primaryButton("Generate") {
-                            dialog.dismiss()
-                            onGenerate()
-                        },
-                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                            marginStart = ink.dp(8f)
-                        },
-                    )
-                },
+                actions(
+                    ink.textButton("Keep this world") {
+                        dialog.dismiss()
+                        onKeep()
+                    },
+                    ink.primaryButton("Generate") {
+                        dialog.dismiss()
+                        onGenerate()
+                    },
+                ),
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = ink.dp(20f)
                 },
             )
         }
         dialog = ink.dialog(content)
+        // Back and a tap outside are a "no" too, so whatever asked is put back as it was.
+        dialog.setOnCancelListener { onKeep() }
         dialog.show()
+    }
+
+    /** The two answers side by side at the end of the row, or stacked, Generate first, where they do not fit side by side. */
+    private fun actions(keep: View, generate: View): LinearLayout {
+        val gap = ink.dp(8f)
+        return object : LinearLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val room = MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
+                val unbounded = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+                keep.measure(unbounded, unbounded)
+                generate.measure(unbounded, unbounded)
+                val stacked = keep.measuredWidth + gap + generate.measuredWidth > room
+                if (stacked != (orientation == VERTICAL)) arrange(stacked)
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+
+            private val matchParent = ViewGroup.LayoutParams.MATCH_PARENT
+            private val wrapContent = ViewGroup.LayoutParams.WRAP_CONTENT
+
+            private fun arrange(stacked: Boolean) {
+                removeAllViews()
+                orientation = if (stacked) VERTICAL else HORIZONTAL
+                val first = if (stacked) generate else keep
+                val second = if (stacked) keep else generate
+                addView(first, LayoutParams(if (stacked) matchParent else wrapContent, wrapContent))
+                addView(
+                    second,
+                    LayoutParams(if (stacked) matchParent else wrapContent, wrapContent).apply {
+                        if (stacked) topMargin = gap else marginStart = gap
+                    },
+                )
+            }
+        }.apply {
+            gravity = Gravity.END
+            addView(keep, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(
+                generate,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = gap },
+            )
+        }
     }
 
     /** Shows the screen now and then runs [regenerate] on the globe's thread, which hides it again when the world is ready. */
