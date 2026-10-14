@@ -258,6 +258,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (keepOld) {
             leftovers().forEach { it.delete() }
             seed = newSeed
+            // The menu saved the new density already; until the new world is whole, the old caches still need the old one.
+            before.loadedDensity?.let { saveDensity(it) }
         } else {
             commit(request)
         }
@@ -331,6 +333,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         preferences.flush()
     }
 
+    private fun saveDensity(density: Float) {
+        preferences.putFloat(PREF_RESOURCE_DENSITY, density)
+        preferences.flush()
+    }
+
     /** After the seed is saved: a kill between the two writes then leaves the world made, not a promise lost. */
     private fun settle(request: Request) {
         pendingWorlds.accepted(request.seed, request.keepInventory)
@@ -344,14 +351,15 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         generation = null
         var problem = outcome.problem
         if (!outcome.cancelled && problem == null && request.keepOld) {
-            saveSeed(request.seed)
+            // Swap first, then commit: a kill in between rebuilds the old seed (the same world, which the inventory fits),
+            // where the other order would pair the new world with the old inventory.
             val swapped = CacheFiles.replace(coarseCacheFile, CacheFiles.stagedOf(coarseCacheFile)) &&
                 CacheFiles.replace(compactCacheFile, CacheFiles.stagedOf(compactCacheFile))
             if (swapped) {
-                settle(request)
+                saveDensity(resourceDensity)
+                commit(request)
             } else {
-                // The seed goes back; a half-swapped pair matches neither seed, and loading rebuilds.
-                saveSeed(request.before.seed)
+                // A half-swapped pair matches neither seed, and loading rebuilds the old one.
                 problem = WorldProblem.NOT_SAVED
             }
         }
@@ -366,6 +374,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             }
             return
         }
+        onGenerationStage?.invoke("Drawing the map")
         loadWorld()
         remindOfPendingWorld()
     }

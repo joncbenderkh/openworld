@@ -28,8 +28,7 @@ class GenerationProgress(
         RIVERS(10, "Cutting rivers and lakes"),
         RESOURCES(4, "Placing resources"),
         COARSE(6, "Saving the world"),
-        SAVE(25, "Saving the world"),
-        DRAW(13, "Drawing the map"),
+        SAVE(38, "Saving the world"),
     }
 
     private val started = clock()
