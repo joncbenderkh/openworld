@@ -40,18 +40,20 @@ internal class SettlementMarkers {
     }
 
     /**
-     * Adds a ring for [settlement]; [halfWidth] is the thinnest ring's half thickness on the globe. Returns false,
-     * adding nothing, when the mesh is full: render and [clear] it, then add again.
+     * Adds a ring on [tile], [halfWidth] being half its thickness on the globe, in the settlement colour or - for a tile
+     * the settlement only claims - the lighter [claimed] one. Returns false, adding nothing, when the mesh is full:
+     * render and [clear] it, then add again.
      */
-    fun add(sphere: Sphere, settlement: Settlement, halfWidth: Float): Boolean {
+    fun add(sphere: Sphere, tile: Int, halfWidth: Float, claimed: Boolean): Boolean {
         if (vertexCount + RING_VERTICES > MAX_VERTICES) return false
-        val written = TileHighlight.ring(sphere, settlement.tile, halfWidth * (1 + settlement.tier.ordinal), triangles) / 3
+        val color = if (claimed) CLAIM_COLOR.toFloatBits() else colorBits
+        val written = TileHighlight.ring(sphere, tile, halfWidth, triangles) / 3
         for (i in 0 until written) {
             val at = (vertexCount + i) * VERTEX_SIZE
             vertices[at] = triangles[i * 3]
             vertices[at + 1] = triangles[i * 3 + 1]
             vertices[at + 2] = triangles[i * 3 + 2]
-            vertices[at + 3] = colorBits
+            vertices[at + 3] = color
             vertices[at + 4] = u
             vertices[at + 5] = v
         }
@@ -72,5 +74,6 @@ internal class SettlementMarkers {
         const val RING_VERTICES = 6 * 6
         const val MAX_VERTICES = RING_VERTICES * 128
         val COLOR = Color(0.45f, 0.10f, 0.08f, 1f)
+        val CLAIM_COLOR = Color(0.90f, 0.42f, 0.10f, 1f)
     }
 }

@@ -739,7 +739,24 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         highlight.render(shader)
     }
 
-    /** Rings the settled tiles on the near side of the globe, over a cleared depth buffer like the selection ring. */
+    // What each settlement claims, found again only when the settlements or the world change.
+    private var claims: Map<Settlement, IntArray> = emptyMap()
+    private var claimsVersion = -1
+    private var claimsWorld: CompactWorld? = null
+
+    private fun claimsOfSettlements(): Map<Settlement, IntArray> {
+        if (claimsVersion != settlements.version || claimsWorld !== compact) {
+            claims = settlements.all.associateWith { SettlementRules.claim(compact, it.tile, it.tier.claimRadius) }
+            claimsVersion = settlements.version
+            claimsWorld = compact
+        }
+        return claims
+    }
+
+    /**
+     * Rings every settled tile (thicker for a higher tier) and, thinner and lighter, the other tiles it claims; only
+     * those on the near side of the globe, over a cleared depth buffer like the selection ring.
+     */
     private fun drawSettlements() {
         if (!worldReady || settlements.all.isEmpty()) return
         val sphere = compact.world.sphere
@@ -747,18 +764,26 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val halfWidth = pixel * SETTLEMENT_HALF_WIDTH_DP * Gdx.graphics.density
         settlementMarkers.clear()
         Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT)
-        for (settlement in settlements.all) {
-            val t = settlement.tile
-            if (t >= compact.fineCount) continue
+        fun ring(t: Int, width: Float, claimed: Boolean) {
+            if (t >= compact.fineCount) return
             val toTile = sphere.centerX(t) * cameraDirection.x + sphere.centerY(t) * cameraDirection.y + sphere.centerZ(t) * cameraDirection.z
-            if (toTile < 1f / distance) continue
-            if (!settlementMarkers.add(sphere, settlement, halfWidth)) {
+            if (toTile < 1f / distance) return
+            if (!settlementMarkers.add(sphere, t, width, claimed)) {
                 // The mesh is full: draw what it holds and start another batch.
                 settlementMarkers.render(shader)
                 settlementMarkers.clear()
-                settlementMarkers.add(sphere, settlement, halfWidth)
+                settlementMarkers.add(sphere, t, width, claimed)
             }
         }
+        for ((settlement, tiles) in claimsOfSettlements()) {
+            for (t in tiles) {
+                if (t == settlement.tile) continue
+                // Thin enough to leave the tile showing up close, but never under half a pixel, or far out it vanishes.
+                val width = maxOf(pixel * 0.5f, minOf(halfWidth * CLAIM_RING_SHARE, CLAIM_RING_RELATIVE_WIDTH * tileRadius(sphere, t)))
+                ring(t, width, claimed = true)
+            }
+        }
+        for (settlement in settlements.all) ring(settlement.tile, halfWidth * (1 + settlement.tier.ordinal), claimed = false)
         settlementMarkers.render(shader)
     }
 
@@ -981,6 +1006,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
         // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
         private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
+        private const val CLAIM_RING_SHARE = 0.6f
+        private const val CLAIM_RING_RELATIVE_WIDTH = 0.12f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_DP = 2.2f
         private const val HIGHLIGHT_RELATIVE_HALF_WIDTH = 0.08f
