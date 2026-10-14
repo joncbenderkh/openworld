@@ -742,13 +742,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     // What each settlement claims, found again only when the settlements or the world change.
     private var claims: Map<Settlement, IntArray> = emptyMap()
     private var claimsVersion = -1
-    private var claimsWorld: CompactWorld? = null
+    // Weak: the cache must not keep a replaced world alive (memory is the binding constraint, see CLAUDE.md).
+    private var claimsWorld: java.lang.ref.WeakReference<CompactWorld>? = null
 
     private fun claimsOfSettlements(): Map<Settlement, IntArray> {
-        if (claimsVersion != settlements.version || claimsWorld !== compact) {
+        if (claimsVersion != settlements.version || claimsWorld?.get() !== compact) {
             claims = settlements.all.associateWith { SettlementRules.claim(compact, it.tile, it.tier.claimRadius) }
             claimsVersion = settlements.version
-            claimsWorld = compact
+            claimsWorld = java.lang.ref.WeakReference(compact)
         }
         return claims
     }
