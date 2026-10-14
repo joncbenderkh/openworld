@@ -31,9 +31,6 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
         isFillViewport = true
     }
 
-    /** What the world was last asked to do, so Try again asks the same. */
-    private var attempt: (() -> Unit)? = null
-
     /** Covers the map and takes its touches while the world is made or has failed. Add it to the root above the globe. */
     val screen: View = FrameLayout(context).apply {
         visibility = View.GONE
@@ -157,20 +154,21 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
 
     /** Shows the screen now and then runs [regenerate] on the globe's thread, which hides it again when the world is ready. */
     fun begin(regenerate: () -> Unit) {
-        attempt = regenerate
         show("Starting")
         Gdx.app.postRunnable(regenerate)
     }
 
     /** What the world is doing, or null when it is ready; called on the UI thread. */
     fun stage(name: String?) {
-        if (name != null) show(name) else if (failed.visibility != View.VISIBLE) screen.visibility = View.GONE
+        if (name != null) {
+            show(name)
+        } else {
+            if (failed.visibility != View.VISIBLE) screen.visibility = View.GONE
+        }
     }
 
     /** Tells the player the world could not be made; [seed] is the one that was being made. Called on the UI thread. */
     fun problem(problem: WorldProblem, seed: Long) {
-        val retry = attempt ?: { game.globeScreen.regenerateWorld(seed) }
-        attempt = null
         val (title, lede) = when (problem) {
             WorldProblem.NO_ROOM_FOR_NEW ->
                 "Not enough free storage" to "The new world doesn't fit on this phone right now. Your current world is safe and unchanged."
@@ -208,10 +206,11 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
         val leave = {
             failed.visibility = View.GONE
             screen.visibility = View.GONE
+            Gdx.app.postRunnable { game.globeScreen.dropPendingWorld() }
         }
         val tryAgain = {
             failed.visibility = View.GONE
-            begin(retry)
+            begin { game.globeScreen.retryWorld() }
         }
         if (problem.needsStorage) {
             column.addView(ink.primaryButton("Open storage settings") { openStorageSettings() }, gap(24f))

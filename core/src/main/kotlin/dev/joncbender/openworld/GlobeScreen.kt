@@ -195,6 +195,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         perf.lap("BiomeTextures.build")
         loadTerrain()
         perf.lap("terrain")
+        // A refused world is still owed an answer after a restart.
+        pending?.let { if (worldReady) onWorldProblem?.invoke(WorldProblem.NO_ROOM_FOR_NEW, it.seed) }
         graticule = Graticule.build()
         highlight = TileHighlight()
         perf.lap("Graticule.build")
@@ -219,24 +221,28 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
      * settings menu, either with a fresh random seed ("New world seed") or a
      * specific one the player typed in. A new world means whatever the player
      * collected no longer corresponds to anything on the map, so the
-     * inventory resets along with it.
+     * inventory resets along with it - unless [keepInventory], for building the same world again after it
+     * could not be made (see [retryWorld]).
      */
-    fun regenerateWorld(newSeed: Long = System.nanoTime()) {
+    fun regenerateWorld(newSeed: Long = System.nanoTime(), keepInventory: Boolean = false) {
         // Decide before touching anything: a refused regeneration leaves the current world playable.
         // The caches about to be replaced count as free space, since they are deleted first.
         val reclaimable = cacheFiles().sumOf { it.lengthOrZero() }
         if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD, reclaimable)) {
+            // What was asked for is remembered, with the density the menu just set, until it is made or dropped.
+            pending = PendingWorld(newSeed, resourceDensity).also { it.save(preferences) }
             // The settings menu may have changed the density just before asking; put it back, or the
             // next launch would find the saved world does not match it and try to replace that world.
             loadedDensity?.let { resourceDensity = it }
-            onWorldProblem?.invoke(WorldProblem.NO_ROOM_FOR_NEW, newSeed)
+            onWorldProblem?.invoke(if (worldReady) WorldProblem.NO_ROOM_FOR_NEW else WorldProblem.NO_ROOM, newSeed)
             onGenerationStage?.invoke(null)
             return
         }
+        dropPendingWorld()
         seed = newSeed
         preferences.putLong(PREF_SEED, seed)
         preferences.flush()
-        inventory.clear()
+        if (!keepInventory) inventory.clear()
         // Let go of everything that still references the old world before generating the new one:
         // the caches no longer match the seed, so loadWorld() generates, and the generator's full
         // sphere is ~175 MB.
@@ -246,6 +252,30 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         selectedTile = -1
         compact = placeholderWorld()
         loadWorld()
+    }
+
+    /** The world that was asked for and refused for want of storage, if any; survives a restart. */
+    private var pending: PendingWorld? = PendingWorld.load(preferences)
+
+    /**
+     * Tries again: the refused world with the seed and density it was asked for, else the current seed's world after it
+     * failed (what the player collected is theirs and stays).
+     */
+    fun retryWorld() {
+        val wanted = pending
+        if (wanted == null) {
+            regenerateWorld(seed, keepInventory = true)
+        } else {
+            resourceDensity = wanted.density
+            regenerateWorld(wanted.seed)
+        }
+    }
+
+    /** The player gave up on the refused world: forget it. */
+    fun dropPendingWorld() {
+        if (pending == null) return
+        pending = null
+        PendingWorld.clear(preferences)
     }
 
     private fun FileHandle.lengthOrZero(): Long = if (exists()) length() else 0L
