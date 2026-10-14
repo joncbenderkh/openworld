@@ -40,6 +40,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
     var resourceDensity = preferences.getFloat(PREF_RESOURCE_DENSITY, WorldGenerator.DEFAULT_RESOURCE_DENSITY)
         set(value) {
+            // What a world being made was asked for cannot change under it.
+            if (generating) return
             field = value
             preferences.putFloat(PREF_RESOURCE_DENSITY, value)
             preferences.flush()
@@ -308,6 +310,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     /** True from the start of a replacement until [finishRegeneration]; touched on the GL thread only. */
     private var generating = false
 
+    /** Whether a world is being made; its density and seed cannot be changed until it is. */
+    val isGenerating: Boolean get() = generating
+
     /**
      * Calls off a world being made and returns to the one before it, if that is still possible: not once the new world
      * is whole, and not when there was no room to keep the old one beside it.
@@ -323,25 +328,18 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     /** The new seed and what goes with it become the world's: saved, the inventory reset, the request paid off. */
     private fun commit(request: Request) {
-        saveSeed(request.seed)
-        settle(request)
-    }
-
-    private fun saveSeed(newSeed: Long) {
-        seed = newSeed
-        preferences.putLong(PREF_SEED, newSeed)
+        seed = request.seed
+        preferences.putLong(PREF_SEED, seed)
+        preferences.putFloat(PREF_RESOURCE_DENSITY, resourceDensity)
+        pendingWorlds.accepted(request.seed, request.keepInventory, flush = false)
+        if (!request.keepInventory) inventory.clear(flush = false)
+        // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
     }
 
     private fun saveDensity(density: Float) {
         preferences.putFloat(PREF_RESOURCE_DENSITY, density)
         preferences.flush()
-    }
-
-    /** After the seed is saved: a kill between the two writes then leaves the world made, not a promise lost. */
-    private fun settle(request: Request) {
-        pendingWorlds.accepted(request.seed, request.keepInventory)
-        if (!request.keepInventory) inventory.clear()
     }
 
     /** On the GL thread, once the worker has stopped: show the new world, or go back to the old one. */
@@ -356,7 +354,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             val swapped = CacheFiles.replace(coarseCacheFile, CacheFiles.stagedOf(coarseCacheFile)) &&
                 CacheFiles.replace(compactCacheFile, CacheFiles.stagedOf(compactCacheFile))
             if (swapped) {
-                saveDensity(resourceDensity)
                 commit(request)
             } else {
                 // A half-swapped pair matches neither seed, and loading rebuilds the old one.

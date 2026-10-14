@@ -36,13 +36,13 @@ class Inventory(private val preferences: Preferences) {
     /** Every resource currently held, in a positive amount. */
     fun heldResources(): Map<Resource, Int> = counts.filterValues { it > 0 }
 
-    /** Resets every count to zero - called when a new world is generated. */
-    fun clear() {
+    /** Resets every count to zero - called when a new world is generated. [flush] false leaves saving to the caller. */
+    fun clear(flush: Boolean = true) {
         for (resource in Resource.entries) {
             counts[resource] = 0
             preferences.remove(keyFor(resource))
         }
-        preferences.flush()
+        if (flush) preferences.flush()
     }
 
     private fun set(resource: Resource, amount: Int) {
