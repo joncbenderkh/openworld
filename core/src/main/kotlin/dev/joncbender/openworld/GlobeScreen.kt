@@ -196,7 +196,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         loadTerrain()
         perf.lap("terrain")
         // A refused world is still owed an answer after a restart.
-        pending?.let { if (worldReady) onWorldProblem?.invoke(WorldProblem.NO_ROOM_FOR_NEW, it.seed) }
+        pendingWorlds.pending?.let { if (worldReady) onWorldProblem?.invoke(WorldProblem.NO_ROOM_FOR_NEW, it.seed) }
         graticule = Graticule.build()
         highlight = TileHighlight()
         perf.lap("Graticule.build")
@@ -230,8 +230,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val reclaimable = cacheFiles().sumOf { it.lengthOrZero() }
         if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD, reclaimable)) {
             // What was asked for is remembered, with the density the menu just set, until it is made or dropped.
-            // Building the current world again is not a replacement: nothing new is owed.
-            if (!keepInventory) pending = PendingWorld(newSeed, resourceDensity).also { it.save(preferences) }
+            pendingWorlds.refused(newSeed, resourceDensity, keepInventory)
             // The settings menu may have changed the density just before asking; put it back, or the
             // next launch would find the saved world does not match it and try to replace that world.
             loadedDensity?.let { resourceDensity = it }
@@ -239,8 +238,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             onGenerationStage?.invoke(null)
             return
         }
-        // Rebuilding the current world is not an answer to a refused replacement; that stays owed.
-        if (!keepInventory || newSeed == pending?.seed) dropPendingWorld()
+        pendingWorlds.accepted(newSeed, keepInventory)
         seed = newSeed
         preferences.putLong(PREF_SEED, seed)
         preferences.flush()
@@ -256,30 +254,19 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         loadWorld()
     }
 
-    /** The world that was asked for and refused for want of storage, if any; survives a restart. */
-    private var pending: PendingWorld? = PendingWorld.load(preferences)
+    private val pendingWorlds = PendingWorlds(preferences)
 
     /**
-     * Tries again the world named by the error on screen, [shownSeed]: the refused world with the density it was asked
-     * for, else the current seed's world after it failed (what the player collected is theirs and stays).
+     * Tries again the world named by the error on screen, [shownSeed] (see [PendingWorlds.retry]).
      */
     fun retryWorld(shownSeed: Long) {
-        val wanted = pending?.takeIf { it.seed == shownSeed }
-        if (wanted == null) {
-            regenerateWorld(seed, keepInventory = true)
-        } else {
-            resourceDensity = wanted.density
-            // The same seed is the same world, so what was collected still belongs to it.
-            regenerateWorld(wanted.seed, keepInventory = wanted.seed == seed)
-        }
+        val plan = pendingWorlds.retry(shownSeed, seed)
+        plan.density?.let { resourceDensity = it }
+        regenerateWorld(plan.seed, plan.keepInventory)
     }
 
     /** The player gave up on the refused world: forget it. */
-    fun dropPendingWorld() {
-        if (pending == null) return
-        pending = null
-        PendingWorld.clear(preferences)
-    }
+    fun dropPendingWorld() = pendingWorlds.drop()
 
     private fun FileHandle.lengthOrZero(): Long = if (exists()) length() else 0L
 
