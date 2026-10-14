@@ -252,6 +252,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             MIN_FREE_BYTES_FOR_WORLD + listOf(coarseCacheFile, compactCacheFile).sumOf { it.lengthOrZero() },
             leftovers().sumOf { it.lengthOrZero() },
         )
+        Gdx.app?.log("perf", "regenerating: seed $seed -> $newSeed, keepOld=$keepOld")
         val before = Previous(seed, loadedDensity, resourceDensity)
         val request = Request(newSeed, keepInventory, keepOld, before)
         if (keepOld) {
@@ -271,6 +272,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         cancellable = keepOld
         val progress = newProgress()
         generation = progress
+        // Cancel is on offer from the first moment, not once the first step is done.
+        onGenerationProgress?.invoke(0f, null, keepOld)
         Thread {
             val outcome = try {
                 Outcome(generateAndCacheWorld(progress, staged = keepOld), cancelled = false)
@@ -429,6 +432,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         perf.lap("ocean underlay")
         // The cache of builds before the compact world: ~180 MB nothing reads any more.
         options.storage("world_cache.bin").delete()
+        // A replacement the app was killed in the middle of: the caches in place are still the world.
+        leftovers().forEach { it.delete() }
         loadWorld()
     }
 
