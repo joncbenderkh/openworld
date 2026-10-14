@@ -145,7 +145,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   a full sphere without corners (~120 MB at 540: centers, starts and neighbors), so anything that holds two worlds at once (see `regenerateWorld`) or boxes
   per-tile values will OOM. Keep per-tile data in primitive arrays.
 - Frequency 540 on the phone (2,916,002 source tiles, 1,171,533 after compaction): cache file 116 MB, warm world
-  load 0.73 s, cold start (generate + save + load) ~26 s, drag fps unchanged (~60 vsync-capped, ~120 idle).
+  load 0.73 s, cold start (generate + save) ~13 s on 2026-10-14 (about 26 s before the compact cache and corner-free generation work), drag fps unchanged (~60 vsync-capped, ~120 idle).
   Headroom with a ballast array: warm 130 OK / 160 fail (~145 MB), cold 62 OK / 70 fail (~65 MB, was 30-40 at
   445). The numbers below are from frequency 445, before this.
 - Measured on the phone (Android, seed 123456789; 1,980,252 source tiles, 809,555 after compaction). Warm
@@ -184,4 +184,4 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
  done, the time left and Cancel through `onGenerationProgress`). With room for the new caches beside the old (160 MB free; the old ones are already off that) the new
  world is written to `.new` siblings and swapped in once whole, so Cancel - or a kill - leaves the old world intact and it is reloaded from
  disk; without that room the old caches go first and there is no Cancel. A cancel is noticed at the end of a step, so it can take as long as
- the longest one. The step weights in `GenerationProgress.Step` are estimates until measured on the phone.
+ the longest one. The step weights in `GenerationProgress.Step` were measured on the phone (re-measure with `adb logcat -s perf` if generation changes).
