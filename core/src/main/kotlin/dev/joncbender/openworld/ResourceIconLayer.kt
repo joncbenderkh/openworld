@@ -21,7 +21,8 @@ internal class ResourceIconLayer(private val near: TerrainLayer, private val wor
     var builtCount = 0
         private set
 
-    // Scratch arrays shared by every build, allocated on first use and dropped by releaseAll().
+    // Scratch arrays shared by every build, allocated on first use and kept for the layer's life (about 1.7 MB): dropping
+    // them whenever the icons switch off made zooming across the threshold allocate them again each time.
     private var vertexScratch: FloatArray? = null
     private var indexScratch: ShortArray? = null
 
@@ -59,8 +60,6 @@ internal class ResourceIconLayer(private val near: TerrainLayer, private val wor
     }
 
     fun releaseAll() {
-        vertexScratch = null
-        indexScratch = null
         if (builtCount == 0 && done.none { it }) return
         for (patch in meshes.indices) release(patch)
     }
