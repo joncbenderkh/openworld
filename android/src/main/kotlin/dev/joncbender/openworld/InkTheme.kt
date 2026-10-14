@@ -175,8 +175,8 @@ class InkTheme(private val context: Context) {
         button(label, Color.TRANSPARENT, InkPalette.TEXT_2, null, onClick)
 
     /** One choice out of several, shown as a row of segments (e.g. Low / Medium / High). [onSelect] gets the index. */
-    fun segmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit): LinearLayout {
-        val row = object : LinearLayout(context) {
+    fun segmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit): InkSegmentedRow {
+        val row = object : InkSegmentedRow(context) {
             // Equal shares while every segment keeps its 48 dp; otherwise natural widths (the row overflows, but
             // a constrained row would shrink the later segments below the touch target).
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -230,6 +230,7 @@ class InkTheme(private val context: Context) {
             row.addView(segment, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
         paint(selected)
+        row.showSelected = ::paint
         return row
     }
 
@@ -240,7 +241,38 @@ class InkTheme(private val context: Context) {
             it.onChange = onChange
         }
 
-    // ---- sheets ---------------------------------------------------------------------------------------------------
+    /** A bar with a segment sliding along it, for work whose length is not known. */
+    fun busyBar(): InkBusyBar = InkBusyBar(context, density)
+
+    // ---- dialogs and sheets ---------------------------------------------------------------------------------------------------
+
+    /**
+     * A dialog in the middle of a dimmed map: [content] on an ivory card with an ink edge. Returns the dialog; the
+     * caller shows it. Tapping the dim area does not dismiss it - it asks something the player must answer.
+     */
+    fun dialog(content: View): Dialog {
+        val dialog = Dialog(context)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val card = FrameLayout(context).apply {
+            background = box(InkPalette.SURFACE, InkPalette.RADIUS_LG_DP)
+            isClickable = true
+            val pad = dp(20f)
+            setPadding(pad, dp(24f), pad, dp(12f))
+            addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val root = FrameLayout(context).apply {
+            val margin = dp(24f)
+            setPadding(margin, margin, margin, margin)
+            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        }
+        dialog.setContentView(root)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(InkPalette.SCRIM))
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+        return dialog
+    }
 
     /**
      * A bottom sheet over a dimmed map: [content] sits on the ivory sheet, a tap on the dim area dismisses it.
@@ -340,5 +372,74 @@ class InkSwitch(context: Context, private val density: Float) : View(context) {
         super.onInitializeAccessibilityNodeInfo(info)
         info.isCheckable = true
         info.isChecked = isChecked
+    }
+}
+
+/** The row [InkTheme.segmented] builds; [show] moves the highlight without calling the selection listener. */
+open class InkSegmentedRow(context: Context) : LinearLayout(context) {
+    internal var showSelected: (Int) -> Unit = {}
+
+    fun show(index: Int) = showSelected(index)
+}
+
+/** A track with a segment that slides back and forth while the view is on screen. */
+class InkBusyBar(context: Context, private val density: Float) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rect = RectF()
+    private var phase = 0f
+    private val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = 1400
+        repeatCount = android.animation.ValueAnimator.INFINITE
+        repeatMode = android.animation.ValueAnimator.REVERSE
+        interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+        addUpdateListener {
+            phase = it.animatedValue as Float
+            invalidate()
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        setMeasuredDimension(resolveSize(0, widthMeasureSpec), (8f * density).roundToInt())
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        updateAnimation()
+    }
+
+    // Also called when an ancestor is shown or hidden, so a bar under a hidden screen does not keep the UI thread busy.
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        updateAnimation()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        updateAnimation()
+    }
+
+    private fun updateAnimation() {
+        if (isShown && windowVisibility == VISIBLE) {
+            if (!animator.isStarted) animator.start()
+        } else {
+            animator.cancel()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        animator.cancel()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val radius = height / 2f
+        rect.set(0f, 0f, width.toFloat(), height.toFloat())
+        paint.color = InkPalette.SURFACE_WARM
+        canvas.drawRoundRect(rect, radius, radius, paint)
+        val segment = width * 0.3f
+        val left = (width - segment) * phase
+        rect.set(left, 0f, left + segment, height.toFloat())
+        paint.color = InkPalette.INK
+        canvas.drawRoundRect(rect, radius, radius, paint)
     }
 }

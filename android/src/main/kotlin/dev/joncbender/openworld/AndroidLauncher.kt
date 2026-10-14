@@ -27,6 +27,7 @@ class AndroidLauncher : AndroidApplication() {
         // Set before initializeForView() so it's already there by the time
         // create() runs on the GL thread and constructs globeScreen.
         game.onTileSelected = { info -> runOnUiThread { tilePanel.show(info) } }
+        game.onGenerationStage = { stage -> runOnUiThread { newWorld.stage(stage) } }
         game.onMessage = { message -> runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() } }
         // initializeForView (rather than initialize) skips setContentView so the
         // GL surface can be embedded alongside the settings button overlay below.
@@ -40,6 +41,7 @@ class AndroidLauncher : AndroidApplication() {
         root.addView(buildSettingsButton())
         root.addView(buildResetOrientationButton())
         root.addView(tilePanel.view)
+        root.addView(newWorld.screen)
         setContentView(root)
 
         goEdgeToEdge()
@@ -66,7 +68,9 @@ class AndroidLauncher : AndroidApplication() {
         }
     }
 
-    private val settingsSheet by lazy { SettingsSheet(this, ink, game) }
+    private val newWorld by lazy { NewWorldFlow(this, ink, game) }
+
+    private val settingsSheet by lazy { SettingsSheet(this, ink, game, newWorld) }
 
     private val tilePanel: TilePanel by lazy {
         TilePanel(this, ink) {

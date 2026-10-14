@@ -16,7 +16,12 @@ import android.widget.Toast
 import com.badlogic.gdx.Gdx
 
 /** The settings, as an inked bottom sheet within thumb reach. Behavior is the old dialog's; only the look changed. */
-class SettingsSheet(private val context: Context, private val ink: InkTheme, private val game: OpenWorldGame) {
+class SettingsSheet(
+    private val context: Context,
+    private val ink: InkTheme,
+    private val game: OpenWorldGame,
+    private val newWorld: NewWorldFlow,
+) {
 
     fun show() {
         val screen = game.globeScreen
@@ -71,7 +76,10 @@ class SettingsSheet(private val context: Context, private val ink: InkTheme, pri
                     if (parsed == null) {
                         Toast.makeText(context, "Invalid seed", Toast.LENGTH_SHORT).show()
                     } else {
-                        Gdx.app.postRunnable { screen.regenerateWorld(parsed) }
+                        newWorld.confirmReplace {
+                            dialog.dismiss()
+                            newWorld.begin { screen.regenerateWorld(parsed) }
+                        }
                     }
                 },
                 block(top = 8f),
@@ -80,15 +88,18 @@ class SettingsSheet(private val context: Context, private val ink: InkTheme, pri
 
         content.addView(group("Resource density") {
             val selected = DENSITIES.indexOfFirst { it.second == screen.resourceDensity }.takeIf { it >= 0 } ?: 1
-            addView(
-                ink.segmented(DENSITIES.map { it.first }, selected) { i ->
-                    val value = DENSITIES[i].second
-                    Gdx.app.postRunnable {
+            lateinit var segments: InkSegmentedRow
+            segments = ink.segmented(DENSITIES.map { it.first }, selected) { i ->
+                val value = DENSITIES[i].second
+                newWorld.confirmReplace(onKeep = { segments.show(selected) }) {
+                    dialog.dismiss()
+                    newWorld.begin {
                         screen.resourceDensity = value
                         screen.regenerateWorld()
                     }
-                },
-            )
+                }
+            }
+            addView(segments)
         })
 
         content.addView(group(null) {
@@ -113,9 +124,10 @@ class SettingsSheet(private val context: Context, private val ink: InkTheme, pri
         content.addView(group(null) {
             addView(
                 ink.secondaryButton("New world") {
-                    val newSeed = System.nanoTime()
-                    Gdx.app.postRunnable { screen.regenerateWorld(newSeed) }
-                    seedInput.setText(newSeed.toString())
+                    newWorld.confirmReplace {
+                        dialog.dismiss()
+                        newWorld.begin { screen.regenerateWorld(System.nanoTime()) }
+                    }
                 },
                 block(),
             )
