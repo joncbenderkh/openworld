@@ -40,6 +40,16 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     /** The settlements founded in the current world - persists across restarts, reset with the inventory on a new world. */
     val settlements = SettlementBook(preferences)
 
+    /** Grows the settlement on the selected tile into its next tier, if the rules allow, and reports the tile again. */
+    fun upgradeSettlementOnSelection() {
+        Gdx.app.postRunnable {
+            val tile = selectedTile
+            if (tile < 0 || !worldReady) return@postRunnable
+            settlements.upgrade(compact, tile)
+            onTileSelected?.invoke(describe(tile))
+        }
+    }
+
     /**
      * Founds a homestead on the selected tile, if the rules allow it, and reports the tile again with the result.
      * Runs on the GL thread, which is the one that draws the settlements.
@@ -637,6 +647,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     }
 
     override fun render(delta: Float) {
+        tickSettlements(delta)
         Gdx.gl.glClearColor(0.02f, 0.02f, 0.05f, 1f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
@@ -739,19 +750,41 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         highlight.render(shader)
     }
 
-    // What each settlement claims, found again only when the settlements or the world change.
-    private var claims: Map<Settlement, IntArray> = emptyMap()
-    private var claimsVersion = -1
-    // Weak: the cache must not keep a replaced world alive (memory is the binding constraint, see CLAUDE.md).
-    private var claimsWorld: java.lang.ref.WeakReference<CompactWorld>? = null
+    // What each settlement has to work with (its claim and the resources on it), found again only when the
+    // settlements or the world change - not on a population tick, which changes neither.
+    private var sites: Map<Int, SettlementSite> = emptyMap()
+    private var sitesVersion = -1
 
-    private fun claimsOfSettlements(): Map<Settlement, IntArray> {
-        if (claimsVersion != settlements.version || claimsWorld?.get() !== compact) {
-            claims = settlements.all.associateWith { SettlementRules.claim(compact, it.tile, it.tier.claimRadius) }
-            claimsVersion = settlements.version
-            claimsWorld = java.lang.ref.WeakReference(compact)
+    // Weak: the cache must not keep a replaced world alive (memory is the binding constraint, see CLAUDE.md).
+    private var sitesWorld: java.lang.ref.WeakReference<CompactWorld>? = null
+
+    private fun siteOf(settlement: Settlement): SettlementSite {
+        if (sitesVersion != settlements.version || sitesWorld?.get() !== compact) {
+            sites = settlements.all.associate { it.tile to SettlementSite.of(compact, it) }
+            sitesVersion = settlements.version
+            sitesWorld = java.lang.ref.WeakReference(compact)
         }
-        return claims
+        return sites.getValue(settlement.tile)
+    }
+
+    // The time since the last population tick; the clock proper (speed, pause, offline) is a later issue.
+    private var tickClock = 0f
+    private var ticksSinceFlush = 0
+
+    private fun tickSettlements(delta: Float) {
+        if (!worldReady || settlements.all.isEmpty()) return
+        // A long frame (the app was away, or a world was loading) is not made up for.
+        tickClock += minOf(delta, TICK_SECONDS)
+        if (tickClock < TICK_SECONDS) return
+        tickClock -= TICK_SECONDS
+        settlements.update { PopulationModel.step(it, siteOf(it)) }
+        if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
+            ticksSinceFlush = 0
+            settlements.flush()
+        }
+        // A settlement open in the panel shows its new population.
+        val tile = selectedTile
+        if (tile >= 0 && settlements.at(tile) != null) onTileSelected?.invoke(describe(tile))
     }
 
     /**
@@ -776,8 +809,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                 settlementMarkers.add(sphere, t, width, claimed)
             }
         }
-        for ((settlement, tiles) in claimsOfSettlements()) {
-            for (t in tiles) {
+        for (settlement in settlements.all) {
+            for (t in siteOf(settlement).tiles) {
                 if (t == settlement.tile) continue
                 // Thin enough to leave the tile showing up close, but never under half a pixel, or far out it vanishes.
                 val width = maxOf(pixel * 0.5f, minOf(halfWidth * CLAIM_RING_SHARE, CLAIM_RING_RELATIVE_WIDTH * tileRadius(sphere, t)))
@@ -975,6 +1008,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             TileCoordinates.longitudeDeg(centers[tile * 3], centers[tile * 3 + 2]),
             settlements.at(tile),
             SettlementRules.canFound(compact, tile, settlements.all),
+            settlements.at(tile)?.let {
+                PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all))
+            },
         )
     }
 
@@ -985,10 +1021,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         return false
     }
 
-    override fun pause() {}
+    override fun pause() = settlements.flush()
     override fun resume() {}
     override fun hide() = stopGeneration()
     override fun dispose() {
+        settlements.flush()
         stopGeneration()
         disposeTerrain()
         underlay.dispose()
@@ -1008,6 +1045,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
         private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
         private const val CLAIM_RING_SHARE = 0.6f
+        private const val TICK_SECONDS = 2f
+        private const val FLUSH_EVERY_TICKS = 5
         private const val CLAIM_RING_RELATIVE_WIDTH = 0.12f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_DP = 2.2f

@@ -64,6 +64,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                     selected = null
                 }
                 Input.Keys.B -> screen.foundSettlementOnSelection()
+                Input.Keys.U -> screen.upgradeSettlementOnSelection()
                 Input.Keys.C -> {
                     Gdx.app.clipboard.contents = screen.seed.toString()
                     notice = "Seed ${screen.seed} copied"
@@ -100,7 +101,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
             font.draw(batch, s, MARGIN, top - line++ * LINE_HEIGHT)
         }
         if (showHelp) {
-            text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear   B: found a homestead")
+            text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear   B: found a homestead   U: grow it")
             text("R: reset view   F: flip drag   1 2 3: resource density   N: new world   C: copy seed   H: hide help   Esc: quit")
         }
         text("seed ${game.globeScreen.seed}")
@@ -110,7 +111,13 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
             text(if (it.resources.isEmpty()) "Resources: none" else "Resources: ${it.resources.joinToString(", ") { r -> r.name.toDisplayName() }}")
             val settlement = it.settlement
             when {
-                settlement != null -> text("Settlement: ${settlement.tier.name.toDisplayName()}")
+                settlement != null -> {
+                    text("Settlement: ${settlement.tier.name.toDisplayName()}, ${settlement.population.toInt()} of ${settlement.tier.populationCap} people")
+                    it.status?.let { status ->
+                        text(status.needs.joinToString("   ") { n -> "${n.need.name.toDisplayName()}: ${if (n.met) "ok" else "short"} (${n.supported})" })
+                        if (status.upgrade == UpgradeResult.OK) text("Press U to grow into a ${settlement.tier.next!!.name.lowercase()}")
+                    }
+                }
                 it.canFound == FoundResult.OK -> text("Press B to found a homestead")
                 it.canFound == FoundResult.CLAIMED -> text("Inside a settlement's land")
             }
