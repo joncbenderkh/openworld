@@ -39,9 +39,12 @@ internal class SettlementMarkers {
         vertexCount = 0
     }
 
-    /** Adds a ring for [settlement]; [halfWidth] is the thinnest ring's half thickness on the globe. Ignored once full. */
-    fun add(sphere: Sphere, settlement: Settlement, halfWidth: Float) {
-        if (vertexCount + RING_VERTICES > MAX_VERTICES) return
+    /**
+     * Adds a ring for [settlement]; [halfWidth] is the thinnest ring's half thickness on the globe. Returns false,
+     * adding nothing, when the mesh is full: render and [clear] it, then add again.
+     */
+    fun add(sphere: Sphere, settlement: Settlement, halfWidth: Float): Boolean {
+        if (vertexCount + RING_VERTICES > MAX_VERTICES) return false
         val written = TileHighlight.ring(sphere, settlement.tile, halfWidth * (1 + settlement.tier.ordinal), triangles) / 3
         for (i in 0 until written) {
             val at = (vertexCount + i) * VERTEX_SIZE
@@ -53,6 +56,7 @@ internal class SettlementMarkers {
             vertices[at + 5] = v
         }
         vertexCount += written
+        return true
     }
 
     fun render(shader: ShaderProgram) {

@@ -743,14 +743,19 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val pixel = CameraRig.pixelSize(distance, camera.viewportHeight)
         val halfWidth = pixel * SETTLEMENT_HALF_WIDTH_DP * Gdx.graphics.density
         settlementMarkers.clear()
+        Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT)
         for (settlement in settlements.all) {
             val t = settlement.tile
             if (t >= compact.fineCount) continue
             val toTile = sphere.centerX(t) * cameraDirection.x + sphere.centerY(t) * cameraDirection.y + sphere.centerZ(t) * cameraDirection.z
             if (toTile < 1f / distance) continue
-            settlementMarkers.add(sphere, settlement, halfWidth)
+            if (!settlementMarkers.add(sphere, settlement, halfWidth)) {
+                // The mesh is full: draw what it holds and start another batch.
+                settlementMarkers.render(shader)
+                settlementMarkers.clear()
+                settlementMarkers.add(sphere, settlement, halfWidth)
+            }
         }
-        Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT)
         settlementMarkers.render(shader)
     }
 
