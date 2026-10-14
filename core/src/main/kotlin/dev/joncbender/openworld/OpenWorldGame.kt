@@ -15,11 +15,15 @@ class OpenWorldGame(private val options: GameOptions = GameOptions()) : Game() {
     /** Same timing as [onTileSelected]; see [GlobeScreen.onGenerationStage]. */
     var onGenerationStage: ((String?) -> Unit)? = null
 
+    /** Same timing as [onTileSelected]; see [GlobeScreen.onGenerationProgress]. */
+    var onGenerationProgress: ((fraction: Float, etaMillis: Long?, cancellable: Boolean) -> Unit)? = null
+
     override fun create() {
         globeScreen = GlobeScreen(options)
         globeScreen.onTileSelected = onTileSelected
         globeScreen.onWorldProblem = onWorldProblem
         globeScreen.onGenerationStage = onGenerationStage
+        globeScreen.onGenerationProgress = onGenerationProgress
         setScreen(globeScreen)
     }
 }
