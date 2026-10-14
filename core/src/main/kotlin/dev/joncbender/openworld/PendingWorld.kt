@@ -24,10 +24,10 @@ class PendingWorld(val seed: Long, val density: Float) {
                 null
             }
 
-        fun clear(preferences: Preferences) {
+        fun clear(preferences: Preferences, flush: Boolean = true) {
             preferences.remove(SEED)
             preferences.remove(DENSITY)
-            preferences.flush()
+            if (flush) preferences.flush()
         }
     }
 }
@@ -52,8 +52,8 @@ class PendingWorlds(private val preferences: Preferences) {
     }
 
     /** A regeneration passed its storage check. Rebuilding the current world leaves a different refused one owed. */
-    fun accepted(newSeed: Long, keepInventory: Boolean) {
-        if (!keepInventory || newSeed == pending?.seed) drop()
+    fun accepted(newSeed: Long, keepInventory: Boolean, flush: Boolean = true) {
+        if (!keepInventory || newSeed == pending?.seed) drop(flush)
     }
 
     /**
@@ -70,9 +70,9 @@ class PendingWorlds(private val preferences: Preferences) {
         if (pending?.seed == shownSeed) drop()
     }
 
-    private fun drop() {
+    private fun drop(flush: Boolean = true) {
         if (pending == null) return
         pending = null
-        PendingWorld.clear(preferences)
+        PendingWorld.clear(preferences, flush)
     }
 }

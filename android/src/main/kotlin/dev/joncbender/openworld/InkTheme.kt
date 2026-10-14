@@ -385,11 +385,20 @@ open class InkSegmentedRow(context: Context) : LinearLayout(context) {
     fun show(index: Int) = showSelected(index)
 }
 
-/** A track with a segment that slides back and forth while the view is on screen. */
+/** A track with a segment that slides back and forth while the view is on screen, or fills as far as [setProgress] says. */
 class InkBusyBar(context: Context, private val density: Float) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
     private var phase = 0f
+    private var progress: Float? = null
+
+    /** The share done (0..1), or null to go back to the sliding segment. */
+    fun setProgress(fraction: Float?) {
+        progress = fraction?.coerceIn(0f, 1f)
+        updateAnimation()
+        invalidate()
+    }
+
     private val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
         duration = 1400
         repeatCount = android.animation.ValueAnimator.INFINITE
@@ -422,7 +431,7 @@ class InkBusyBar(context: Context, private val density: Float) : View(context) {
     }
 
     private fun updateAnimation() {
-        if (isShown && windowVisibility == VISIBLE) {
+        if (isShown && windowVisibility == VISIBLE && progress == null) {
             if (!animator.isStarted) animator.start()
         } else {
             animator.cancel()
@@ -439,6 +448,13 @@ class InkBusyBar(context: Context, private val density: Float) : View(context) {
         rect.set(0f, 0f, width.toFloat(), height.toFloat())
         paint.color = InkPalette.SURFACE_WARM
         canvas.drawRoundRect(rect, radius, radius, paint)
+        val done = progress
+        if (done != null) {
+            rect.set(0f, 0f, width * done, height.toFloat())
+            paint.color = InkPalette.INK
+            canvas.drawRoundRect(rect, radius, radius, paint)
+            return
+        }
         val segment = width * 0.3f
         val left = (width - segment) * phase
         rect.set(left, 0f, left + segment, height.toFloat())

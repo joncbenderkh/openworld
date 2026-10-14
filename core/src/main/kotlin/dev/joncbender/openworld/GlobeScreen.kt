@@ -40,6 +40,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
     var resourceDensity = preferences.getFloat(PREF_RESOURCE_DENSITY, WorldGenerator.DEFAULT_RESOURCE_DENSITY)
         set(value) {
+            // What a world being made was asked for cannot change under it.
+            if (generating) return
             field = value
             preferences.putFloat(PREF_RESOURCE_DENSITY, value)
             preferences.flush()
@@ -137,6 +139,13 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
      */
     var onGenerationStage: ((String?) -> Unit)? = null
 
+    /**
+     * Fired from the thread making the world with the share done (0..1), the estimated milliseconds left (null until
+     * a steady guess exists) and whether [cancelGeneration] can still be used. Set by the launcher; may be called from
+     * any thread.
+     */
+    var onGenerationProgress: ((fraction: Float, etaMillis: Long?, cancellable: Boolean) -> Unit)? = null
+
     private val camera = PerspectiveCamera(60f, 1f, 1f).apply {
         near = 0.1f
         far = 20f
@@ -224,6 +233,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
      * could not be made (see [retryWorld]).
      */
     fun regenerateWorld(newSeed: Long = System.nanoTime(), keepInventory: Boolean = false) {
+        if (generating) return
         // Decide before touching anything: a refused regeneration leaves the current world playable.
         // The caches about to be replaced count as free space, since they are deleted first.
         val reclaimable = cacheFiles().sumOf { it.lengthOrZero() }
@@ -237,22 +247,160 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             onGenerationStage?.invoke(null)
             return
         }
-        seed = newSeed
-        preferences.putLong(PREF_SEED, seed)
-        preferences.flush()
-        // After the seed is saved: a kill between the two writes then leaves the world made, not a promise lost.
-        pendingWorlds.accepted(newSeed, keepInventory)
-        if (!keepInventory) inventory.clear()
+        // With room for the new caches beside the old ones, the old world stays on disk until the new one is whole,
+        // and generation can be cancelled; otherwise the old caches go first, as they always did.
+        val keepOld = worldReady && CacheFiles.hasRoomFor(
+            compactCacheFile,
+            MIN_FREE_BYTES_FOR_WORLD,
+            leftovers().sumOf { it.lengthOrZero() },
+        )
+        Gdx.app?.log("perf", "regenerating: seed $seed -> $newSeed, keepOld=$keepOld")
+        val before = Previous(seed, loadedDensity, resourceDensity)
+        val request = Request(newSeed, keepInventory, keepOld, before)
+        if (keepOld) {
+            leftovers().forEach { it.delete() }
+            seed = newSeed
+            // The menu saved the new density already; until the new world is whole, the old caches still need the old one.
+            before.loadedDensity?.let { saveDensity(it) }
+        } else {
+            commit(request)
+        }
         // Let go of everything that still references the old world before generating the new one:
-        // the caches no longer match the seed, so loadWorld() generates, and the generator's full
-        // sphere is ~175 MB.
+        // the generator's full sphere is ~175 MB.
         disposeTerrain()
         picker = null
         worldReady = false
         selectedTile = -1
         compact = placeholderWorld()
+        generating = true
+        cancellable = keepOld
+        val progress = newProgress()
+        generation = progress
+        // Cancel is on offer from the first moment, not once the first step is done.
+        onGenerationProgress?.invoke(0f, null, keepOld)
+        Thread {
+            val outcome = try {
+                Outcome(generateAndCacheWorld(progress, staged = keepOld), cancelled = false)
+            } catch (e: GenerationCancelled) {
+                Outcome(null, cancelled = true)
+            } catch (e: Throwable) {
+                Gdx.app?.error("perf", "world generation failed", e)
+                Outcome(WorldProblem.NOT_SAVED, cancelled = false)
+            }
+            // A screen torn down meanwhile (the activity closed) has no world to finish; its leftovers are swept at the next start.
+            Gdx.app.postRunnable { if (!stopped) finishRegeneration(request, outcome) }
+        }.apply {
+            name = "world-generation"
+            isDaemon = true
+        }.start()
+    }
+
+    /** What the world was before a replacement began, to go back to if it is cancelled or fails. */
+    private class Previous(val seed: Long, val loadedDensity: Float?, val askedDensity: Float)
+
+    private class Request(val seed: Long, val keepInventory: Boolean, val keepOld: Boolean, val before: Previous)
+
+    private class Outcome(val problem: WorldProblem?, val cancelled: Boolean)
+
+    @Volatile
+    private var generation: GenerationProgress? = null
+
+    @Volatile
+    private var cancellable = false
+
+    /** Set when the screen goes away: a worker still running is stopped and its result dropped. */
+    @Volatile
+    private var stopped = false
+
+    private fun stopGeneration() {
+        stopped = true
+        generation?.cancel()
+    }
+
+    /** True from the start of a replacement until [finishRegeneration]; touched on the GL thread only. */
+    private var generating = false
+
+    /** Whether a world is being made; its density and seed cannot be changed until it is. */
+    val isGenerating: Boolean get() = generating
+
+    /**
+     * Calls off a world being made and returns to the one before it, if that is still possible: not once the new world
+     * is whole, and not when there was no room to keep the old one beside it.
+     */
+    fun cancelGeneration() {
+        if (cancellable) generation?.cancel()
+    }
+
+    private fun newProgress() = GenerationProgress(onChange = { fraction, eta, next ->
+        next?.let { onGenerationStage?.invoke(it) }
+        onGenerationProgress?.invoke(fraction, eta, cancellable)
+    })
+
+    /** The new seed and what goes with it become the world's: saved, the inventory reset, the request paid off. */
+    private fun commit(request: Request) {
+        seed = request.seed
+        preferences.putLong(PREF_SEED, seed)
+        preferences.putFloat(PREF_RESOURCE_DENSITY, resourceDensity)
+        pendingWorlds.accepted(request.seed, request.keepInventory, flush = false)
+        if (!request.keepInventory) inventory.clear(flush = false)
+        // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
+        preferences.flush()
+    }
+
+    private fun saveDensity(density: Float) {
+        preferences.putFloat(PREF_RESOURCE_DENSITY, density)
+        preferences.flush()
+    }
+
+    /** On the GL thread, once the worker has stopped: show the new world, or go back to the old one. */
+    private fun finishRegeneration(request: Request, outcome: Outcome) {
+        generating = false
+        cancellable = false
+        generation = null
+        var problem = outcome.problem
+        if (!outcome.cancelled && problem == null && request.keepOld) {
+            // Swap first, then commit: a kill in between rebuilds the old seed (the same world, which the inventory fits),
+            // where the other order would pair the new world with the old inventory.
+            val swapped = CacheFiles.replace(coarseCacheFile, CacheFiles.stagedOf(coarseCacheFile)) &&
+                CacheFiles.replace(compactCacheFile, CacheFiles.stagedOf(compactCacheFile))
+            if (swapped) {
+                commit(request)
+            } else {
+                // A half-swapped pair matches neither seed, and loading rebuilds the old one.
+                problem = WorldProblem.NOT_SAVED
+            }
+        }
+        if (outcome.cancelled || problem != null) {
+            if (request.keepOld) {
+                restoreOldWorld(request, problem)
+            } else {
+                picker = null
+                compact = placeholderWorld()
+                onWorldProblem?.invoke(problem ?: WorldProblem.NOT_SAVED, seed)
+                onGenerationStage?.invoke(null)
+            }
+            return
+        }
+        onGenerationStage?.invoke("Drawing the map")
         loadWorld()
         remindOfPendingWorld()
+    }
+
+    /** The old caches were never touched: drop the new ones, take the old seed back and load them as on a restart. */
+    private fun restoreOldWorld(request: Request, problem: WorldProblem?) {
+        leftovers().forEach { it.delete() }
+        seed = request.before.seed
+        // The menu may have set the density just before asking (see the refusal in regenerateWorld).
+        request.before.loadedDensity?.let { resourceDensity = it }
+        loadWorld()
+        if (problem != null && worldReady) {
+            // The old world is back, so what failed was only the new one.
+            pendingWorlds.refused(request.seed, request.before.askedDensity, request.keepInventory)
+            onWorldProblem?.invoke(WorldProblem.NO_ROOM_FOR_NEW, request.seed)
+            onGenerationStage?.invoke(null)
+        } else if (problem == null) {
+            remindOfPendingWorld()
+        }
     }
 
     /** A refused world is still owed an answer once there is a world to go back to. */
@@ -276,9 +424,16 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     private fun FileHandle.lengthOrZero(): Long = if (exists()) length() else 0L
 
+    /** Files a replacement left beside the caches: new caches not yet swapped in, and cut-short writes of either. */
+    private fun leftovers(): List<FileHandle> =
+        listOf(coarseCacheFile, compactCacheFile).flatMap {
+            val staged = CacheFiles.stagedOf(it)
+            listOf(CacheFiles.temporaryOf(it), staged, CacheFiles.temporaryOf(staged))
+        }
+
     /** Both caches and the temporary files a write that was cut short could have left beside them. */
     private fun cacheFiles(): List<FileHandle> =
-        listOf(coarseCacheFile, compactCacheFile).flatMap { listOf(it, CacheFiles.temporaryOf(it)) }
+        listOf(coarseCacheFile, compactCacheFile) + leftovers()
 
     /**
      * Builds the underlay, then loads the world and builds both layers. Generation happens in
@@ -293,6 +448,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         perf.lap("ocean underlay")
         // The cache of builds before the compact world: ~180 MB nothing reads any more.
         options.storage("world_cache.bin").delete()
+        // A replacement the app was killed in the middle of: the caches in place are still the world.
+        leftovers().forEach { it.delete() }
         loadWorld()
     }
 
@@ -357,25 +514,33 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
      * they cannot match, and their space is needed for the new ones - as is that of any temporary
      * file a killed save left behind.
      */
-    private fun generateAndCacheWorld(): WorldProblem? {
-        cacheFiles().forEach { it.delete() }
-        if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD)) return WorldProblem.NO_ROOM
+    private fun generateAndCacheWorld(progress: GenerationProgress = newProgress(), staged: Boolean = false): WorldProblem? {
+        // Staged: the caches in place are the world to go back to, and the new ones are written beside them.
+        val coarseTarget = if (staged) CacheFiles.stagedOf(coarseCacheFile) else coarseCacheFile
+        val compactTarget = if (staged) CacheFiles.stagedOf(compactCacheFile) else compactCacheFile
+        if (!staged) {
+            cacheFiles().forEach { it.delete() }
+            if (!CacheFiles.hasRoomFor(compactCacheFile, MIN_FREE_BYTES_FOR_WORLD)) return WorldProblem.NO_ROOM
+        }
         val perf = PerfTimer()
-        onGenerationStage?.invoke(STAGE_TERRAIN)
-        val full = WorldGenerator(seed).generate(frequency, resourceDensity, corners = false)
+        onGenerationStage?.invoke(GenerationProgress.Step.SPHERE.label)
+        val full = WorldGenerator(seed).generate(frequency, resourceDensity, corners = false, progress = progress)
         perf.lap("world: generated")
-        onGenerationStage?.invoke(STAGE_SAVING)
-        if (!cacheCoarseBiomes(full)) return WorldProblem.NOT_SAVED
-        if (!CompactWorldCache.save(compactCacheFile, full, frequency, seed, resourceDensity)) return WorldProblem.NOT_SAVED
+        if (!cacheCoarseBiomes(full, coarseTarget)) return WorldProblem.NOT_SAVED
+        progress.done(GenerationProgress.Step.COARSE)
+        if (!CompactWorldCache.save(compactTarget, full, frequency, seed, resourceDensity, progress = progress)) return WorldProblem.NOT_SAVED
         perf.lap("world: saved to cache")
-        onGenerationStage?.invoke(STAGE_DRAWING)
+        progress.done(GenerationProgress.Step.SAVE)
+        // The new world is whole: too late to turn back.
+        cancellable = false
+        onGenerationProgress?.invoke(progress.fraction, progress.etaMillis(), false)
         return null
     }
 
     /** In its own frame so the coarse world is freed before the compact cache is written. */
-    private fun cacheCoarseBiomes(full: SphereWorld): Boolean {
+    private fun cacheCoarseBiomes(full: SphereWorld, target: FileHandle): Boolean {
         val coarse = CoarseWorldBuilder.build(full)
-        return CoarseWorldCache.save(coarseCacheFile, coarse.biomeBytes(), frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
+        return CoarseWorldCache.save(target, coarse.biomeBytes(), frequency, CoarseWorldBuilder.COARSE_FREQUENCY, seed)
     }
 
     private fun buildFarLayer(source: SphereWorld): TerrainLayer {
@@ -744,8 +909,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     override fun pause() {}
     override fun resume() {}
-    override fun hide() {}
+    override fun hide() = stopGeneration()
     override fun dispose() {
+        stopGeneration()
         disposeTerrain()
         underlay.dispose()
         graticule.dispose()
@@ -759,9 +925,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     companion object {
         // The compact cache is ~80-90 MB; a world with more land is bigger, and the coarse cache is small.
         private const val MIN_FREE_BYTES_FOR_WORLD = 160L * 1024 * 1024
-        private const val STAGE_TERRAIN = "Shaping the terrain"
-        private const val STAGE_SAVING = "Saving the world"
-        private const val STAGE_DRAWING = "Drawing the map"
 
         // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f

@@ -27,6 +27,9 @@ class AndroidLauncher : AndroidApplication() {
         // create() runs on the GL thread and constructs globeScreen.
         game.onTileSelected = { info -> runOnUiThread { tilePanel.show(info) } }
         game.onGenerationStage = { stage -> runOnUiThread { newWorld.stage(stage) } }
+        game.onGenerationProgress = { fraction, eta, cancellable ->
+            runOnUiThread { newWorld.progress(fraction, eta, cancellable) }
+        }
         game.onWorldProblem = { problem, seed -> runOnUiThread { newWorld.problem(problem, seed) } }
         // initializeForView (rather than initialize) skips setContentView so the
         // GL surface can be embedded alongside the settings button overlay below.

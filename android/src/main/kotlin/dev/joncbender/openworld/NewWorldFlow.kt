@@ -20,6 +20,25 @@ import com.badlogic.gdx.Gdx
 class NewWorldFlow(private val context: Context, private val ink: InkTheme, private val game: OpenWorldGame) {
 
     private val eyebrow = ink.label("")
+    private val bar = ink.busyBar()
+    private val progressText = ink.text("", InkPalette.TEXT_SM_SP, InkPalette.TEXT_2).apply { gravity = Gravity.CENTER }
+    private val cancelNote = ink.meta("Your current world can't be kept aside for lack of free storage, so this can't be cancelled.").apply {
+        gravity = Gravity.CENTER
+        visibility = View.GONE
+    }
+    private val cancel = ink.secondaryButton("Cancel and keep current world") {
+        isCancelling = true
+        stageText.text = "Going back to your world"
+        progressText.text = ""
+        game.globeScreen.cancelGeneration()
+        refreshCancel()
+    }.apply { visibility = View.GONE }
+
+    /** Whether the world being made replaces one (a first start has nothing to go back to), and what the globe last said. */
+    private var replacing = false
+    private var cancellableNow = false
+    private var cancellableRun: Boolean? = null
+    private var isCancelling = false
     private val stageText = ink.text("", InkPalette.TEXT_SM_SP, InkPalette.TEXT_2, ink.displayFace).apply {
         gravity = Gravity.CENTER
         accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -56,7 +75,7 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
                 },
             )
             addView(
-                ink.busyBar(),
+                bar,
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = ink.dp(32f)
                 },
@@ -67,6 +86,18 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
                     topMargin = ink.dp(20f)
                 },
             )
+            addView(
+                progressText,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = ink.dp(4f)
+                },
+            )
+            addView(cancel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ink.dp(32f)
+            })
+            addView(cancelNote, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = ink.dp(24f)
+            })
         }
         working = column
         addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -154,6 +185,13 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
 
     /** Shows the screen now and then runs [regenerate] on the globe's thread, which hides it again when the world is ready. */
     fun begin(regenerate: () -> Unit) {
+        replacing = true
+        cancellableRun = null
+        cancellableNow = false
+        isCancelling = false
+        bar.setProgress(null)
+        progressText.text = ""
+        refreshCancel()
         show("Starting")
         Gdx.app.postRunnable(regenerate)
     }
@@ -161,9 +199,36 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
     /** What the world is doing, or null when it is ready; called on the UI thread. */
     fun stage(name: String?) {
         if (name != null) {
-            show(name)
+            if (!isCancelling) show(name)
         } else {
+            replacing = false
+            isCancelling = false
             if (failed.visibility != View.VISIBLE) screen.visibility = View.GONE
+        }
+    }
+
+    /** How far the world is, about how long is left, and whether Cancel still works; called on the UI thread. */
+    fun progress(fraction: Float, etaMillis: Long?, cancellable: Boolean) {
+        if (isCancelling) return
+        if (cancellableRun == null) cancellableRun = cancellable
+        cancellableNow = cancellable
+        bar.setProgress(fraction)
+        val percent = "${(fraction * 100).toInt()}%"
+        progressText.text = if (etaMillis == null) percent else "$percent · ${timeLeft(etaMillis)}"
+        refreshCancel()
+    }
+
+    private fun refreshCancel() {
+        cancel.visibility = if (replacing && cancellableNow && !isCancelling) View.VISIBLE else View.GONE
+        cancelNote.visibility = if (replacing && cancellableRun == false) View.VISIBLE else View.GONE
+    }
+
+    private fun timeLeft(millis: Long): String {
+        val seconds = (millis + 500) / 1000
+        return when {
+            seconds < 5 -> "a few seconds left"
+            seconds < 90 -> "about ${(seconds + 2) / 5 * 5} seconds left"
+            else -> "about ${(seconds + 30) / 60} minutes left"
         }
     }
 

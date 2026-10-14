@@ -75,7 +75,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
 
     private fun setDensity(value: Float, label: String) {
         val screen = game.globeScreen
-        if (screen.resourceDensity == value) return
+        if (screen.isGenerating || screen.resourceDensity == value) return
         screen.resourceDensity = value
         screen.regenerateWorld()
         selected = null
