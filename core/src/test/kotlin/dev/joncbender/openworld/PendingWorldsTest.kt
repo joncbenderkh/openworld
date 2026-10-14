@@ -71,4 +71,14 @@ class PendingWorldsTest {
         worlds.refused(9, 0.12f, keepInventory = false)
         assertEquals(9L, PendingWorlds(preferences).pending?.seed)
     }
+
+    @Test
+    fun `closing the error for the current world keeps a different pending world`() {
+        worlds.refused(456, 0.28f, keepInventory = false)
+        worlds.giveUp(shownSeed = 123)
+        assertEquals(456L, worlds.pending?.seed)
+        worlds.giveUp(shownSeed = 456)
+        assertNull(worlds.pending)
+        assertNull(PendingWorld.load(preferences))
+    }
 }

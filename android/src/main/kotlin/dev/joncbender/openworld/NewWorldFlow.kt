@@ -206,7 +206,7 @@ class NewWorldFlow(private val context: Context, private val ink: InkTheme, priv
         val leave = {
             failed.visibility = View.GONE
             screen.visibility = View.GONE
-            Gdx.app.postRunnable { game.globeScreen.dropPendingWorld() }
+            Gdx.app.postRunnable { game.globeScreen.dropPendingWorld(seed) }
         }
         val tryAgain = {
             failed.visibility = View.GONE

@@ -265,8 +265,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         regenerateWorld(plan.seed, plan.keepInventory)
     }
 
-    /** The player gave up on the refused world: forget it. */
-    fun dropPendingWorld() = pendingWorlds.drop()
+    /** The player closed the error for [shownSeed]: forget that refused world, if it is the one pending. */
+    fun dropPendingWorld(shownSeed: Long) = pendingWorlds.giveUp(shownSeed)
 
     private fun FileHandle.lengthOrZero(): Long = if (exists()) length() else 0L
 

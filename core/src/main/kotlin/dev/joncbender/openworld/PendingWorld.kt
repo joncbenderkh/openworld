@@ -65,7 +65,12 @@ class PendingWorlds(private val preferences: Preferences) {
         return RetryPlan(wanted.seed, wanted.density, keepInventory = wanted.seed == currentSeed)
     }
 
-    fun drop() {
+    /** The player closed the error for [shownSeed]: only a refused world with that seed is given up. */
+    fun giveUp(shownSeed: Long) {
+        if (pending?.seed == shownSeed) drop()
+    }
+
+    private fun drop() {
         if (pending == null) return
         pending = null
         PendingWorld.clear(preferences)
