@@ -11,6 +11,12 @@ internal object CacheFiles {
     /** Where [file] is written before it replaces the real one; a crash can leave this behind. */
     fun temporaryOf(file: FileHandle): FileHandle = file.sibling(file.name() + ".tmp")
 
+    /** Where a world is written while the one in [file] must stay usable; [file] is replaced by it once it is whole. */
+    fun stagedOf(file: FileHandle): FileHandle = file.sibling(file.name() + ".new")
+
+    /** Replaces [target] with [staged] by renaming; returns whether it did (on false both files are as they were). */
+    fun replace(target: FileHandle, staged: FileHandle): Boolean = staged.file().renameTo(target.file())
+
     /**
      * Writes [file] by way of a temporary sibling that is renamed over it once [write] has finished,
      * so a failure partway (a full disk, a killed process) never replaces a good file with a partial
@@ -32,6 +38,7 @@ internal object CacheFiles {
                 temp.delete()
             } catch (ignored: Exception) {
             }
+            if (e is GenerationCancelled) throw e
             false
         }
     }

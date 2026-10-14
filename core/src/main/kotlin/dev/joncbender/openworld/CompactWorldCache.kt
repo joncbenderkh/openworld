@@ -137,6 +137,7 @@ object CompactWorldCache {
         resourceDensity: Float,
         coarseFrequency: Int = WorldCompactor.COARSE_FREQUENCY,
         rings: Int = WorldCompactor.COAST_RINGS,
+        progress: GenerationProgress = GenerationProgress.NONE,
     ): Boolean {
         return try {
             val perf = PerfTimer()
@@ -161,7 +162,7 @@ object CompactWorldCache {
                 header.putInt(48, layout.resourceTotal)
                 out.write(header.array())
 
-                val writer = ChunkWriter(out)
+                val writer = ChunkWriter(out, progress)
                 plan.emitCenters(writer)
                 plan.emitCornerStart(writer)
                 plan.emitCornerVertex(writer)
@@ -177,6 +178,8 @@ object CompactWorldCache {
             }
             perf.lap("compactCache.save.stream")
             written
+        } catch (e: GenerationCancelled) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -248,7 +251,7 @@ object CompactWorldCache {
     }
 
     /** Batches values into one reusable chunk and writes it out whenever it fills. Call [flush] when done. */
-    private class ChunkWriter(private val out: OutputStream) : IntSink, FloatSink {
+    private class ChunkWriter(private val out: OutputStream, private val progress: GenerationProgress) : IntSink, FloatSink {
         private val bytes = ByteArray(CHUNK_BYTES)
         private val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
 
@@ -268,6 +271,7 @@ object CompactWorldCache {
         }
 
         fun flush() {
+            progress.checkpoint()
             out.write(bytes, 0, buffer.position())
             buffer.clear()
         }

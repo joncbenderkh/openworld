@@ -140,10 +140,16 @@ class WorldGenerator(private val seed: Long) {
     }
 
     /** With [corners] false the world's sphere has no corners (see [Sphere.hasCorners]); everything generated is identical. */
-    fun generate(frequency: Int, resourceDensity: Float = DEFAULT_RESOURCE_DENSITY, corners: Boolean = true): SphereWorld {
+    fun generate(
+        frequency: Int,
+        resourceDensity: Float = DEFAULT_RESOURCE_DENSITY,
+        corners: Boolean = true,
+        progress: GenerationProgress = GenerationProgress.NONE,
+    ): SphereWorld {
         val perf = PerfTimer()
         val sphere = GeodesicSphere.generate(frequency, corners)
         perf.lap("GeodesicSphere.generate")
+        progress.done(GenerationProgress.Step.SPHERE)
         val biomes = ByteArray(sphere.faceCount) { Biome.OCEAN.ordinal.toByte() }
         val elevation = FloatArray(sphere.faceCount)
 
@@ -160,6 +166,7 @@ class WorldGenerator(private val seed: Long) {
             elevation[i] = e
         }
         perf.lap("elevation")
+        progress.done(GenerationProgress.Step.ELEVATION)
 
         // All three thresholds were chosen empirically against a 10-seed
         // sample of this same elevation formula (the fBm's practical range
@@ -207,18 +214,24 @@ class WorldGenerator(private val seed: Long) {
         }
 
         perf.lap("biomes")
+        progress.done(GenerationProgress.Step.BIOMES)
         val world = SphereWorld(sphere, biomes)
         reclassifyLandlockedOceans(world)
         perf.lap("reclassifyLandlockedOceans")
+        progress.done(GenerationProgress.Step.OCEANS)
         carveCoastalMountainVolcanoes(world)
         carveIslandVolcanoes(world, elevation)
         perf.lap("carveVolcanoes")
+        progress.done(GenerationProgress.Step.VOLCANOES)
         carveLakes(world, elevation, seaLevel)
         perf.lap("carveLakes")
+        progress.done(GenerationProgress.Step.LAKES)
         carveRivers(world, elevation, seaLevel)
         perf.lap("carveRivers+depool")
+        progress.done(GenerationProgress.Step.RIVERS)
         assignResources(world, resourceDensity)
         perf.lap("assignResources")
+        progress.done(GenerationProgress.Step.RESOURCES)
         return world
     }
 
