@@ -251,7 +251,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // and generation can be cancelled; otherwise the old caches go first, as they always did.
         val keepOld = worldReady && CacheFiles.hasRoomFor(
             compactCacheFile,
-            MIN_FREE_BYTES_FOR_WORLD + listOf(coarseCacheFile, compactCacheFile).sumOf { it.lengthOrZero() },
+            MIN_FREE_BYTES_FOR_WORLD,
             leftovers().sumOf { it.lengthOrZero() },
         )
         Gdx.app?.log("perf", "regenerating: seed $seed -> $newSeed, keepOld=$keepOld")
@@ -287,7 +287,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                 Gdx.app?.error("perf", "world generation failed", e)
                 Outcome(WorldProblem.NOT_SAVED, cancelled = false)
             }
-            Gdx.app.postRunnable { finishRegeneration(request, outcome) }
+            // A screen torn down meanwhile (the activity closed) has no world to finish; its leftovers are swept at the next start.
+            Gdx.app.postRunnable { if (!stopped) finishRegeneration(request, outcome) }
         }.apply {
             name = "world-generation"
             isDaemon = true
@@ -306,6 +307,15 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     @Volatile
     private var cancellable = false
+
+    /** Set when the screen goes away: a worker still running is stopped and its result dropped. */
+    @Volatile
+    private var stopped = false
+
+    private fun stopGeneration() {
+        stopped = true
+        generation?.cancel()
+    }
 
     /** True from the start of a replacement until [finishRegeneration]; touched on the GL thread only. */
     private var generating = false
@@ -383,12 +393,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // The menu may have set the density just before asking (see the refusal in regenerateWorld).
         request.before.loadedDensity?.let { resourceDensity = it }
         loadWorld()
-        if (problem != null) {
+        if (problem != null && worldReady) {
             // The old world is back, so what failed was only the new one.
             pendingWorlds.refused(request.seed, request.before.askedDensity, request.keepInventory)
             onWorldProblem?.invoke(WorldProblem.NO_ROOM_FOR_NEW, request.seed)
             onGenerationStage?.invoke(null)
-        } else {
+        } else if (problem == null) {
             remindOfPendingWorld()
         }
     }
@@ -899,8 +909,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     override fun pause() {}
     override fun resume() {}
-    override fun hide() {}
+    override fun hide() = stopGeneration()
     override fun dispose() {
+        stopGeneration()
         disposeTerrain()
         underlay.dispose()
         graticule.dispose()
