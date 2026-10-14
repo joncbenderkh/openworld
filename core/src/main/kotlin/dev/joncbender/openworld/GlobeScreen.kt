@@ -482,7 +482,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val problem = loadWorldOrExplain()
         worldReady = problem == null
         loadedDensity = if (problem == null) resourceDensity else null
-        if (problem == null) prepareTilePicker()
+        if (problem == null) {
+            settlements.retainWithin(compact.fineCount)
+            prepareTilePicker()
+        }
         if (problem != null) {
             picker = null
             compact = placeholderWorld()

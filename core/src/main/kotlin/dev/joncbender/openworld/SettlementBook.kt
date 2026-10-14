@@ -11,7 +11,7 @@ class SettlementBook(private val preferences: Preferences) {
     private val byTile = LinkedHashMap<Int, Settlement>().also { map ->
         preferences.getString(KEY, "").split(',').forEach { entry ->
             val (tile, tier) = entry.split(':').takeIf { it.size == 2 } ?: return@forEach
-            val parsed = Settlement(tile.toIntOrNull() ?: return@forEach, SettlementTier.entries.firstOrNull { it.name == tier } ?: return@forEach)
+            val parsed = Settlement(tile.toIntOrNull()?.takeIf { it >= 0 } ?: return@forEach, SettlementTier.entries.firstOrNull { it.name == tier } ?: return@forEach)
             map[parsed.tile] = parsed
         }
     }
@@ -32,6 +32,11 @@ class SettlementBook(private val preferences: Preferences) {
             save(flush = true)
         }
         return result
+    }
+
+    /** Drops any settlement whose tile is not a fine tile of the loaded world (a damaged save, say). */
+    fun retainWithin(fineCount: Int) {
+        if (byTile.keys.removeAll { it >= fineCount }) save(flush = true)
     }
 
     /** Resets to no settlements - a new world. [flush] false leaves saving to the caller. */

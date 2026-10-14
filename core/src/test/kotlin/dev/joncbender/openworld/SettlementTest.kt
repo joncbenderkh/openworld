@@ -64,4 +64,14 @@ class SettlementTest {
         assertTrue(SettlementTier.entries.zipWithNext().all { (a, b) -> a.claimRadius < b.claimRadius })
         assertNull(SettlementTier.CITY.next)
     }
+
+    @Test
+    fun `a damaged save loses its impossible tiles`() {
+        val prefs = FakePreferences().apply { putString("settlements", "-1:HOMESTEAD,20:HOMESTEAD,999999:CITY,x:TOWN") }
+        val book = SettlementBook(prefs)
+        assertEquals(listOf(20, 999999), book.all.map { it.tile })
+        book.retainWithin(world().fineCount)
+        assertEquals(listOf(20), book.all.map { it.tile })
+        assertEquals(listOf(20), SettlementBook(prefs).all.map { it.tile })
+    }
 }
