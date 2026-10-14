@@ -15,12 +15,13 @@ import android.widget.TextView
  * The bottom panel for the selected tile: biome, coordinates and up to four resources drawn with the in-game glyphs.
  * Docked and non-blocking - the globe underneath stays draggable - and updated in place on every tap.
  */
-class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit) {
+class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit, private val onFound: () -> Unit) {
     private val eyebrow = ink.label("Selected tile")
     private val biome = ink.title("")
     private val coordinates = ink.meta("")
     private val resourcesLabel = ink.label("")
     private val resourceList = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+    private val settlementBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val glyphPx = ink.dp(GLYPH_DP)
     private val glyphs = HashMap<Resource, Bitmap>()
 
@@ -52,6 +53,10 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
                 .apply { topMargin = ink.dp(16f); bottomMargin = ink.dp(4f) },
         )
         addView(resourceList)
+        addView(
+            settlementBox,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(16f) },
+        )
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
     }
 
@@ -76,7 +81,24 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
                 },
             )
         }
+        showSettlement(info)
         view.visibility = View.VISIBLE
+    }
+
+    /** The settlement on the tile, or the means to found one (or the reason it cannot be). */
+    private fun showSettlement(info: TileInfo) {
+        settlementBox.removeAllViews()
+        val settlement = info.settlement
+        when {
+            settlement != null -> {
+                settlementBox.addView(ink.label("SETTLEMENT"))
+                settlementBox.addView(ink.title(settlement.tier.name.toDisplayName()))
+                settlementBox.addView(ink.meta("Claims tiles within ${settlement.tier.claimRadius} of this one"))
+            }
+            info.canFound == FoundResult.OK -> settlementBox.addView(ink.primaryButton("Found a homestead", onFound))
+            info.canFound == FoundResult.CLAIMED -> settlementBox.addView(ink.meta("Inside a settlement's land"))
+            else -> Unit
+        }
     }
 
     fun hide() {

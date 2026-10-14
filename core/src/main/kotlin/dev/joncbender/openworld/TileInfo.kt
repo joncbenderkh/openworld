@@ -12,4 +12,8 @@ data class TileInfo(
     val isOpenOcean: Boolean = false,
     val latitudeDeg: Float = 0f,
     val longitudeDeg: Float = 0f,
+    /** The settlement on this tile, if any. */
+    val settlement: Settlement? = null,
+    /** Whether a homestead may be founded here ([FoundResult.OK]) or why not. */
+    val canFound: FoundResult = FoundResult.NOT_LAND,
 )

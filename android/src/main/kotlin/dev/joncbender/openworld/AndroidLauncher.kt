@@ -75,10 +75,14 @@ class AndroidLauncher : AndroidApplication() {
     private val settingsSheet by lazy { SettingsSheet(this, ink, game, newWorld) }
 
     private val tilePanel: TilePanel by lazy {
-        TilePanel(this, ink) {
-            tilePanel.hide()
-            game.globeScreen.clearSelection()
-        }
+        TilePanel(
+            this, ink,
+            onClose = {
+                tilePanel.hide()
+                game.globeScreen.clearSelection()
+            },
+            onFound = { game.globeScreen.foundSettlementOnSelection() },
+        )
     }
 
     /**

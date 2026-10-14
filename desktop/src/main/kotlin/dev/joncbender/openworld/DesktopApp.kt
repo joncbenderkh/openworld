@@ -63,6 +63,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                     screen.clearSelection()
                     selected = null
                 }
+                Input.Keys.B -> screen.foundSettlementOnSelection()
                 Input.Keys.C -> {
                     Gdx.app.clipboard.contents = screen.seed.toString()
                     notice = "Seed ${screen.seed} copied"
@@ -99,7 +100,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
             font.draw(batch, s, MARGIN, top - line++ * LINE_HEIGHT)
         }
         if (showHelp) {
-            text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear")
+            text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear   B: found a homestead")
             text("R: reset view   F: flip drag   1 2 3: resource density   N: new world   C: copy seed   H: hide help   Esc: quit")
         }
         text("seed ${game.globeScreen.seed}")
@@ -107,6 +108,12 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
         selected?.let {
             text("Biome: ${it.biome.name.toDisplayName()}${if (it.isOpenOcean) " (open ocean)" else ""}")
             text(if (it.resources.isEmpty()) "Resources: none" else "Resources: ${it.resources.joinToString(", ") { r -> r.name.toDisplayName() }}")
+            val settlement = it.settlement
+            when {
+                settlement != null -> text("Settlement: ${settlement.tier.name.toDisplayName()}")
+                it.canFound == FoundResult.OK -> text("Press B to found a homestead")
+                it.canFound == FoundResult.CLAIMED -> text("Inside a settlement's land")
+            }
         }
         batch.end()
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
