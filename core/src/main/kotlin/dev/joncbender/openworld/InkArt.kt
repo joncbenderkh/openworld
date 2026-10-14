@@ -65,7 +65,7 @@ internal object InkArt {
         val pen = Pen(size, biome.ordinal * 31 + variant)
         pen.paper(parchment(biome))
         when (biome) {
-            Biome.OCEAN -> waves(pen, variant, if (variant == 1) 5 else 7)
+            Biome.OCEAN -> waves(pen, variant, if (variant == 1) 4 else 5)
             Biome.RIVER -> river(pen, variant)
             Biome.LAKE -> lake(pen, variant)
             Biome.DESERT -> dunes(pen, variant)
@@ -181,14 +181,14 @@ internal object InkArt {
     }
 
     private fun dunes(pen: Pen, variant: Int) {
-        val rows = 4 + variant
+        val rows = 3 + variant
         for (i in 0 until rows) {
-            val y = 14f + i * (36f / rows) + pen.rnd(i) * 3f
+            val y = 16f + i * (32f / rows) + pen.rnd(i) * 3f
             val x = 14f + pen.rnd(10 + i) * 10f
             pen.arc(x + 9f, y, 9f, 3f, 0f, PI.toFloat(), 0.55f, INK, up = true)
             pen.stroke(x + 18f, y, x + 22f, y + 1f, 0.45f, 0.8f, INK)
         }
-        pen.dots(12, 0.55f, 0.55f)
+        pen.dots(5, 0.5f, 0.5f, 16f)
     }
 
     private fun waves(pen: Pen, variant: Int, rows: Int) {
@@ -244,11 +244,11 @@ internal object InkArt {
             }
         }
 
-        fun dots(count: Int, radius: Float, alpha: Float) {
+        fun dots(count: Int, radius: Float, alpha: Float, reach: Float = 24f) {
             for (i in 0 until count) {
                 val x = 12f + rnd(300 + i * 2) * 40f
                 val y = 12f + rnd(301 + i * 2) * 40f
-                if (hypot(x - 32f, y - 32f) < 24f) stamp(x, y, radius, alpha, INK)
+                if (hypot(x - 32f, y - 32f) < reach) stamp(x, y, radius, alpha, INK)
             }
         }
 
