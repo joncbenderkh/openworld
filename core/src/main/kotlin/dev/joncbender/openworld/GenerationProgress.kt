@@ -11,24 +11,24 @@ class GenerationCancelled : CancellationException("world generation cancelled")
  * [onChange] gets the share done, the estimate, and the label of the step now under way (null after the last).
  * Safe to share between the thread making the world and the one watching it.
  *
- * The weights are each step's share of a cold start. They are estimates until measured on the phone
- * (`adb logcat -s perf`); only the ETA depends on them being close.
+ * The weights are each step's share of a cold start, measured on the phone on 2026-10-14 (13.4 s to generate and
+ * save; `adb logcat -s perf`). Only the ETA depends on them being close; the emulator's shares differ a lot.
  */
 class GenerationProgress(
     private val clock: () -> Long = System::nanoTime,
     private val onChange: (fraction: Float, etaMillis: Long?, next: String?) -> Unit = { _, _, _ -> },
 ) {
     enum class Step(val weight: Int, val label: String) {
-        SPHERE(10, "Shaping the terrain"),
-        ELEVATION(8, "Shaping the terrain"),
-        BIOMES(8, "Shaping the terrain"),
-        OCEANS(8, "Placing the seas"),
-        VOLCANOES(2, "Placing the seas"),
-        LAKES(6, "Cutting rivers and lakes"),
-        RIVERS(10, "Cutting rivers and lakes"),
-        RESOURCES(4, "Placing resources"),
-        COARSE(6, "Saving the world"),
-        SAVE(38, "Saving the world"),
+        SPHERE(12, "Shaping the terrain"),
+        ELEVATION(13, "Shaping the terrain"),
+        BIOMES(18, "Shaping the terrain"),
+        OCEANS(3, "Placing the seas"),
+        VOLCANOES(3, "Placing the seas"),
+        LAKES(1, "Cutting rivers and lakes"),
+        RIVERS(3, "Cutting rivers and lakes"),
+        RESOURCES(5, "Placing resources"),
+        COARSE(11, "Saving the world"),
+        SAVE(31, "Saving the world"),
     }
 
     private val started = clock()
