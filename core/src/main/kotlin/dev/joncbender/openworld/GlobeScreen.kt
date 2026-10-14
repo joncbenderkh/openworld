@@ -37,6 +37,22 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     /** What the player has collected - persists across restarts, but is reset whenever a new world is generated. */
     val inventory = Inventory(preferences)
 
+    /** The settlements founded in the current world - persists across restarts, reset with the inventory on a new world. */
+    val settlements = SettlementBook(preferences)
+
+    /**
+     * Founds a homestead on the selected tile, if the rules allow it, and reports the tile again with the result.
+     * Runs on the GL thread, which is the one that draws the settlements.
+     */
+    fun foundSettlementOnSelection() {
+        Gdx.app.postRunnable {
+            val tile = selectedTile
+            if (tile < 0 || !worldReady) return@postRunnable
+            settlements.found(compact, tile)
+            onTileSelected?.invoke(describe(tile))
+        }
+    }
+
     /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
     var resourceDensity = preferences.getFloat(PREF_RESOURCE_DENSITY, WorldGenerator.DEFAULT_RESOURCE_DENSITY)
         set(value) {
@@ -192,6 +208,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private var frameCount = 0
     private lateinit var graticule: Mesh
     private lateinit var highlight: TileHighlight
+    private lateinit var settlementMarkers: SettlementMarkers
     private lateinit var shader: ShaderProgram
     private lateinit var biomeTexture: Texture
     private lateinit var iconTexture: Texture
@@ -207,6 +224,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         remindOfPendingWorld()
         graticule = Graticule.build()
         highlight = TileHighlight()
+        settlementMarkers = SettlementMarkers()
         perf.lap("Graticule.build")
         shader = ShaderProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         check(shader.isCompiled) { shader.log }
@@ -342,7 +360,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         preferences.putLong(PREF_SEED, seed)
         preferences.putFloat(PREF_RESOURCE_DENSITY, resourceDensity)
         pendingWorlds.accepted(request.seed, request.keepInventory, flush = false)
-        if (!request.keepInventory) inventory.clear(flush = false)
+        if (!request.keepInventory) {
+            inventory.clear(flush = false)
+            settlements.clear(flush = false)
+        }
         // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
     }
@@ -461,7 +482,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         val problem = loadWorldOrExplain()
         worldReady = problem == null
         loadedDensity = if (problem == null) resourceDensity else null
-        if (problem == null) prepareTilePicker()
+        if (problem == null) {
+            settlements.retainWithin(compact.fineCount)
+            prepareTilePicker()
+        }
         if (problem != null) {
             picker = null
             compact = placeholderWorld()
@@ -643,6 +667,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         shader.setUniformf("u_lit", 0f)
         // Its lines are a fixed width on the globe, so up close they would cover the tiles.
         if (distance > CameraRig.GRATICULE_HIDDEN_BELOW) graticule.render(shader, GL20.GL_TRIANGLES)
+        drawSettlements()
         drawHighlight()
 
         compass.render(rotation)
@@ -712,6 +737,29 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         highlight.update(sphere, tile, maxOf(pixel * maxOf(HIGHLIGHT_MIN_HALF_WIDTH_PIXELS, HIGHLIGHT_MIN_HALF_WIDTH_DP * Gdx.graphics.density), HIGHLIGHT_RELATIVE_HALF_WIDTH * tileRadius(sphere, tile)))
         Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT)
         highlight.render(shader)
+    }
+
+    /** Rings the settled tiles on the near side of the globe, over a cleared depth buffer like the selection ring. */
+    private fun drawSettlements() {
+        if (!worldReady || settlements.all.isEmpty()) return
+        val sphere = compact.world.sphere
+        val pixel = CameraRig.pixelSize(distance, camera.viewportHeight)
+        val halfWidth = pixel * SETTLEMENT_HALF_WIDTH_DP * Gdx.graphics.density
+        settlementMarkers.clear()
+        Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT)
+        for (settlement in settlements.all) {
+            val t = settlement.tile
+            if (t >= compact.fineCount) continue
+            val toTile = sphere.centerX(t) * cameraDirection.x + sphere.centerY(t) * cameraDirection.y + sphere.centerZ(t) * cameraDirection.z
+            if (toTile < 1f / distance) continue
+            if (!settlementMarkers.add(sphere, settlement, halfWidth)) {
+                // The mesh is full: draw what it holds and start another batch.
+                settlementMarkers.render(shader)
+                settlementMarkers.clear()
+                settlementMarkers.add(sphere, settlement, halfWidth)
+            }
+        }
+        settlementMarkers.render(shader)
     }
 
     private fun tileRadius(sphere: Sphere, tile: Int): Float {
@@ -887,17 +935,21 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (!worldReady) return false
         val point = hit.nor()
         val tile = pickTile(point.x, point.y, point.z)
-        val world = compact.world
         selectedTile = tile
-        val centers = world.sphere.centers
-        onTileSelected?.invoke(
-            TileInfo(
-                tile, world[tile], world.resourcesAt(tile), compact.isOpenOcean(tile),
-                TileCoordinates.latitudeDeg(centers[tile * 3 + 1]),
-                TileCoordinates.longitudeDeg(centers[tile * 3], centers[tile * 3 + 2]),
-            ),
-        )
+        onTileSelected?.invoke(describe(tile))
         return true
+    }
+
+    private fun describe(tile: Int): TileInfo {
+        val world = compact.world
+        val centers = world.sphere.centers
+        return TileInfo(
+            tile, world[tile], world.resourcesAt(tile), compact.isOpenOcean(tile),
+            TileCoordinates.latitudeDeg(centers[tile * 3 + 1]),
+            TileCoordinates.longitudeDeg(centers[tile * 3], centers[tile * 3 + 2]),
+            settlements.at(tile),
+            SettlementRules.canFound(compact, tile, settlements.all),
+        )
     }
 
     override fun touchDown(x: Float, y: Float, pointer: Int, button: Int): Boolean {
@@ -916,6 +968,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         underlay.dispose()
         graticule.dispose()
         highlight.dispose()
+        settlementMarkers.dispose()
         shader.dispose()
         biomeTexture.dispose()
         iconTexture.dispose()
@@ -927,6 +980,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         private const val MIN_FREE_BYTES_FOR_WORLD = 160L * 1024 * 1024
 
         // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
+        private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_DP = 2.2f
         private const val HIGHLIGHT_RELATIVE_HALF_WIDTH = 0.08f
