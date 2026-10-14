@@ -244,6 +244,9 @@ class InkTheme(private val context: Context) {
     /** A bar with a segment sliding along it, for work whose length is not known. */
     fun busyBar(): InkBusyBar = InkBusyBar(context, density)
 
+    /** The mark above an error: a ring in the danger ink with an exclamation point. */
+    fun errorMark(): View = InkErrorMark(context, density)
+
     // ---- dialogs and sheets ---------------------------------------------------------------------------------------------------
 
     /**
@@ -441,5 +444,32 @@ class InkBusyBar(context: Context, private val density: Float) : View(context) {
         rect.set(left, 0f, left + segment, height.toFloat())
         paint.color = InkPalette.INK
         canvas.drawRoundRect(rect, radius, radius, paint)
+    }
+}
+
+/** A 72 dp ring with an exclamation point, in the danger ink. */
+class InkErrorMark(context: Context, private val density: Float) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = InkPalette.DANGER
+    }
+
+    init {
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val size = (72f * density).roundToInt()
+        setMeasuredDimension(size, size)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val unit = width / 72f
+        paint.strokeWidth = 1.6f * unit
+        canvas.drawCircle(36f * unit, 36f * unit, 30f * unit, paint)
+        paint.strokeWidth = 2.4f * unit
+        canvas.drawLine(36f * unit, 22f * unit, 36f * unit, 40f * unit, paint)
+        canvas.drawPoint(36f * unit, 49f * unit, paint)
     }
 }

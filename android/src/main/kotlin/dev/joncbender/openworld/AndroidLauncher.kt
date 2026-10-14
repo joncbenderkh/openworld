@@ -8,7 +8,6 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.FrameLayout
-import android.widget.Toast
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.backends.android.AndroidApplication
 import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
@@ -28,7 +27,7 @@ class AndroidLauncher : AndroidApplication() {
         // create() runs on the GL thread and constructs globeScreen.
         game.onTileSelected = { info -> runOnUiThread { tilePanel.show(info) } }
         game.onGenerationStage = { stage -> runOnUiThread { newWorld.stage(stage) } }
-        game.onMessage = { message -> runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() } }
+        game.onWorldProblem = { problem, seed -> runOnUiThread { newWorld.problem(problem, seed) } }
         // initializeForView (rather than initialize) skips setContentView so the
         // GL surface can be embedded alongside the settings button overlay below.
         val gameView = initializeForView(game, config)
