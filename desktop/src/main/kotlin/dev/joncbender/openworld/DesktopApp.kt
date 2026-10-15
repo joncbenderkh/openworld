@@ -5,8 +5,12 @@ import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.Input
 import com.badlogic.gdx.InputAdapter
 import com.badlogic.gdx.InputMultiplexer
+import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
+import com.badlogic.gdx.graphics.Pixmap
+import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.BitmapFont
+import com.badlogic.gdx.graphics.g2d.GlyphLayout
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import java.io.File
 
@@ -94,11 +98,9 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
         Gdx.gl.glDisable(GL20.GL_DEPTH_TEST)
         Gdx.gl.glDisable(GL20.GL_CULL_FACE)
         Gdx.gl.glDisable(GL20.GL_POLYGON_OFFSET_FILL)
-        batch.begin()
-        val top = Gdx.graphics.height - MARGIN
-        var line = 0
+        val lines = ArrayList<String>()
         fun text(s: String) {
-            font.draw(batch, s, MARGIN, top - line++ * LINE_HEIGHT)
+            lines += s
         }
         if (showHelp) {
             text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear   B: found a homestead   U: grow it")
@@ -129,9 +131,29 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                 it.canFound == FoundResult.CLAIMED -> text("Inside a settlement's land")
             }
         }
+        // The text goes on a dark panel: bare on the map's busy tiles it is hard to read.
+        val top = Gdx.graphics.height - MARGIN
+        val layout = GlyphLayout()
+        val width = lines.maxOfOrNull { layout.setText(font, it); layout.width } ?: 0f
+        batch.begin()
+        if (lines.isNotEmpty()) {
+            batch.setColor(0f, 0f, 0f, PANEL_ALPHA)
+            batch.draw(panel, MARGIN - PADDING, top - lines.size * LINE_HEIGHT - PADDING + LINE_HEIGHT / 2, width + 2 * PADDING, lines.size * LINE_HEIGHT + 2 * PADDING)
+            batch.setColor(Color.WHITE)
+        }
+        lines.forEachIndexed { i, line -> font.draw(batch, line, MARGIN, top - i * LINE_HEIGHT) }
         batch.end()
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
     }
+
+    private var panelTexture: Texture? = null
+
+    // One white texel, tinted by the batch; made on first use, as it needs GL.
+    private val panel: Texture
+        get() = panelTexture ?: run {
+            val pixmap = Pixmap(1, 1, Pixmap.Format.RGBA8888).apply { setColor(Color.WHITE); fill() }
+            Texture(pixmap).also { pixmap.dispose(); panelTexture = it }
+        }
 
     private fun String.toDisplayName(): String =
         lowercase().split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
@@ -146,12 +168,15 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
     override fun dispose() {
         game.dispose()
         batch.dispose()
+        panelTexture?.dispose()
         font.dispose()
     }
 
     private companion object {
         const val MARGIN = 12f
         const val LINE_HEIGHT = 18f
+        const val PADDING = 8f
+        const val PANEL_ALPHA = 0.7f
         const val TWIST_DEGREES = 15f
         const val KEY_ZOOM_FACTOR = 1.15f
     }
