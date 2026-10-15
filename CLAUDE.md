@@ -184,6 +184,12 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   world seed), at a rate set by its people and mood (`Crafting.batches`), from the shared stockpile, in the 2 s tick after gathering (`Crafter`).
   A recipe rests once `Crafting.Tuning.TARGET` of its product is held, so inputs do not drain into goods nothing uses. Effects (a good counts as stocked from `HappinessModel.Tuning.STOCKED` = 10 units, the same rule as luxuries): tools (`Gathering.CRAFTED_TOOLS`) raise every yield, clothing meets WARMTH, jewelry is a luxury. Product counts are saved with the world seed (`inventory_products_seed`). Settlements craft in list order from the shared stock, so with scarce inputs the first one wins (as gathering shares room). The panel opens one of its lists (assignments, crafting) at a time. Buildings (#108)
   will add a requirement to `Recipe`.
+- Buildings (`Buildings.kt`): a settlement holds one of each of 12 `Building`s, in slots by tier (2/4/7/12). `Buildings.spec` is the data: a one-time
+  cost from the stockpile, an upkeep paid every `UPKEEP_EVERY` ticks (`Upkeeper`: all or nothing per building, settlements in order; an unpaid one is idle,
+  `Settlement.idle`, not saved, until the next payment) and the effect: the five gatherers raise their resources' yield (`GATHER_BONUS`) and need one on a
+  claimed tile; a recipe needs its building (`Recipe.requires`); a warehouse adds storage, a working granary food units, a shrine and a market mood.
+  Effects read `Settlement.working()` (built minus idle). Built sets are saved like `recipes_off`, under `buildings` with the world seed. The Android panel opens
+  one list at a time (assign, crafting, buildings); the desktop builds with V and shows what is built.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
   the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set

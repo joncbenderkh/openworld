@@ -54,6 +54,22 @@ object Buildings {
         Building.SHRINE -> BuildingSpec(items(Resource.STONE to 20), items(Resource.STONE to 1), SettlementTier.VILLAGE, mood = 0.1f)
     }
 
+    /** What [building] does, in a few words for a panel. */
+    fun effect(building: Building): String {
+        val spec = spec(building)
+        val parts = ArrayList<String>()
+        if (spec.boosts.isNotEmpty()) parts += "+${(Tuning.GATHER_BONUS * 100).toInt()}% " + spec.boosts.joinToString(", ") { it.displayName().lowercase() }
+        val makes = Recipes.ALL.filter { it.requires == building }.map { it.output.displayName().lowercase() }
+        if (makes.isNotEmpty()) parts += "makes " + makes.joinToString(", ")
+        if (spec.storage > 0) parts += "+${spec.storage} storage"
+        if (spec.foodUnits > 0) parts += "feeds ${(spec.foodUnits * PopulationModel.PEOPLE_PER_UNIT).toInt()} more"
+        if (spec.mood > 0f) parts += "happier people"
+        return parts.joinToString(", ")
+    }
+
+    /** [items] as "15 wood + 10 stone". */
+    fun itemsText(items: Map<Item, Int>): String = items.entries.joinToString(" + ") { (item, units) -> "$units ${item.displayName().lowercase()}" }
+
     /** How many buildings a settlement of [tier] holds. */
     fun slots(tier: SettlementTier): Int = Tuning.SLOTS[tier.ordinal]
 

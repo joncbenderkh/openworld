@@ -170,4 +170,12 @@ class BuildingsTest {
         book.build(20, Building.FARM)
         assertEquals(emptySet(), book.at(20)?.idle)
     }
+
+    @Test
+    fun `a building's effect is told in a few words`() {
+        assertEquals("+50% grain", Buildings.effect(Building.FARM))
+        assertEquals("makes flour, bread", Buildings.effect(Building.MILL))
+        assertEquals("15 wood + 10 stone", Buildings.itemsText(Buildings.spec(Building.MILL).cost))
+        for (building in Building.entries) assertTrue(Buildings.effect(building).isNotEmpty(), "$building")
+    }
 }
