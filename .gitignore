@@ -9,3 +9,6 @@ local.properties
 /android/libs/
 *.keystore
 *.jks
+
+# Kotlin compiler session files
+.kotlin/
