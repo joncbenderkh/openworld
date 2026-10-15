@@ -9,13 +9,24 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
+import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * The bottom panel for the selected tile: biome, coordinates and up to four resources drawn with the in-game glyphs.
  * Docked and non-blocking - the globe underneath stays draggable - and updated in place on every tap.
  */
-class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit, private val onFound: () -> Unit, private val onUpgrade: () -> Unit) {
+class TilePanel(
+    context: Context,
+    private val ink: InkTheme,
+    onClose: () -> Unit,
+    private val onFound: () -> Unit,
+    private val onUpgrade: () -> Unit,
+    private val onAllocate: (Int, Resource, Int) -> Unit,
+    private val onAutomatic: (Int) -> Unit,
+) {
     private val eyebrow = ink.label("Selected tile")
     private val biome = ink.title("")
     private val coordinates = ink.meta("")
@@ -24,6 +35,8 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
     private val settlementBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     // Apart from the settlement box: its numbers change on most ticks, and a rebuild there would drop a press on Grow.
     private val economyBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+    // Where the people work: built again only when the weights change, so a tick's new numbers cannot drop a press on a stepper.
+    private val allocationBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val glyphPx = ink.dp(GLYPH_DP)
     private val glyphs = HashMap<Resource, Bitmap>()
 
@@ -60,6 +73,7 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(16f) },
         )
         addView(economyBox)
+        addView(allocationBox)
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
     }
 
@@ -86,6 +100,7 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
         }
         showSettlement(info)
         showEconomy(info.economy)
+        showAllocation(info)
         view.visibility = View.VISIBLE
     }
 
@@ -133,6 +148,108 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
         economyKey = key
         economyBox.removeAllViews()
         lines.forEach { economyBox.addView(ink.meta(it)) }
+    }
+
+    private var allocationInfo: TileInfo? = null
+    private var allocationTile = -1
+    private var allocationOpen = false
+    private var allocationKey = ""
+    private var allocationScroll: ScrollView? = null
+    private val shareText = HashMap<Resource, TextView>()
+
+    /** Who works what: a button that opens a stepper per resource, each showing its people and what they bring in. */
+    private fun showAllocation(info: TileInfo) {
+        allocationInfo = info
+        val shares = info.economy?.shares.orEmpty()
+        if (info.faceIndex != allocationTile) {
+            allocationTile = info.faceIndex
+            allocationOpen = false
+            allocationKey = ""
+        }
+        // The saved weights, not just those of resources that can be worked now: a weight on an exhausted resource still needs the reset.
+        val key = "$allocationOpen:${info.settlement?.allocation.orEmpty()}:" + shares.joinToString { "${it.resource}${it.weight}${it.explicit}" }
+        if (key != allocationKey) {
+            allocationKey = key
+            val scrolled = allocationScroll?.scrollY ?: 0
+            allocationBox.removeAllViews()
+            shareText.clear()
+            allocationScroll = null
+            val anySet = info.settlement?.allocation.orEmpty().isNotEmpty()
+            if (shares.isNotEmpty() || anySet) buildAllocation(info.faceIndex, shares, anySet, scrolled)
+        }
+        shares.forEach { shareText[it.resource]?.text = shareLabel(it, info.economy!!) }
+    }
+
+    private fun buildAllocation(tile: Int, shares: List<WorkShare>, anySet: Boolean, scrolled: Int) {
+        val context = view.context
+        val below = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(12f) }
+        if (shares.isEmpty()) {
+            // Every deposit is spent, but the saved weights are still there (they would come back with new land): they can be cleared.
+            allocationBox.addView(ink.meta("Saved assignments have nothing to work now"), below)
+            allocationBox.addView(ink.textButton("Split evenly again") { onAutomatic(tile) })
+            return
+        }
+        allocationBox.addView(
+            ink.secondaryButton(if (allocationOpen) "Hide assignments" else "Assign people") {
+                allocationOpen = !allocationOpen
+                allocationInfo?.let(::showAllocation)
+            },
+            below,
+        )
+        if (!allocationOpen) return
+        val rows = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        shares.forEach { share ->
+            val name = share.resource.displayName()
+            val label = ink.bodyText("").apply { gravity = Gravity.CENTER_VERTICAL }
+            shareText[share.resource] = label
+            rows.addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    minimumHeight = ink.dp(InkPalette.TOUCH_DP)
+                    addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(
+                        ink.roundButton("−", "Fewer people on $name") { if (share.weight > 0) onAllocate(tile, share.resource, share.weight - 1) }
+                            .apply { isEnabled = share.weight > 0; alpha = if (isEnabled) 1f else DIMMED },
+                    )
+                    addView(
+                        ink.roundButton("+", "More people on $name") { if (share.weight < Gathering.MAX_WEIGHT) onAllocate(tile, share.resource, share.weight + 1) }
+                            .apply { isEnabled = share.weight < Gathering.MAX_WEIGHT; alpha = if (isEnabled) 1f else DIMMED },
+                        LinearLayout.LayoutParams(ink.dp(InkPalette.TOUCH_DP), ink.dp(InkPalette.TOUCH_DP)).apply { marginStart = ink.dp(8f) },
+                    )
+                },
+            )
+        }
+        // The panel does not grow past a few rows: more are scrolled, and the half row shows there are.
+        // A short screen shows fewer: the list never takes more than a quarter of it. Larger type makes the rest of the panel
+        // taller, so the quarter shrinks with the font scale (at 2x the panel alone fills three quarters of a tall phone).
+        val row = ink.dp(InkPalette.TOUCH_DP)
+        val fontScale = maxOf(1f, context.resources.configuration.fontScale)
+        val room = (context.resources.displayMetrics.heightPixels * MAX_LIST_SHARE / fontScale).toInt().coerceAtLeast(row)
+        val shown = if (shares.size > VISIBLE_ROWS) VISIBLE_ROWS + 0.5f else shares.size.toFloat()
+        val scroll = ScrollView(context).apply { addView(rows) }
+        allocationScroll = scroll
+        allocationBox.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, minOf((row * shown).toInt(), room)))
+        scroll.post { scroll.scrollTo(0, scrolled) }
+        if (anySet) {
+            allocationBox.addView(ink.textButton("Split evenly again") { onAutomatic(tile) })
+        } else {
+            allocationBox.addView(ink.meta("Split evenly over the deposits"))
+        }
+    }
+
+    private fun shareLabel(share: WorkShare, economy: Economy): String {
+        val name = share.resource.displayName()
+        val people = share.people.roundToInt()
+        val income = String.format(Locale.ROOT, "%.1f", economy.income[share.resource] ?: 0f)
+        val who = when {
+            share.full -> return "$name · store full"
+            share.people <= 0f -> return "$name · nobody"
+            people == 0 -> "under 1 person"
+            people == 1 -> "1 person"
+            else -> "$people people"
+        }
+        return "$name · $who · +$income"
     }
 
     private fun statusKey(status: SettlementStatus) =
@@ -191,6 +308,9 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
         const val COLUMNS = 2
         const val DISC_DP = 40f
         const val GLYPH_DP = 32f
+        const val VISIBLE_ROWS = 4
+        const val MAX_LIST_SHARE = 0.25f
+        const val DIMMED = 0.4f
 
         fun String.toDisplayName(): String =
             lowercase().split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }

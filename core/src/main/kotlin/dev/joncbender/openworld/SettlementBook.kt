@@ -18,6 +18,20 @@ class SettlementBook(private val preferences: Preferences) {
             val population = parts.getOrNull(2)?.toFloatOrNull()?.takeIf { it.isFinite() } ?: PopulationModel.START
             map[tile] = Settlement(tile, tier, population.coerceIn(PopulationModel.MIN, tier.populationCap.toFloat()))
         }
+        // Allocations live under a key of their own, so a build that does not know them still reads every settlement. They
+        // carry the seed of the world they were set in: a build that does not know them never clears them on a new world.
+        val saved = preferences.getString(ALLOCATION_KEY, "").split('/', limit = 2)
+        val current = saved.size == 2 && saved[0] == worldSeed().toString()
+        (if (current) saved[1] else "").split(',').forEach { entry ->
+            val (tile, pairs) = entry.split(':').takeIf { it.size == 2 } ?: return@forEach
+            val settlement = tile.toIntOrNull()?.let { map[it] } ?: return@forEach
+            val allocation = pairs.split('|').mapNotNull { pair ->
+                val (name, weight) = pair.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
+                val resource = Resource.entries.firstOrNull { it.name == name } ?: return@mapNotNull null
+                resource to (weight.toIntOrNull()?.coerceIn(0, Gathering.MAX_WEIGHT) ?: return@mapNotNull null)
+            }.toMap()
+            map[settlement.tile] = settlement.copy(allocation = allocation)
+        }
     }
 
     /** Bumped on every change, so a drawing layer can tell when to rebuild. */
@@ -47,6 +61,22 @@ class SettlementBook(private val preferences: Preferences) {
             save(flush = true)
         }
         return result
+    }
+
+    /** Sets the weight of [resource] in where the settlement on [tile] puts its people (0 to [Gathering.MAX_WEIGHT]). */
+    fun allocate(tile: Int, resource: Resource, weight: Int) {
+        val settlement = byTile[tile] ?: return
+        byTile[tile] = settlement.copy(allocation = settlement.allocation + (resource to weight.coerceIn(0, Gathering.MAX_WEIGHT)))
+        write()
+        preferences.flush()
+    }
+
+    /** Hands the settlement on [tile] back to the automatic split. */
+    fun allocateAutomatically(tile: Int) {
+        val settlement = byTile[tile]?.takeIf { it.allocation.isNotEmpty() } ?: return
+        byTile[tile] = settlement.copy(allocation = emptyMap())
+        write()
+        preferences.flush()
     }
 
     /**
@@ -79,9 +109,16 @@ class SettlementBook(private val preferences: Preferences) {
 
     private fun write() {
         if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" })
+        val allocated = byTile.values.filter { it.allocation.isNotEmpty() }
+        if (allocated.isEmpty()) preferences.remove(ALLOCATION_KEY) else preferences.putString(ALLOCATION_KEY, worldSeed().toString() + "/" + allocated.joinToString(",") { "${it.tile}:" + it.allocation.entries.joinToString("|") { (resource, weight) -> "${resource.name}=$weight" } })
     }
 
+    private fun worldSeed() = preferences.getLong(SEED_KEY, 0L)
+
     private companion object {
+        // GlobeScreen's seed preference.
+        const val SEED_KEY = "seed"
         const val KEY = "settlements"
+        const val ALLOCATION_KEY = "allocations"
     }
 }

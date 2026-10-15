@@ -83,6 +83,8 @@ class AndroidLauncher : AndroidApplication() {
             },
             onFound = { game.globeScreen.foundSettlementOnSelection() },
             onUpgrade = { game.globeScreen.upgradeSettlementOnSelection() },
+            onAllocate = { tile, resource, weight -> game.globeScreen.allocate(tile, resource, weight) },
+            onAutomatic = { tile -> game.globeScreen.allocateAutomatically(tile) },
         )
     }
 

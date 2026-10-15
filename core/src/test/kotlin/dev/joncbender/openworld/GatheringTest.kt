@@ -213,4 +213,76 @@ class GatheringTest {
         // Two people over two deposits, then over the one that can still be stored: twice the grain.
         assertEquals(shared * 2, grain(), 1e-5f)
     }
+
+    private fun incomeOf(settlement: Settlement, world: CompactWorld): Map<Resource, Float> =
+        Gathering.income(Gathering.harvest(settlement, SettlementSite.of(world, settlement), deposits))
+
+    @Test
+    fun `an allocation moves people between resources`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN, Resource.WOOD)))
+        val even = incomeOf(Settlement(20, SettlementTier.HOMESTEAD, 2f), world)
+        assertEquals(even.getValue(Resource.GRAIN), even.getValue(Resource.WOOD), 1e-5f)
+        // Three parts grain to one part wood: one and a half people on grain, half a person on wood.
+        val tilted = incomeOf(Settlement(20, SettlementTier.HOMESTEAD, 2f, mapOf(Resource.GRAIN to 3)), world)
+        assertEquals(tilted.getValue(Resource.GRAIN), 3 * tilted.getValue(Resource.WOOD), 1e-5f)
+        assertTrue(tilted.getValue(Resource.GRAIN) > even.getValue(Resource.GRAIN))
+    }
+
+    @Test
+    fun `weight zero leaves a resource alone and a deposit takes no more people than it can use`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN, Resource.WOOD)))
+        val none = incomeOf(Settlement(20, SettlementTier.HOMESTEAD, 10f, mapOf(Resource.WOOD to 0)), world)
+        assertEquals(0f, none.getValue(Resource.WOOD), 0f)
+        // Ten people, all on grain: still capped at what one deposit can use (two people).
+        assertEquals(Gathering.RENEWABLE_RATE, none.getValue(Resource.GRAIN), 1e-5f)
+    }
+
+    @Test
+    fun `no allocation is the even split over deposits`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN), near + 1 to listOf(Resource.GRAIN, Resource.WOOD)))
+        val settlement = Settlement(20, SettlementTier.HOMESTEAD, 3f)
+        val shares = Gathering.shares(settlement, SettlementSite.of(world, settlement), deposits)
+        assertEquals(mapOf(Resource.GRAIN to 2, Resource.WOOD to 1), shares.associate { it.resource to it.deposits })
+        assertEquals(mapOf(Resource.GRAIN to 2f, Resource.WOOD to 1f), shares.associate { it.resource to it.people })
+        assertTrue(shares.none { it.explicit })
+    }
+
+    @Test
+    fun `an allocation is saved apart from the settlement and cleared by automatic`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN)))
+        val book = SettlementBook(prefs)
+        assertEquals(FoundResult.OK, book.found(world, 20))
+        book.allocate(20, Resource.GRAIN, 4)
+        book.allocate(20, Resource.WOOD, 999)
+        assertEquals(mapOf(Resource.GRAIN to 4, Resource.WOOD to Gathering.MAX_WEIGHT), SettlementBook(prefs).at(20)!!.allocation)
+        // A build that does not know allocations still reads the settlement record as before.
+        assertEquals(3, prefs.getString("settlements", "").split(':').size)
+        book.allocateAutomatically(20)
+        assertTrue(SettlementBook(prefs).at(20)!!.allocation.isEmpty())
+        prefs.putString("allocations", "0/20:GRAIN=x|NOPE=1|WOOD=2|bad,7:WOOD=1")
+        assertEquals(mapOf(Resource.WOOD to 2), SettlementBook(prefs).at(20)!!.allocation)
+    }
+
+    @Test
+    fun `a full store takes no people and the others get them`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN, Resource.WOOD)))
+        val settlement = Settlement(20, SettlementTier.HOMESTEAD, 2f)
+        inventory.add(Resource.WOOD, Gathering.storage(SettlementTier.HOMESTEAD))
+        val shares = gatherer.economy(settlement, listOf(settlement), { SettlementSite.of(world, settlement) }).shares.associateBy { it.resource }
+        assertTrue(shares.getValue(Resource.WOOD).full)
+        assertEquals(0f, shares.getValue(Resource.WOOD).people, 0f)
+        assertEquals(2f, shares.getValue(Resource.GRAIN).people, 1e-5f)
+    }
+
+    @Test
+    fun `allocations of another world are ignored`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN)))
+        prefs.putLong("seed", 7L)
+        val book = SettlementBook(prefs)
+        book.found(world, 20)
+        book.allocate(20, Resource.GRAIN, 4)
+        assertEquals(4, SettlementBook(prefs).at(20)!!.allocation.getValue(Resource.GRAIN))
+        prefs.putLong("seed", 8L)
+        assertTrue(SettlementBook(prefs).at(20)!!.allocation.isEmpty())
+    }
 }
