@@ -50,6 +50,15 @@ class SettlementTest {
     }
 
     @Test
+    fun `claims that border each other without sharing a tile are allowed`() {
+        val world = world()
+        val book = SettlementBook(FakePreferences())
+        book.found(world, 20)
+        val threeAway = (SettlementRules.claim(world, 20, 3).toSet() - SettlementRules.claim(world, 20, 2).toSet()).first()
+        assertEquals(FoundResult.OK, book.found(world, threeAway))
+    }
+
+    @Test
     fun `an open ocean tile is refused`() {
         val sphere = GeodesicSphere.generate(8)
         val w = SphereWorld(sphere, Array(sphere.faceCount) { Biome.OCEAN })
