@@ -35,9 +35,27 @@ class SettlementTest {
         assertEquals(FoundResult.OK, book.found(world, 20))
         val inside = SettlementRules.claim(world, 20, 1).first { it != 20 }
         assertEquals(FoundResult.CLAIMED, book.found(world, inside))
-        val outside = (0 until world.fineCount).first { it !in SettlementRules.claim(world, 20, 1) }
+        val outside = (0 until world.fineCount).first { it !in SettlementRules.claim(world, 20, 2) }
         assertEquals(FoundResult.OK, book.found(world, outside))
         assertEquals(2, book.all.size)
+    }
+
+    @Test
+    fun `a tile whose claim would touch another claim is refused`() {
+        val world = world()
+        val book = SettlementBook(FakePreferences())
+        book.found(world, 20)
+        val ring2 = SettlementRules.claim(world, 20, 2).toSet() - SettlementRules.claim(world, 20, 1).toSet()
+        assertEquals(FoundResult.CLAIMED, book.found(world, ring2.first()))
+    }
+
+    @Test
+    fun `claims that border each other without sharing a tile are allowed`() {
+        val world = world()
+        val book = SettlementBook(FakePreferences())
+        book.found(world, 20)
+        val threeAway = (SettlementRules.claim(world, 20, 3).toSet() - SettlementRules.claim(world, 20, 2).toSet()).first()
+        assertEquals(FoundResult.OK, book.found(world, threeAway))
     }
 
     @Test

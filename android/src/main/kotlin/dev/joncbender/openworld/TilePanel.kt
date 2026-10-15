@@ -15,7 +15,7 @@ import android.widget.TextView
  * The bottom panel for the selected tile: biome, coordinates and up to four resources drawn with the in-game glyphs.
  * Docked and non-blocking - the globe underneath stays draggable - and updated in place on every tap.
  */
-class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit, private val onFound: () -> Unit) {
+class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit, private val onFound: () -> Unit, private val onUpgrade: () -> Unit) {
     private val eyebrow = ink.label("Selected tile")
     private val biome = ink.title("")
     private val coordinates = ink.meta("")
@@ -85,19 +85,56 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
         view.visibility = View.VISIBLE
     }
 
-    /** The settlement on the tile, or the means to found one (or the reason it cannot be). */
+    // What the settlement box shows now; a tick that changes nothing visible leaves its views (and a press on them) alone.
+    private var settlementKey = ""
+
+    /** The settlement on the tile - people, needs, growth - or the means to found one (or the reason it cannot be). */
     private fun showSettlement(info: TileInfo) {
+        val status = info.status
+        val key = if (status == null) "found:${info.canFound}" else statusKey(status)
+        if (key == settlementKey) return
+        settlementKey = key
         settlementBox.removeAllViews()
-        val settlement = info.settlement
         when {
-            settlement != null -> {
+            status != null -> {
+                val settlement = status.settlement
                 settlementBox.addView(ink.label("SETTLEMENT"))
                 settlementBox.addView(ink.title(settlement.tier.name.toDisplayName()))
+                settlementBox.addView(ink.bodyText("People  ${settlement.population.toInt()} of ${settlement.tier.populationCap}  ·  ${trendText(status.trend)}"))
+                status.needs.forEach { settlementBox.addView(ink.meta(needText(it))) }
                 settlementBox.addView(ink.meta("Claims tiles within ${settlement.tier.claimRadius} of this one"))
+                when (status.upgrade) {
+                    UpgradeResult.OK -> settlementBox.addView(
+                        ink.primaryButton("Grow into a ${settlement.tier.next!!.name.lowercase()}", onUpgrade),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(12f) },
+                    )
+                    UpgradeResult.TOO_SMALL -> settlementBox.addView(ink.meta("Grows at ${(settlement.tier.populationCap * PopulationModel.UPGRADE_SHARE).toInt()} people"))
+                    UpgradeResult.BLOCKED -> settlementBox.addView(ink.meta("Another settlement's land is in the way"))
+                    UpgradeResult.MAX_TIER -> Unit
+                }
             }
             info.canFound == FoundResult.OK -> settlementBox.addView(ink.primaryButton("Found a homestead", onFound))
-            info.canFound == FoundResult.CLAIMED -> settlementBox.addView(ink.meta("Inside a settlement's land"))
+            info.canFound == FoundResult.CLAIMED -> settlementBox.addView(ink.meta("Next to a settlement's land"))
             else -> Unit
+        }
+    }
+
+    private fun statusKey(status: SettlementStatus) =
+        "${status.settlement.tier}:${status.settlement.population.toInt()}:${status.trend}:${status.upgrade}:${status.needs.map { it.supported to it.met }}"
+
+    private fun trendText(trend: Trend) = when (trend) {
+        Trend.GROWING -> "growing"
+        Trend.STEADY -> "steady"
+        Trend.FULL -> "full"
+        Trend.DECLINING -> "declining"
+    }
+
+    private fun needText(need: NeedStatus): String {
+        val name = need.need.name.toDisplayName()
+        return when {
+            need.supported == 0 -> "$name: none on its land"
+            need.met -> "$name: enough for ${need.supported}"
+            else -> "$name: only enough for ${need.supported}"
         }
     }
 

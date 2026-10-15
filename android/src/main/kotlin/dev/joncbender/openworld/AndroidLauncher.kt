@@ -82,6 +82,7 @@ class AndroidLauncher : AndroidApplication() {
                 game.globeScreen.clearSelection()
             },
             onFound = { game.globeScreen.foundSettlementOnSelection() },
+            onUpgrade = { game.globeScreen.upgradeSettlementOnSelection() },
         )
     }
 

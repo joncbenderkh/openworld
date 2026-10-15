@@ -16,4 +16,6 @@ data class TileInfo(
     val settlement: Settlement? = null,
     /** Whether a homestead may be founded here ([FoundResult.OK]) or why not. */
     val canFound: FoundResult = FoundResult.NOT_LAND,
+    /** Population, needs and whether it can grow, for a settled tile. */
+    val status: SettlementStatus? = null,
 )
