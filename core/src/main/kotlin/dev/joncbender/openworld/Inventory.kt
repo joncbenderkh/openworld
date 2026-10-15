@@ -19,6 +19,11 @@ class Inventory(private val preferences: Preferences) {
     private val counts: MutableMap<Item, Int> =
         Items.all.associateWithTo(mutableMapOf()) { if (it is Product && !productsCurrent) 0 else preferences.getInteger(keyFor(it), 0) }
 
+    init {
+        // The old world's goods are dropped for good: the next save of one product restamps the seed for all of them.
+        if (!productsCurrent) Product.entries.forEach { preferences.remove(keyFor(it)) }
+    }
+
     fun count(item: Item): Int = counts.getValue(item)
 
     fun add(item: Item, amount: Int = 1) {

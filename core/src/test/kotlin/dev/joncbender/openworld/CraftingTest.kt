@@ -146,4 +146,38 @@ class CraftingTest {
         assertEquals(0, newWorld.count(Product.CLOTHING), "a new seed does not inherit products")
         assertEquals(3, newWorld.count(Resource.FURS))
     }
+
+    @Test
+    fun `old goods do not come back when another product is saved in a new world`() {
+        inventory.add(Product.TOOLS, 15)
+        prefs.putLong("seed", 99L)
+        Inventory(prefs).add(Product.FLOUR, 1)
+        val again = Inventory(prefs)
+        assertEquals(0, again.count(Product.TOOLS), "the old world's tools stay gone")
+        assertEquals(1, again.count(Product.FLOUR))
+    }
+
+    @Test
+    fun `jewelry is made from the surplus of gold and gems, never below the stocked threshold`() {
+        val town = Settlement(22, SettlementTier.TOWN, 20f)
+        val reserve = HappinessModel.Tuning.STOCKED
+        inventory.add(Resource.GOLD, reserve)
+        inventory.add(Resource.GEMS, reserve)
+        tick(town, times = 40)
+        assertEquals(0, inventory.count(Product.JEWELRY), "the reserve is not touched")
+        inventory.add(Resource.GOLD, 2)
+        inventory.add(Resource.GEMS, 2)
+        tick(town, times = 40)
+        assertEquals(2, inventory.count(Product.JEWELRY))
+        assertEquals(reserve, inventory.count(Resource.GOLD))
+        assertEquals(reserve, inventory.count(Resource.GEMS))
+    }
+
+    @Test
+    fun `crafting does not save by itself`() {
+        inventory.add(Resource.FURS, 10)
+        val before = prefs.flushed.size
+        tick(homestead, times = 12)
+        assertEquals(before, prefs.flushed.size)
+    }
 }

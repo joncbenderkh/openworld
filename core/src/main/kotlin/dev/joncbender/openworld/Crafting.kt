@@ -40,7 +40,7 @@ object Crafting {
 }
 
 /**
- * Crafts for every settlement into the [inventory] on each tick. A settlement's work on a recipe accrues in [carry] until
+ * Crafts for every settlement into the [inventory] on each tick, without saving: GlobeScreen flushes now and then, and what is taken and made is written together. A settlement's work on a recipe accrues in [carry] until
  * it makes a whole batch, which needs every input in stock and room for the output (storage is shared, as in gathering).
  * Work does not pile up while a recipe is blocked: at most one batch waits. Not saved, like [Gatherer]'s carry.
  */
@@ -51,8 +51,11 @@ class Crafter(private val inventory: Inventory) {
 
     private fun done(recipe: Recipe): Boolean = inventory.count(recipe.output) >= Crafting.Tuning.TARGET
 
+    // A luxury is kept at the stocked threshold, so a recipe works from the surplus and never takes the mood's bonus away.
+    private fun spare(item: Item): Int = inventory.count(item) - if (item in HappinessModel.Tuning.LUXURIES) HappinessModel.Tuning.STOCKED else 0
+
     private fun ready(recipe: Recipe, capacity: Int): Boolean =
-        !done(recipe) && recipe.inputs.all { (item, units) -> inventory.count(item) >= units } && inventory.count(recipe.output) + recipe.amount <= capacity
+        !done(recipe) && recipe.inputs.all { (item, units) -> spare(item) >= units } && inventory.count(recipe.output) + recipe.amount <= capacity
 
     fun tick(settlements: Collection<Settlement>, outputOf: (Settlement) -> Float) {
         val capacity = Gathering.capacity(settlements)
@@ -71,7 +74,6 @@ class Crafter(private val inventory: Inventory) {
                 carry[key] = minOf(work, 1f)
             }
         }
-        inventory.flush()
     }
 
     /** Every recipe's standing in [settlement] for the panel; [output] is its happiness factor. */

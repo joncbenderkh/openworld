@@ -103,4 +103,13 @@ class HappinessTest {
         assertFalse(Grievance.NO_WARMTH in HappinessModel.of(village, cold, setOf(Product.CLOTHING)).grievances)
         assertEquals(1f, PopulationModel.satisfaction(village, cold, setOf(Product.CLOTHING)))
     }
+
+    @Test
+    fun `a need met by stocked clothing says so`() {
+        val village = Settlement(20, SettlementTier.VILLAGE, 10f)
+        val cold = SettlementSite(IntArray(0), intArrayOf(10, 10, 0), true)
+        val warmth = PopulationModel.status(village, cold, UpgradeResult.TOO_SMALL, setOf(Product.CLOTHING)).needs.first { it.need == Need.WARMTH }
+        assertTrue(warmth.met && warmth.byGoods)
+        assertFalse(PopulationModel.status(village, cold, UpgradeResult.TOO_SMALL, emptySet()).needs.first { it.need == Need.WARMTH }.byGoods)
+    }
 }

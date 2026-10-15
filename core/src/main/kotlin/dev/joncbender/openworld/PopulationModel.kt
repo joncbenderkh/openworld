@@ -33,7 +33,7 @@ class SettlementSite(val tiles: IntArray, private val units: IntArray, val cold:
 enum class Trend { GROWING, STEADY, FULL, DECLINING }
 
 /** How one need stands: [supported] people can be served from the claimed tiles. */
-data class NeedStatus(val need: Need, val supported: Int, val met: Boolean)
+data class NeedStatus(val need: Need, val supported: Int, val met: Boolean, val byGoods: Boolean = false)
 
 /** Everything the panel shows about a settlement. */
 data class SettlementStatus(
@@ -88,7 +88,7 @@ object PopulationModel {
     }
 
     fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Item>): SettlementStatus {
-        val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), served(settlement, site, it, held) >= 1f) }
+        val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), served(settlement, site, it, held) >= 1f, it == Need.WARMTH && Product.CLOTHING in held) }
         val satisfaction = satisfaction(settlement, site, held)
         val happiness = HappinessModel.of(settlement, site, held)
         val trend = when {
