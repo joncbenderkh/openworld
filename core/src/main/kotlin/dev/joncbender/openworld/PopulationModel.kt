@@ -11,7 +11,7 @@ enum class Need(val sources: Set<Resource>) {
  * What a settlement has to work with: the tiles it claims and, per [Need], how many resource units lie on them.
  * Found again only when the settlement or the world changes. A resource that meets two needs (wood) counts toward both.
  */
-class SettlementSite(val tiles: IntArray, private val units: IntArray, val cold: Boolean) {
+class SettlementSite(val tiles: IntArray, private val units: IntArray, val cold: Boolean, val deposits: List<Deposit> = emptyList()) {
     fun supply(need: Need): Int = units[need.ordinal]
 
     companion object {
@@ -20,10 +20,12 @@ class SettlementSite(val tiles: IntArray, private val units: IntArray, val cold:
         fun of(world: CompactWorld, settlement: Settlement): SettlementSite {
             val tiles = SettlementRules.claim(world, settlement.tile, settlement.tier.claimRadius)
             val units = IntArray(Need.entries.size)
-            for (tile in tiles) for (resource in world.world.resourcesAt(tile)) {
+            val deposits = ArrayList<Deposit>()
+            for (tile in tiles) world.world.resourcesAt(tile).forEachIndexed { slot, resource ->
+                deposits += Deposit(tile, slot, resource)
                 for (need in Need.entries) if (resource in need.sources) units[need.ordinal]++
             }
-            return SettlementSite(tiles, units, world.world[settlement.tile] in COLD)
+            return SettlementSite(tiles, units, world.world[settlement.tile] in COLD, deposits)
         }
     }
 }

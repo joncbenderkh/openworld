@@ -18,4 +18,6 @@ data class TileInfo(
     val canFound: FoundResult = FoundResult.NOT_LAND,
     /** Population, needs and whether it can grow, for a settled tile. */
     val status: SettlementStatus? = null,
+    /** Income, stockpile and locked resources, for a settled tile. */
+    val economy: Economy? = null,
 )

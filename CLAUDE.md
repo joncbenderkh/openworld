@@ -169,6 +169,11 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   (a north-facing quad per resource, laid out by count inside the hexagon); built 2 per frame, released with the patch, ~1.5 s after it leaves the view,
   or when the camera pulls back. `core/build/icon-preview.png` (written by `ResourceIconArtTest`) shows every glyph at 4x.
 - Lighting (`Lighting.kt`, `GlobeScreen` shaders): one light fixed in view space (upper left), applied per vertex as ambient 0.62 + diffuse 0.38 * max(dot(position, light), 0) - a unit sphere's position is its normal. `u_lit` is 1 for terrain and 0 for the graticule and selection ring. No biome-color blending at tile boundaries yet.
+- Gathering (`Gathering.kt`, `Deposits.kt`, `Inventory.kt`): each resource slot on a claimed tile is a deposit, keyed `tile * 4 + slot`. Renewable
+  ones yield forever; finite ones draw down a 300-unit store, and what is taken is saved per world (the `deposits` preference, cleared with a new
+  seed). That key depends on the resource order per tile, so a change to resource generation must clear it too. A settlement works only deposits
+  its tier allows, its people spread evenly over them, and the yield goes to one shared stockpile capped by tier storage. Mining runs in the
+  2 s settlement tick (`Gatherer.tick`); the panel's income reads the same allocation (`Gatherer.economy`).
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
   the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set

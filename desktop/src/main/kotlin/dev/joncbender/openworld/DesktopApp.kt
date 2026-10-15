@@ -115,6 +115,11 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                     text("Settlement: ${settlement.tier.name.toDisplayName()}, ${settlement.population.toInt()} of ${settlement.tier.populationCap} people")
                     it.status?.let { status ->
                         text(status.needs.joinToString("   ") { n -> "${n.need.name.toDisplayName()}: ${if (n.met) "ok" else "short"} (${n.supported})" })
+                        it.economy?.let { economy ->
+                            text(economy.incomeLine())
+                            text(economy.stockLine())
+                            economy.lockedLine()?.let(::text)
+                        }
                         if (status.upgrade == UpgradeResult.OK) text("Press U to grow into a ${settlement.tier.next!!.name.lowercase()}")
                     }
                 }
