@@ -15,8 +15,17 @@ enum class SettlementTier(val claimRadius: Int, val populationCap: Int) {
     val next: SettlementTier? get() = entries.getOrNull(ordinal + 1)
 }
 
-/** A settlement on [tile] (a fine tile of the loaded world) with [population] people; fractional, as growth is. */
-data class Settlement(val tile: Int, val tier: SettlementTier, val population: Float = PopulationModel.START)
+/**
+ * A settlement on [tile] (a fine tile of the loaded world) with [population] people; fractional, as growth is.
+ * [allocation] is the player's weight for where those people work, per resource (see [Gathering.shares]); a resource
+ * without one gets the automatic weight, so the default - an empty map - spreads the people evenly over the deposits.
+ */
+data class Settlement(
+    val tile: Int,
+    val tier: SettlementTier,
+    val population: Float = PopulationModel.START,
+    val allocation: Map<Resource, Int> = emptyMap(),
+)
 
 /** Why a settlement can or cannot be founded on a tile. */
 enum class FoundResult { OK, NOT_LAND, OPEN_OCEAN, CLAIMED }

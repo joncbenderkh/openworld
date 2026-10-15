@@ -172,7 +172,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
 - Gathering (`Gathering.kt`, `Deposits.kt`, `Inventory.kt`): each resource slot on a claimed tile is a deposit, keyed `tile * 4 + slot`. Renewable
   ones yield forever; finite ones draw down a 300-unit store, and what is taken is saved per world (the `deposits` preference, cleared with a new
   seed). That key depends on the resource order per tile, so a change to resource generation must clear it too. A settlement works only deposits
-  its tier allows, its people spread evenly over them, and the yield goes to one shared stockpile capped by tier storage. Mining runs in the
+  its tier allows, its people split over the resources by the player's weights (`Settlement.allocation`, saved with the settlement; none means even over the deposits), and the yield goes to one shared stockpile capped by tier storage. Mining runs in the
   2 s settlement tick (`Gatherer.tick`); the panel's income reads the same allocation (`Gatherer.economy`).
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner

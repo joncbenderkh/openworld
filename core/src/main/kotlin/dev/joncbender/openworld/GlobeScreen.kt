@@ -65,6 +65,26 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         }
     }
 
+    /** Sets how much of the selected settlement's people work [resource], relative to the other resources. */
+    fun allocateOnSelection(resource: Resource, weight: Int) {
+        Gdx.app.postRunnable {
+            val tile = selectedTile
+            if (tile < 0 || !worldReady) return@postRunnable
+            settlements.allocate(tile, resource, weight)
+            onTileSelected?.invoke(describe(tile))
+        }
+    }
+
+    /** Puts the selected settlement's people back on the automatic split. */
+    fun allocateAutomaticallyOnSelection() {
+        Gdx.app.postRunnable {
+            val tile = selectedTile
+            if (tile < 0 || !worldReady) return@postRunnable
+            settlements.allocateAutomatically(tile)
+            onTileSelected?.invoke(describe(tile))
+        }
+    }
+
     /** Fraction of tiles that get a resource on (re)generation. Settable from outside (the Android settings menu). */
     var resourceDensity = preferences.getFloat(PREF_RESOURCE_DENSITY, WorldGenerator.DEFAULT_RESOURCE_DENSITY)
         set(value) {

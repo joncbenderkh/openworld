@@ -14,12 +14,20 @@ data class Deposit(val tile: Int, val slot: Int, val resource: Resource) {
     val key: Int get() = tile * SphereWorld.MAX_RESOURCES + slot
 }
 
+/**
+ * How one resource's workers are decided: [weight] is its claim on the population, relative to the other workable
+ * resources' weights ([explicit] when the player set it, else the number of [deposits] it has), and [people] the share of the
+ * population that comes to.
+ */
+data class WorkShare(val resource: Resource, val deposits: Int, val weight: Int, val explicit: Boolean, val people: Float)
+
 /** What a settlement takes in each tick, what is stored, and what its land holds that it cannot work yet. */
 data class Economy(
     val income: Map<Resource, Float>,
     val stock: Map<Resource, Int>,
     val capacity: Int,
     val locked: List<Resource>,
+    val shares: List<WorkShare> = emptyList(),
 ) {
     fun incomeLine(): String =
         if (income.isEmpty()) "Gathers nothing yet" else "Per tick: " + listed(income.entries.map { "${it.key.displayName()} +${String.format(java.util.Locale.ROOT, "%.1f", it.value)}" })
@@ -53,6 +61,9 @@ object Gathering {
     const val DEPOSIT = 300f
     const val PEOPLE_PER_DEPOSIT = 2f
 
+    /** The most weight the player can give one resource. */
+    const val MAX_WEIGHT = 9
+
     // A finite deposit holding less than this counts as spent, so float rounding cannot leave it workable for ever.
     private const val EXHAUSTED = 0.001f
 
@@ -77,12 +88,34 @@ object Gathering {
     /** One deposit's yield in a tick. */
     class Harvest(val deposit: Deposit, val amount: Float)
 
-    /** What each workable deposit of the site yields this tick. Exhausted finite deposits and resources not [wanted] (a full store) are not worked, so they take none of the people. */
+    private fun workable(settlement: Settlement, site: SettlementSite, deposits: Deposits, wanted: (Resource) -> Boolean): List<Deposit> =
+        site.deposits.filter { wanted(it.resource) && spec(it.resource).minTier <= settlement.tier && (spec(it.resource).renewable || deposits.remaining(it) > EXHAUSTED) }
+
+    private fun shares(settlement: Settlement, workable: List<Deposit>): List<WorkShare> {
+        val counts = workable.groupingBy { it.resource }.eachCount().toSortedMap()
+        val weights = counts.mapValues { (resource, count) -> settlement.allocation[resource] ?: count }
+        val total = weights.values.sum()
+        return counts.map { (resource, count) ->
+            val weight = weights.getValue(resource)
+            WorkShare(resource, count, weight, resource in settlement.allocation, if (total > 0) settlement.population * weight / total else 0f)
+        }
+    }
+
+    /** Where the people of [settlement] work, for every resource it can work on its land (a full store does not matter here). */
+    fun shares(settlement: Settlement, site: SettlementSite, deposits: Deposits): List<WorkShare> =
+        shares(settlement, workable(settlement, site, deposits) { true })
+
+    /**
+     * What each workable deposit of the site yields this tick. Exhausted finite deposits and resources not [wanted] (a full store)
+     * are not worked, so they take none of the people. The rest share the population by the [shares] weights, and a resource's
+     * people are spread evenly over its deposits.
+     */
     fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits, wanted: (Resource) -> Boolean = { true }): List<Harvest> {
-        val workable = site.deposits.filter { wanted(it.resource) && spec(it.resource).minTier <= settlement.tier && (spec(it.resource).renewable || deposits.remaining(it) > EXHAUSTED) }
+        val workable = workable(settlement, site, deposits, wanted)
         if (workable.isEmpty()) return emptyList()
-        val effort = minOf(1f, settlement.population / (workable.size * PEOPLE_PER_DEPOSIT))
+        val people = shares(settlement, workable).associate { it.resource to it.people / it.deposits }
         return workable.map {
+            val effort = minOf(1f, people.getValue(it.resource) / PEOPLE_PER_DEPOSIT)
             val rate = if (spec(it.resource).renewable) RENEWABLE_RATE else FINITE_RATE
             val amount = rate * effort * tools(settlement.tier)
             Harvest(it, if (spec(it.resource).renewable) amount else minOf(amount, deposits.remaining(it)))
@@ -143,7 +176,8 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
     /** What [settlement] will take on the next tick, as [tick] hands out the room, plus the store and what is locked. */
     fun economy(settlement: Settlement, settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Economy {
         val income = Gathering.income(plan(settlements, siteOf).filter { it.first == settlement }.map { it.second })
-        return Economy(income, inventory.heldResources(), Gathering.capacity(settlements), Gathering.locked(settlement, siteOf(settlement)))
+        val site = siteOf(settlement)
+        return Economy(income, inventory.heldResources(), Gathering.capacity(settlements), Gathering.locked(settlement, site), Gathering.shares(settlement, site, deposits))
     }
 
     fun clear() = carry.fill(0f)

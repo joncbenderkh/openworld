@@ -11,12 +11,17 @@ class SettlementBook(private val preferences: Preferences) {
     private val byTile = LinkedHashMap<Int, Settlement>().also { map ->
         preferences.getString(KEY, "").split(',').forEach { entry ->
             val parts = entry.split(':')
-            if (parts.size !in 2..3) return@forEach
+            if (parts.size !in 2..4) return@forEach
             val tile = parts[0].toIntOrNull()?.takeIf { it >= 0 } ?: return@forEach
             val tier = SettlementTier.entries.firstOrNull { it.name == parts[1] } ?: return@forEach
             // An entry saved before population existed has none: it starts like a new one.
             val population = parts.getOrNull(2)?.toFloatOrNull()?.takeIf { it.isFinite() } ?: PopulationModel.START
-            map[tile] = Settlement(tile, tier, population.coerceIn(PopulationModel.MIN, tier.populationCap.toFloat()))
+            val allocation = parts.getOrNull(3).orEmpty().split('|').mapNotNull { pair ->
+                val (name, weight) = pair.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
+                val resource = Resource.entries.firstOrNull { it.name == name } ?: return@mapNotNull null
+                resource to (weight.toIntOrNull()?.coerceIn(0, Gathering.MAX_WEIGHT) ?: return@mapNotNull null)
+            }.toMap()
+            map[tile] = Settlement(tile, tier, population.coerceIn(PopulationModel.MIN, tier.populationCap.toFloat()), allocation)
         }
     }
 
@@ -49,6 +54,22 @@ class SettlementBook(private val preferences: Preferences) {
         return result
     }
 
+    /** Sets the weight of [resource] in where the settlement on [tile] puts its people (0 to [Gathering.MAX_WEIGHT]). */
+    fun allocate(tile: Int, resource: Resource, weight: Int) {
+        val settlement = byTile[tile] ?: return
+        byTile[tile] = settlement.copy(allocation = settlement.allocation + (resource to weight.coerceIn(0, Gathering.MAX_WEIGHT)))
+        write()
+        preferences.flush()
+    }
+
+    /** Hands the settlement on [tile] back to the automatic split. */
+    fun allocateAutomatically(tile: Int) {
+        val settlement = byTile[tile]?.takeIf { it.allocation.isNotEmpty() } ?: return
+        byTile[tile] = settlement.copy(allocation = emptyMap())
+        write()
+        preferences.flush()
+    }
+
     /**
      * Replaces every settlement with [change] of it (a simulation tick). This is not a structural change, so
      * [version] stays and nothing is flushed: call [flush] now and then.
@@ -78,8 +99,11 @@ class SettlementBook(private val preferences: Preferences) {
     }
 
     private fun write() {
-        if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" })
+        if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" + allocationText(it) })
     }
+
+    private fun allocationText(settlement: Settlement) =
+        if (settlement.allocation.isEmpty()) "" else ":" + settlement.allocation.entries.joinToString("|") { "${it.key.name}=${it.value}" }
 
     private companion object {
         const val KEY = "settlements"
