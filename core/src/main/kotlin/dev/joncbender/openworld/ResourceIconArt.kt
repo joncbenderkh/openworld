@@ -5,7 +5,7 @@ import kotlin.math.hypot
 import kotlin.math.max
 
 /**
- * Hand-coded glyphs for every [Resource]: simple inked shapes with a dark outline, on a transparent
+ * Hand-coded glyphs for every [Item] (raw [Resource] and crafted [Product]): simple inked shapes with a dark outline, on a transparent
  * background. Pure Kotlin like [BiomeArt], so it can be painted and tested without a GL context.
  *
  * Shapes are written in a 32 x 32 design space (y down) and scaled to whatever size is asked for.
@@ -61,10 +61,10 @@ internal object ResourceIconArt {
         return hypot(x - (x1 + t * dx), y - (y1 + t * dy))
     }
 
-    /** Paints [resource]'s glyph into [out] as [size] x [size] RGBA8888 (packed 0xRRGGBBAA), transparent around it. */
-    fun paint(resource: Resource, size: Int, out: IntArray) {
+    /** Paints [item]'s glyph into [out] as [size] x [size] RGBA8888 (packed 0xRRGGBBAA), transparent around it. */
+    fun paint(item: Item, size: Int, out: IntArray) {
         require(size >= 16 && out.size >= size * size) { "bad icon buffer: size $size, ${out.size} ints" }
-        val glyph = Glyph().also { draw(resource, it) }
+        val glyph = Glyph().also { draw(item, it) }
         val scale = DESIGN / size
 
         // Coverage and premultiplied color of the fill, supersampled.
@@ -122,7 +122,74 @@ internal object ResourceIconArt {
         }
     }
 
-    private fun draw(resource: Resource, g: Glyph) {
+    private fun draw(item: Item, g: Glyph) = when (item) {
+        is Resource -> drawResource(item, g)
+        is Product -> drawProduct(item, g)
+        else -> error("unknown item $item")
+    }
+
+    private fun drawProduct(product: Product, g: Glyph) {
+        when (product) {
+            Product.METAL -> {
+                g.poly(0x7D8896, 5f, 24f, 9f, 13f, 23f, 13f, 27f, 24f)
+                g.poly(0xC5CEDA, 9f, 13f, 23f, 13f, 22f, 17f, 10f, 17f)
+                g.seg(0xF2F5F8, 12f, 15f, 19f, 15f, 1.2f)
+            }
+            Product.TOOLS -> {
+                g.seg(0x8A5A2B, 8f, 26f, 20f, 12f, 3f)
+                g.poly(0x9AA3AF, 14f, 8f, 26f, 8f, 28f, 13f, 16f, 16f)
+                g.seg(0xD6DCE4, 16f, 10f, 25f, 10f, 1.2f)
+            }
+            Product.FLOUR -> {
+                g.poly(0xE9DEC0, 8f, 26f, 10f, 12f, 22f, 12f, 24f, 26f)
+                g.rect(0xA78B5A, 11f, 8f, 10f, 4f)
+                g.seg(0xC8B88F, 12f, 18f, 20f, 18f, 1.2f)
+                g.seg(0xC8B88F, 12f, 22f, 20f, 22f, 1.2f)
+            }
+            Product.BREAD -> {
+                g.ellipse(0xC98A3C, 16f, 19f, 11f, 7f)
+                g.ellipse(0xE3B067, 16f, 17f, 8f, 3.5f)
+                g.seg(0x9A6425, 11f, 15f, 13f, 21f, 1.1f)
+                g.seg(0x9A6425, 16f, 14f, 18f, 21f, 1.1f)
+                g.seg(0x9A6425, 21f, 15f, 23f, 21f, 1.1f)
+            }
+            Product.PRESERVED_FISH -> {
+                g.rect(0xB8C0C8, 7f, 12f, 18f, 12f)
+                g.ellipse(0xDDE3E8, 16f, 12f, 9f, 3.5f)
+                g.ellipse(0x4FA3D9, 14f, 19f, 5f, 2.5f)
+                g.poly(0x4FA3D9, 18f, 19f, 22f, 16f, 22f, 22f)
+            }
+            Product.CLOTHING -> {
+                g.poly(0x3F6FA8, 4f, 12f, 11f, 6f, 14f, 8f, 18f, 8f, 21f, 6f, 28f, 12f, 24f, 16f, 22f, 14f, 22f, 26f, 10f, 26f, 10f, 14f, 8f, 16f)
+                g.ellipse(0x2C4F7A, 16f, 8f, 2.6f, 1.6f)
+            }
+            Product.BUILDING_MATERIALS -> {
+                g.rect(0xC9654A, 9f, 6f, 14f, 7f)
+                g.rect(0xB5533C, 4f, 15f, 12f, 8f)
+                g.rect(0xB5533C, 18f, 15f, 10f, 8f)
+            }
+            Product.JEWELRY -> {
+                g.seg(0xE3B100, 8f, 6f, 16f, 13f, 1.4f)
+                g.seg(0xE3B100, 24f, 6f, 16f, 13f, 1.4f)
+                g.poly(0xE04A7A, 16f, 26f, 10f, 18f, 12f, 13f, 20f, 13f, 22f, 18f)
+                g.poly(0xF59AB8, 12f, 13f, 20f, 13f, 18f, 17f, 14f, 17f)
+            }
+            Product.FUEL -> {
+                g.rect(0xC8402E, 8f, 9f, 16f, 17f)
+                g.rect(0xC8402E, 17f, 5f, 6f, 5f)
+                g.circle(0xFFD84A, 16f, 20f, 3.2f)
+                g.poly(0xFFD84A, 16f, 13f, 13f, 19f, 19f, 19f)
+            }
+            Product.EXPLOSIVES -> {
+                g.rect(0xC83A2E, 10f, 11f, 12f, 15f)
+                g.rect(0xF1E3B5, 10f, 16f, 12f, 4f)
+                g.seg(0x8A6A3B, 16f, 11f, 19f, 7f, 1.2f)
+                g.circle(0xFFC83A, 20f, 6f, 1.8f)
+            }
+        }
+    }
+
+    private fun drawResource(resource: Resource, g: Glyph) {
         when (resource) {
             Resource.FISH -> {
                 g.poly(0x4FA3D9, 21f, 16f, 28f, 9f, 28f, 23f)

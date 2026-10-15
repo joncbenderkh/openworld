@@ -10,20 +10,20 @@ import kotlin.test.assertTrue
 class ResourceIconArtTest {
     private val size = ResourceIcons.CELL_SIZE
 
-    private fun paint(resource: Resource): IntArray = IntArray(size * size).also { ResourceIconArt.paint(resource, size, it) }
+    private fun paint(resource: Item): IntArray = IntArray(size * size).also { ResourceIconArt.paint(resource, size, it) }
 
     private fun alpha(pixel: Int) = pixel and 0xFF
 
     @Test
     fun `painting is deterministic and every resource has its own glyph`() {
-        val glyphs = Resource.entries.map { paint(it) }
-        for ((i, glyph) in glyphs.withIndex()) assertTrue(glyph.contentEquals(paint(Resource.entries[i])), "${Resource.entries[i]}")
+        val glyphs = Items.all.map { paint(it) }
+        for ((i, glyph) in glyphs.withIndex()) assertTrue(glyph.contentEquals(paint(Items.all[i])), "${Items.all[i]}")
         assertEquals(glyphs.size, glyphs.map { it.toList() }.toSet().size, "two resources share a glyph")
     }
 
     @Test
     fun `a glyph is a visible shape with room around it`() {
-        for (resource in Resource.entries) {
+        for (resource in Items.all) {
             val pixels = paint(resource)
             val covered = pixels.count { alpha(it) > 128 }
             assertTrue(covered in 90..700, "$resource covers $covered of ${size * size} pixels")
@@ -39,7 +39,7 @@ class ResourceIconArtTest {
 
     @Test
     fun `a glyph has a dark outline`() {
-        for (resource in Resource.entries) {
+        for (resource in Items.all) {
             val pixels = paint(resource)
             val dark = pixels.count { alpha(it) > 200 && ((it ushr 24) and 0xFF) < 70 && ((it ushr 16) and 0xFF) < 70 && ((it ushr 8) and 0xFF) < 70 }
             assertTrue(dark > 20, "$resource has only $dark outline pixels")
@@ -49,10 +49,10 @@ class ResourceIconArtTest {
     @Test
     fun `every resource has a cell inside the atlas, with its UVs inside that cell`() {
         val uv = FloatArray(4)
-        for (resource in Resource.entries) {
+        for (resource in Items.all) {
             ResourceIcons.uvRect(resource, uv, 0)
-            val col = resource.ordinal % ResourceIcons.COLS
-            val row = resource.ordinal / ResourceIcons.COLS
+            val col = Items.slot(resource) % ResourceIcons.COLS
+            val row = Items.slot(resource) / ResourceIcons.COLS
             assertTrue(uv[0] > col / ResourceIcons.COLS.toFloat() && uv[2] < (col + 1) / ResourceIcons.COLS.toFloat(), "$resource u")
             assertTrue(uv[1] > row / ResourceIcons.ROWS.toFloat() && uv[3] < (row + 1) / ResourceIcons.ROWS.toFloat(), "$resource v")
             assertTrue(uv[0] < uv[2] && uv[1] < uv[3])
@@ -63,11 +63,11 @@ class ResourceIconArtTest {
     fun `writes a preview of every icon at 4x`() {
         val scale = 4
         val cols = ResourceIcons.COLS
-        val image = BufferedImage(cols * size * scale, ((Resource.entries.size + cols - 1) / cols) * size * scale, BufferedImage.TYPE_INT_ARGB)
-        for (resource in Resource.entries) {
+        val image = BufferedImage(cols * size * scale, ((Items.all.size + cols - 1) / cols) * size * scale, BufferedImage.TYPE_INT_ARGB)
+        for (resource in Items.all) {
             val pixels = paint(resource)
-            val x0 = resource.ordinal % cols * size * scale
-            val y0 = resource.ordinal / cols * size * scale
+            val x0 = Items.slot(resource) % cols * size * scale
+            val y0 = Items.slot(resource) / cols * size * scale
             for (y in 0 until size * scale) {
                 for (x in 0 until size * scale) {
                     val p = pixels[(y / scale) * size + x / scale]
