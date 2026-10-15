@@ -73,7 +73,7 @@ object PopulationModel {
         return wanted.minOf { minOf(1f, site.supply(it) * PEOPLE_PER_UNIT / settlement.population) }
     }
 
-    fun step(settlement: Settlement, site: SettlementSite, held: Set<Resource> = emptySet()): Settlement {
+    fun step(settlement: Settlement, site: SettlementSite, held: Set<Resource>): Settlement {
         val happiness = HappinessModel.of(settlement, site, held)
         val base = maxOf(settlement.population, GROWTH_BASE)
         val change = when {
@@ -84,7 +84,7 @@ object PopulationModel {
         return settlement.copy(population = grown)
     }
 
-    fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Resource> = emptySet()): SettlementStatus {
+    fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Resource>): SettlementStatus {
         val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), site.supply(it) * PEOPLE_PER_UNIT >= settlement.population) }
         val satisfaction = satisfaction(settlement, site)
         val happiness = HappinessModel.of(settlement, site, held)

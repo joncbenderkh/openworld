@@ -48,6 +48,7 @@ object HappinessModel {
 
         const val UNREST = 0.25f
         const val CONTENT = 0.5f
+        /** Only the label: output is already full from [CONTENT]. */
         const val HAPPY = 0.8f
 
         /** Share of the people who leave in a tick of unrest. */
@@ -75,7 +76,7 @@ object HappinessModel {
         val share = settlement.population / settlement.tier.populationCap
         val crowding = ((share - Tuning.CROWDING_FROM) / (1f - Tuning.CROWDING_FROM)).coerceIn(0f, 1f)
         if (crowding > 0f) grievances += Grievance.CROWDED
-        val value = (Tuning.BASE + met.min() * Tuning.NEEDS + variety * Tuning.VARIETY + luxury * Tuning.LUXURY - crowding * Tuning.CROWDING).coerceIn(0f, 1f)
+        val value = (Tuning.BASE + (met.minOrNull() ?: 1f) * Tuning.NEEDS + variety * Tuning.VARIETY + luxury * Tuning.LUXURY - crowding * Tuning.CROWDING).coerceIn(0f, 1f)
         val mood = when {
             value < Tuning.UNREST -> Mood.UNREST
             value < Tuning.CONTENT -> Mood.UNHAPPY

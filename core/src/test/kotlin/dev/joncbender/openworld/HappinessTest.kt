@@ -58,7 +58,7 @@ class HappinessTest {
         val starving = SettlementSite(IntArray(0), intArrayOf(0, 0, 0), false, listOf(Deposit(1, 0, grain)))
         val deposits = Deposits(FakePreferences())
         assertEquals(0f, Gathering.harvest(homestead, starving, deposits, 0f).sumOf { it.amount.toDouble() }.toFloat())
-        assertTrue(PopulationModel.step(homestead, starving).population < homestead.population)
+        assertTrue(PopulationModel.step(homestead, starving, emptySet()).population < homestead.population)
     }
 
     @Test
@@ -66,8 +66,18 @@ class HappinessTest {
         val village = Settlement(20, SettlementTier.VILLAGE, 27f)
         val unhappy = SettlementSite(IntArray(0), intArrayOf(3, 3, 0), false)
         // Satisfaction 0.56 would add 27 * 0.05 * 0.11 = 0.15 people, but happiness 0.48 holds that back.
-        val grown = PopulationModel.step(village, unhappy).population - 27f
+        val grown = PopulationModel.step(village, unhappy, emptySet()).population - 27f
         assertTrue(grown > 0f)
         assertTrue(grown < 0.15f)
+    }
+
+    @Test
+    fun `a starving settlement loses a tenth of its people a tick down to one`() {
+        val starving = SettlementSite(IntArray(0), intArrayOf(0, 0, 0), false)
+        var settlement = Settlement(20, SettlementTier.VILLAGE, 40f)
+        settlement = PopulationModel.step(settlement, starving, emptySet())
+        assertEquals(36f, settlement.population, 1e-4f)
+        repeat(100) { settlement = PopulationModel.step(settlement, starving, emptySet()) }
+        assertEquals(PopulationModel.MIN, settlement.population)
     }
 }
