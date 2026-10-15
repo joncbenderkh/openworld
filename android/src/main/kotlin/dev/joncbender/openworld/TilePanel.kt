@@ -210,11 +210,11 @@ class TilePanel(
                     addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                     addView(
                         ink.roundButton("−", "Fewer people on $name") { if (share.weight > 0) onAllocate(tile, share.resource, share.weight - 1) }
-                            .apply { alpha = if (share.weight > 0) 1f else DIMMED },
+                            .apply { isEnabled = share.weight > 0; alpha = if (isEnabled) 1f else DIMMED },
                     )
                     addView(
                         ink.roundButton("+", "More people on $name") { if (share.weight < Gathering.MAX_WEIGHT) onAllocate(tile, share.resource, share.weight + 1) }
-                            .apply { alpha = if (share.weight < Gathering.MAX_WEIGHT) 1f else DIMMED },
+                            .apply { isEnabled = share.weight < Gathering.MAX_WEIGHT; alpha = if (isEnabled) 1f else DIMMED },
                         LinearLayout.LayoutParams(ink.dp(InkPalette.TOUCH_DP), ink.dp(InkPalette.TOUCH_DP)).apply { marginStart = ink.dp(8f) },
                     )
                 },
