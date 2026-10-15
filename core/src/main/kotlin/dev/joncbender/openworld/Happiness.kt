@@ -54,8 +54,14 @@ object HappinessModel {
         /** Share of the people who leave in a tick of unrest. */
         const val LEAVE_RATE = 0.1f
 
+        /** Units of a luxury the stockpile must hold for it to count, so one unit coming and going does not flicker the mood. */
+        const val STOCKED = 10
+
         val LUXURIES = setOf(Resource.SPICES, Resource.PEARLS, Resource.GEMS, Resource.GOLD)
     }
+
+    /** The resources [counts] holds enough of to count toward happiness. */
+    fun stocked(counts: Map<Resource, Int>): Set<Resource> = counts.filterValues { it >= Tuning.STOCKED }.keys
 
     fun of(settlement: Settlement, site: SettlementSite, held: Set<Resource>): Happiness {
         val grievances = ArrayList<Grievance>()

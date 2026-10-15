@@ -147,7 +147,7 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
 
     private fun plan(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Plan {
         val room = FloatArray(Resource.entries.size) { Gathering.capacity(settlements) - inventory.count(Resource.entries[it]) - carry[it] }
-        val held = inventory.heldResources().keys
+        val held = HappinessModel.stocked(inventory.heldResources())
         val taken = ArrayList<Pair<Settlement, Gathering.Harvest>>()
         val shares = HashMap<Int, List<WorkShare>>()
         for (settlement in settlements) {

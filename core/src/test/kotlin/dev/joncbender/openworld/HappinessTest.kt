@@ -80,4 +80,10 @@ class HappinessTest {
         repeat(100) { settlement = PopulationModel.step(settlement, starving, emptySet()) }
         assertEquals(PopulationModel.MIN, settlement.population)
     }
+
+    @Test
+    fun `a luxury counts only once enough of it is stocked`() {
+        val stocked = HappinessModel.stocked(mapOf(Resource.SPICES to 1, Resource.GEMS to HappinessModel.Tuning.STOCKED))
+        assertEquals(setOf(Resource.GEMS), stocked)
+    }
 }
