@@ -24,8 +24,8 @@ class TilePanel(
     onClose: () -> Unit,
     private val onFound: () -> Unit,
     private val onUpgrade: () -> Unit,
-    private val onAllocate: (Resource, Int) -> Unit,
-    private val onAutomatic: () -> Unit,
+    private val onAllocate: (Int, Resource, Int) -> Unit,
+    private val onAutomatic: (Int) -> Unit,
 ) {
     private val eyebrow = ink.label("Selected tile")
     private val biome = ink.title("")
@@ -166,19 +166,20 @@ class TilePanel(
             allocationOpen = false
             allocationKey = ""
         }
-        val key = "$allocationOpen:" + shares.joinToString { "${it.resource}${it.weight}${it.explicit}" }
+        // The saved weights, not just those of resources that can be worked now: a weight on an exhausted resource still needs the reset.
+        val key = "$allocationOpen:${info.settlement?.allocation.orEmpty()}:" + shares.joinToString { "${it.resource}${it.weight}${it.explicit}" }
         if (key != allocationKey) {
             allocationKey = key
             val scrolled = allocationScroll?.scrollY ?: 0
             allocationBox.removeAllViews()
             shareText.clear()
             allocationScroll = null
-            if (shares.isNotEmpty()) buildAllocation(shares, scrolled)
+            if (shares.isNotEmpty()) buildAllocation(info.faceIndex, shares, info.settlement?.allocation.orEmpty().isNotEmpty(), scrolled)
         }
         shares.forEach { shareText[it.resource]?.text = shareLabel(it, info.economy!!) }
     }
 
-    private fun buildAllocation(shares: List<WorkShare>, scrolled: Int) {
+    private fun buildAllocation(tile: Int, shares: List<WorkShare>, anySet: Boolean, scrolled: Int) {
         val context = view.context
         val below = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(12f) }
         allocationBox.addView(
@@ -201,11 +202,11 @@ class TilePanel(
                     minimumHeight = ink.dp(InkPalette.TOUCH_DP)
                     addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                     addView(
-                        ink.roundButton("−", "Fewer people on $name") { if (share.weight > 0) onAllocate(share.resource, share.weight - 1) }
+                        ink.roundButton("−", "Fewer people on $name") { if (share.weight > 0) onAllocate(tile, share.resource, share.weight - 1) }
                             .apply { alpha = if (share.weight > 0) 1f else DIMMED },
                     )
                     addView(
-                        ink.roundButton("+", "More people on $name") { if (share.weight < Gathering.MAX_WEIGHT) onAllocate(share.resource, share.weight + 1) }
+                        ink.roundButton("+", "More people on $name") { if (share.weight < Gathering.MAX_WEIGHT) onAllocate(tile, share.resource, share.weight + 1) }
                             .apply { alpha = if (share.weight < Gathering.MAX_WEIGHT) 1f else DIMMED },
                         LinearLayout.LayoutParams(ink.dp(InkPalette.TOUCH_DP), ink.dp(InkPalette.TOUCH_DP)).apply { marginStart = ink.dp(8f) },
                     )
@@ -223,8 +224,8 @@ class TilePanel(
         allocationScroll = scroll
         allocationBox.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, minOf((row * shown).toInt(), room)))
         scroll.post { scroll.scrollTo(0, scrolled) }
-        if (shares.any { it.explicit }) {
-            allocationBox.addView(ink.textButton("Split evenly again", onAutomatic))
+        if (anySet) {
+            allocationBox.addView(ink.textButton("Split evenly again") { onAutomatic(tile) })
         } else {
             allocationBox.addView(ink.meta("Split evenly over the deposits"))
         }

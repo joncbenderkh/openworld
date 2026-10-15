@@ -65,23 +65,21 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         }
     }
 
-    /** Sets how much of the selected settlement's people work [resource], relative to the other resources. */
-    fun allocateOnSelection(resource: Resource, weight: Int) {
+    /** Sets how much of the settlement on [tile] works [resource], relative to the other resources. */
+    fun allocate(tile: Int, resource: Resource, weight: Int) {
         Gdx.app.postRunnable {
-            val tile = selectedTile
-            if (tile < 0 || !worldReady) return@postRunnable
+            if (!worldReady) return@postRunnable
             settlements.allocate(tile, resource, weight)
-            onTileSelected?.invoke(describe(tile))
+            if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
 
-    /** Puts the selected settlement's people back on the automatic split. */
-    fun allocateAutomaticallyOnSelection() {
+    /** Puts the settlement on [tile] back on the automatic split. */
+    fun allocateAutomatically(tile: Int) {
         Gdx.app.postRunnable {
-            val tile = selectedTile
-            if (tile < 0 || !worldReady) return@postRunnable
+            if (!worldReady) return@postRunnable
             settlements.allocateAutomatically(tile)
-            onTileSelected?.invoke(describe(tile))
+            if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
 
