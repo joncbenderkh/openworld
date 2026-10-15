@@ -41,6 +41,7 @@ data class SettlementStatus(
     val needs: List<NeedStatus>,
     val trend: Trend,
     val upgrade: UpgradeResult,
+    val happiness: Happiness,
 )
 
 /**
@@ -72,21 +73,28 @@ object PopulationModel {
         return wanted.minOf { minOf(1f, site.supply(it) * PEOPLE_PER_UNIT / settlement.population) }
     }
 
-    fun step(settlement: Settlement, site: SettlementSite): Settlement {
-        val change = maxOf(settlement.population, GROWTH_BASE) * GROWTH_RATE * (2 * satisfaction(settlement, site) - 1)
+    fun step(settlement: Settlement, site: SettlementSite, held: Set<Resource> = emptySet()): Settlement {
+        val happiness = HappinessModel.of(settlement, site, held)
+        val base = maxOf(settlement.population, GROWTH_BASE)
+        val change = when {
+            happiness.mood == Mood.UNREST -> -base * HappinessModel.Tuning.LEAVE_RATE
+            else -> base * GROWTH_RATE * (2 * satisfaction(settlement, site) - 1).let { if (it > 0f) it * happiness.output else it }
+        }
         val grown = (settlement.population + change).coerceIn(MIN, settlement.tier.populationCap.toFloat())
         return settlement.copy(population = grown)
     }
 
-    fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult): SettlementStatus {
+    fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Resource> = emptySet()): SettlementStatus {
         val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), site.supply(it) * PEOPLE_PER_UNIT >= settlement.population) }
         val satisfaction = satisfaction(settlement, site)
+        val happiness = HappinessModel.of(settlement, site, held)
         val trend = when {
+            happiness.mood == Mood.UNREST -> Trend.DECLINING
             satisfaction < 0.5f -> Trend.DECLINING
             settlement.population >= settlement.tier.populationCap -> Trend.FULL
-            satisfaction > 0.5f -> Trend.GROWING
+            satisfaction > 0.5f && happiness.output > 0f -> Trend.GROWING
             else -> Trend.STEADY
         }
-        return SettlementStatus(settlement, needs, trend, upgrade)
+        return SettlementStatus(settlement, needs, trend, upgrade, happiness)
     }
 }

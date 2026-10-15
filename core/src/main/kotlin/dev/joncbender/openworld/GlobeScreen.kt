@@ -801,7 +801,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         tickClock -= TICK_SECONDS
         // Gather before growing: the people who work this tick's deposits are the ones counted in the panel.
         gatherer.tick(settlements.all, ::siteOf)
-        settlements.update { PopulationModel.step(it, siteOf(it)) }
+        val held = inventory.heldResources().keys
+        settlements.update { PopulationModel.step(it, siteOf(it), held) }
         if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
             ticksSinceFlush = 0
             settlements.flush()
@@ -1035,7 +1036,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             settlements.at(tile),
             SettlementRules.canFound(compact, tile, settlements.all),
             settlements.at(tile)?.let {
-                PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all))
+                PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all), inventory.heldResources().keys)
             },
             settlements.at(tile)?.let { gatherer.economy(it, settlements.all, ::siteOf) },
         )

@@ -57,7 +57,7 @@ class PopulationModelTest {
         assertEquals(2.2f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 2f), site).population, 1e-4f)
         val starving = SettlementSite(IntArray(0), intArrayOf(0, 0, 0), false)
         assertEquals(1.0f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 1.1f), starving).population, 1e-4f)
-        assertEquals(1.8f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 2f), starving).population, 1e-4f)
+        assertEquals(1.6f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 2f), starving).population, 1e-4f)
     }
 
     @Test
