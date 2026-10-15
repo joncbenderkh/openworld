@@ -294,7 +294,7 @@ class TilePanel(
             val name = status.recipe.output.displayName()
             val label = ink.bodyText("").apply { gravity = Gravity.CENTER_VERTICAL }
             craftText[status.recipe.output] = label
-            val toggle = ink.switch(status.enabled) { on -> onCraft(tile, status.recipe.output, on) }.apply {
+            val toggle = ink.switch(status.enabled && !status.locked) { on -> onCraft(tile, status.recipe.output, on) }.apply {
                 contentDescription = "Make $name"
                 isEnabled = !status.locked
                 alpha = if (status.locked) DIMMED else 1f
@@ -345,7 +345,7 @@ class TilePanel(
     }
 
     private fun statusKey(status: SettlementStatus) =
-        "${status.settlement.tier}:${status.settlement.population.toInt()}:${status.trend}:${status.upgrade}:${status.happiness.mood}:${status.happiness.grievances}:${status.needs.map { it.supported to it.met }}"
+        "${status.settlement.tier}:${status.settlement.population.toInt()}:${status.trend}:${status.upgrade}:${status.happiness.mood}:${status.happiness.grievances}:${status.needs.map { Triple(it.supported, it.met, it.byGoods) }}"
 
     private fun trendText(trend: Trend) = when (trend) {
         Trend.GROWING -> "growing"
@@ -357,6 +357,7 @@ class TilePanel(
     private fun needText(need: NeedStatus): String {
         val name = need.need.name.toDisplayName()
         return when {
+            need.byGoods -> "$name: kept by clothing"
             need.supported == 0 -> "$name: none on its land"
             need.met -> "$name: enough for ${need.supported}"
             else -> "$name: only enough for ${need.supported}"

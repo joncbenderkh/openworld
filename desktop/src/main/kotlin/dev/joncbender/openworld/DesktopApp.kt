@@ -117,7 +117,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                     text("Settlement: ${settlement.tier.name.toDisplayName()}, ${settlement.population.toInt()} of ${settlement.tier.populationCap} people")
                     it.status?.let { status ->
                         text(status.happiness.line())
-                        text(status.needs.joinToString("   ") { n -> "${n.need.name.toDisplayName()}: ${if (n.met) "ok" else "short"} (${n.supported})" })
+                        text(status.needs.joinToString("   ") { n -> "${n.need.name.toDisplayName()}: ${if (n.met) "ok" else "short"} (${if (n.byGoods) "clothing" else n.supported.toString()})" })
                         it.economy?.let { economy ->
                             text(economy.incomeLine())
                             text(economy.stockLine())
