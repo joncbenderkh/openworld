@@ -198,7 +198,9 @@ class TilePanel(
         allocationBox.addView(
             ink.secondaryButton(if (allocationOpen) "Hide assignments" else "Assign people") {
                 allocationOpen = !allocationOpen
-                allocationInfo?.let(::showAllocation)
+                // One list at a time: two together would not fit a short screen, and the panel does not scroll.
+                if (allocationOpen) craftingOpen = false
+                allocationInfo?.let { showAllocation(it); showCrafting(it) }
             },
             below,
         )
@@ -284,7 +286,8 @@ class TilePanel(
         craftingBox.addView(
             ink.secondaryButton(if (craftingOpen) "Hide crafting" else "Crafting") {
                 craftingOpen = !craftingOpen
-                craftingInfo?.let(::showCrafting)
+                if (craftingOpen) allocationOpen = false
+                craftingInfo?.let { showAllocation(it); showCrafting(it) }
             },
             below,
         )

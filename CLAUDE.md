@@ -164,7 +164,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   halving, which never mixes two cells down to level 6 (a cell is 64 px); min filter `MipMapNearestLinear` (nearest
   texel within a level, linear between levels), mag `Nearest`. A faraway tile therefore shows its biome's mean color
   instead of grain. `core/build/atlas-preview.png` (written by `BiomeArtTest`) shows every cell at 3x.
-- Resource icons (`ResourceIconArt.kt`, `ResourceIcons.kt`, `ResourceIconLayer.kt`): an 18-glyph atlas of its own (8 x 4 cells of 32 px, linear
+- Resource icons (`ResourceIconArt.kt`, `ResourceIcons.kt`, `ResourceIconLayer.kt`): a 28-glyph atlas of its own (the 18 resources, then the 10 crafted products, numbered by `Items.slot`; 8 x 4 cells of 32 px, linear
   filter, drawn blended with the terrain shader). Below camera distance 1.25 (off above 1.3) each visible near patch gets one small icon mesh
   (a north-facing quad per resource, laid out by count inside the hexagon); built 2 per frame, released with the patch, ~1.5 s after it leaves the view,
   or when the camera pulls back. `core/build/icon-preview.png` (written by `ResourceIconArtTest`) shows every glyph at 4x.
@@ -182,7 +182,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   Recipes are a data table (`Recipes.ALL`: inputs, amount, ticks, minimum tier; a test checks none makes units from nothing or loops). A settlement
   crafts every recipe its tier allows and the player has not switched off (`Settlement.recipesOff`, saved under the `recipes_off` key with the
   world seed), at a rate set by its people and mood (`Crafting.batches`), from the shared stockpile, in the 2 s tick after gathering (`Crafter`).
-  A recipe rests once `Crafting.Tuning.TARGET` of its product is held, so inputs do not drain into goods nothing uses. Effects (a good counts as stocked from `HappinessModel.Tuning.STOCKED` = 10 units, the same rule as luxuries): tools (`Gathering.CRAFTED_TOOLS`) raise every yield, clothing meets WARMTH, jewelry is a luxury. Product counts are saved with the world seed (`inventory_products_seed`). Buildings (#108)
+  A recipe rests once `Crafting.Tuning.TARGET` of its product is held, so inputs do not drain into goods nothing uses. Effects (a good counts as stocked from `HappinessModel.Tuning.STOCKED` = 10 units, the same rule as luxuries): tools (`Gathering.CRAFTED_TOOLS`) raise every yield, clothing meets WARMTH, jewelry is a luxury. Product counts are saved with the world seed (`inventory_products_seed`). Settlements craft in list order from the shared stock, so with scarce inputs the first one wins (as gathering shares room). The panel opens one of its lists (assignments, crafting) at a time. Buildings (#108)
   will add a requirement to `Recipe`.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
