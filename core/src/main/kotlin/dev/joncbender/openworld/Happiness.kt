@@ -17,15 +17,18 @@ enum class Grievance(val text: String) {
 enum class Mood(val text: String) { UNREST("unrest"), UNHAPPY("unhappy"), CONTENT("content"), HAPPY("happy") }
 
 /** How happy a settlement is: [value] 0..1, the [mood] it falls in, the [grievances] holding it back and the [output] factor it implies. */
-data class Happiness(val value: Float, val mood: Mood, val grievances: List<Grievance>, val output: Float)
+data class Happiness(val value: Float, val mood: Mood, val grievances: List<Grievance>, val output: Float) {
+    /** One line for a panel: the mood, then what holds it back. */
+    fun line(): String = "Mood: ${mood.text}" + if (grievances.isEmpty()) "" else "  ·  " + grievances.joinToString(", ") { it.text }
+}
 
 /**
  * Happiness. Pure like [PopulationModel]: it depends on the settlement, its site and which resources the shared
  * stockpile holds. Every number is in [Tuning] so the balance can change without touching the logic.
  *
  * Value = [Tuning.BASE] + worst-met need * [Tuning.NEEDS] + variety * [Tuning.VARIETY] + luxuries * [Tuning.LUXURY]
- * - crowding * [Tuning.CROWDING]. Between [Tuning.UNREST] and [Tuning.CONTENT] output (gathering, and growth when
- * positive) falls from full to none; below [Tuning.UNREST] output stops and people leave.
+ * - crowding * [Tuning.CROWDING]. Output (gathering, and growth when positive) falls linearly from full at [Tuning.CONTENT]
+ * to none at [Tuning.UNREST]; below [Tuning.UNREST] output stops and people leave.
  *
  * Distance from trade partners is not modelled yet (there are no trade routes).
  */
@@ -66,7 +69,7 @@ object HappinessModel {
     fun of(settlement: Settlement, site: SettlementSite, held: Set<Resource>): Happiness {
         val grievances = ArrayList<Grievance>()
         val wanted = PopulationModel.needs(settlement.tier, site.cold)
-        val met = wanted.map { minOf(1f, site.supply(it) * PopulationModel.PEOPLE_PER_UNIT / settlement.population) }
+        val met = wanted.map { PopulationModel.served(settlement, site, it) }
         wanted.forEachIndexed { i, need ->
             when {
                 site.supply(need) == 0 -> grievances += none(need)

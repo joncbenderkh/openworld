@@ -175,8 +175,8 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   its tier allows, its people split over the resources by the player's weights (`Settlement.allocation`, saved with the settlement; none means even over the deposits), and the yield goes to one shared stockpile capped by tier storage. Mining runs in the
   2 s settlement tick (`Gatherer.tick`); the panel's income reads the same allocation (`Gatherer.economy`).
 - Happiness (`Happiness.kt`): derived, never stored - 0..1 from the worst-met need, variety of need-meeting resources on the land, luxuries
-  (`Tuning.LUXURIES`) in the stockpile and crowding near the tier's cap. Output (gathering, and growth when positive) falls to none between
-  `Tuning.CONTENT` and `Tuning.UNREST`; below it people leave. Every number is in `HappinessModel.Tuning`. The panel lists the grievances.
+  (`Tuning.LUXURIES`) in the stockpile and crowding near the tier's cap. Output (gathering, and growth when positive) falls linearly from full at
+  `Tuning.CONTENT` to none at `Tuning.UNREST`; below it people leave. Every number is in `HappinessModel.Tuning`. The panel lists the grievances.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
   the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set

@@ -67,11 +67,13 @@ object PopulationModel {
 
     fun supported(site: SettlementSite, need: Need): Int = (site.supply(need) * PEOPLE_PER_UNIT).toInt()
 
+    /** Share of the population [need] serves, 0..1. */
+    fun served(settlement: Settlement, site: SettlementSite, need: Need): Float =
+        minOf(1f, site.supply(need) * PEOPLE_PER_UNIT / settlement.population)
+
     /** Share of the population the worst-met need serves, 0..1. */
-    fun satisfaction(settlement: Settlement, site: SettlementSite): Float {
-        val wanted = needs(settlement.tier, site.cold)
-        return wanted.minOf { minOf(1f, site.supply(it) * PEOPLE_PER_UNIT / settlement.population) }
-    }
+    fun satisfaction(settlement: Settlement, site: SettlementSite): Float =
+        needs(settlement.tier, site.cold).minOf { served(settlement, site, it) }
 
     fun step(settlement: Settlement, site: SettlementSite, held: Set<Resource>): Settlement {
         val happiness = HappinessModel.of(settlement, site, held)
@@ -85,7 +87,7 @@ object PopulationModel {
     }
 
     fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Resource>): SettlementStatus {
-        val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), site.supply(it) * PEOPLE_PER_UNIT >= settlement.population) }
+        val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), served(settlement, site, it) >= 1f) }
         val satisfaction = satisfaction(settlement, site)
         val happiness = HappinessModel.of(settlement, site, held)
         val trend = when {
