@@ -22,7 +22,7 @@ data class Economy(
     val locked: List<Resource>,
 ) {
     fun incomeLine(): String =
-        if (income.isEmpty()) "Gathers nothing yet" else "Per tick: " + listed(income.entries.map { "${it.key.displayName()} +${"%.1f".format(it.value)}" })
+        if (income.isEmpty()) "Gathers nothing yet" else "Per tick: " + listed(income.entries.map { "${it.key.displayName()} +${String.format(java.util.Locale.ROOT, "%.1f", it.value)}" })
 
     fun stockLine(): String =
         if (stock.isEmpty()) "Stockpile empty (holds $capacity of each)"
