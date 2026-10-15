@@ -41,6 +41,15 @@ class SettlementBook(private val preferences: Preferences) {
             val off = names.split('|').mapNotNull { name -> Product.entries.firstOrNull { it.name == name } }.toSet()
             map[settlement.tile] = settlement.copy(recipesOff = off)
         }
+        // And what has been built, the same way.
+        val savedBuilt = preferences.getString(BUILDINGS_KEY, "").split('/', limit = 2)
+        val currentBuilt = savedBuilt.size == 2 && savedBuilt[0] == worldSeed().toString()
+        (if (currentBuilt) savedBuilt[1] else "").split(',').forEach { entry ->
+            val (tile, names) = entry.split(':').takeIf { it.size == 2 } ?: return@forEach
+            val settlement = tile.toIntOrNull()?.let { map[it] } ?: return@forEach
+            val built = names.split('|').mapNotNull { name -> Building.entries.firstOrNull { it.name == name } }.toSet()
+            map[settlement.tile] = settlement.copy(buildings = built)
+        }
     }
 
     /** Bumped on every change, so a drawing layer can tell when to rebuild. */
@@ -88,6 +97,22 @@ class SettlementBook(private val preferences: Preferences) {
         preferences.flush()
     }
 
+    /** Adds [building] to the settlement on [tile]; the caller has checked [Buildings.canBuild] and taken the cost. */
+    fun build(tile: Int, building: Building) {
+        val settlement = byTile[tile] ?: return
+        byTile[tile] = settlement.copy(buildings = settlement.buildings + building)
+        write()
+        preferences.flush()
+    }
+
+    /** Takes [building] down; nothing is refunded. */
+    fun demolish(tile: Int, building: Building) {
+        val settlement = byTile[tile] ?: return
+        byTile[tile] = settlement.copy(buildings = settlement.buildings - building, idle = settlement.idle - building)
+        write()
+        preferences.flush()
+    }
+
     /** Hands the settlement on [tile] back to the automatic split. */
     fun allocateAutomatically(tile: Int) {
         val settlement = byTile[tile]?.takeIf { it.allocation.isNotEmpty() } ?: return
@@ -126,9 +151,16 @@ class SettlementBook(private val preferences: Preferences) {
 
     private fun write() {
         writeRecipes()
+        writeBuildings()
         if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" })
         val allocated = byTile.values.filter { it.allocation.isNotEmpty() }
         if (allocated.isEmpty()) preferences.remove(ALLOCATION_KEY) else preferences.putString(ALLOCATION_KEY, worldSeed().toString() + "/" + allocated.joinToString(",") { "${it.tile}:" + it.allocation.entries.joinToString("|") { (resource, weight) -> "${resource.name}=$weight" } })
+    }
+
+    private fun writeBuildings() {
+        val built = byTile.values.filter { it.buildings.isNotEmpty() }
+        if (built.isEmpty()) preferences.remove(BUILDINGS_KEY)
+        else preferences.putString(BUILDINGS_KEY, worldSeed().toString() + "/" + built.joinToString(",") { "${it.tile}:" + it.buildings.sortedBy { b -> b.ordinal }.joinToString("|") { b -> b.name } })
     }
 
     private fun writeRecipes() {
@@ -145,5 +177,6 @@ class SettlementBook(private val preferences: Preferences) {
         const val KEY = "settlements"
         const val ALLOCATION_KEY = "allocations"
         const val RECIPES_KEY = "recipes_off"
+        const val BUILDINGS_KEY = "buildings"
     }
 }

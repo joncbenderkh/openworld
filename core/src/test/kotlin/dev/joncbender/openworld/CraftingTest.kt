@@ -11,8 +11,8 @@ class CraftingTest {
     private val inventory = Inventory(prefs)
     private val crafter = Crafter(inventory)
 
-    private val village = Settlement(20, SettlementTier.VILLAGE, 20f)
-    private val homestead = Settlement(21, SettlementTier.HOMESTEAD, 5f)
+    private val village = Settlement(20, SettlementTier.VILLAGE, 20f, buildings = setOf(Building.SMELTER, Building.WORKSHOP))
+    private val homestead = Settlement(21, SettlementTier.HOMESTEAD, 5f, buildings = setOf(Building.MILL, Building.WORKSHOP, Building.FISHERY))
 
     private fun tick(settlement: Settlement, output: Float = 1f, times: Int = 1) =
         repeat(times) { crafter.tick(listOf(settlement)) { output } }
@@ -159,7 +159,7 @@ class CraftingTest {
 
     @Test
     fun `jewelry is made from the surplus of gold and gems, never below the stocked threshold`() {
-        val town = Settlement(22, SettlementTier.TOWN, 20f)
+        val town = Settlement(22, SettlementTier.TOWN, 20f, buildings = setOf(Building.WORKSHOP))
         val reserve = HappinessModel.Tuning.STOCKED
         inventory.add(Resource.GOLD, reserve)
         inventory.add(Resource.GEMS, reserve)

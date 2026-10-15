@@ -20,6 +20,7 @@ enum class SettlementTier(val claimRadius: Int, val populationCap: Int) {
  * [allocation] is the player's weight for where those people work, per resource (see [Gathering.shares]); a resource
  * without one gets the automatic weight, so the default - an empty map - spreads the people evenly over the deposits.
  * [recipesOff] are the products the player has switched off (see [Crafting]); by default every recipe the tier allows runs.
+ * [buildings] are what it has built (see [Buildings]); [idle] are those whose upkeep went unpaid, which are not saved and do nothing.
  */
 data class Settlement(
     val tile: Int,
@@ -27,7 +28,12 @@ data class Settlement(
     val population: Float = PopulationModel.START,
     val allocation: Map<Resource, Int> = emptyMap(),
     val recipesOff: Set<Product> = emptySet(),
-)
+    val buildings: Set<Building> = emptySet(),
+    val idle: Set<Building> = emptySet(),
+) {
+    /** The buildings that work now: built, and not idle for want of upkeep. */
+    fun working(): Set<Building> = buildings - idle
+}
 
 /** Why a settlement can or cannot be founded on a tile. */
 enum class FoundResult { OK, NOT_LAND, OPEN_OCEAN, CLAIMED }
