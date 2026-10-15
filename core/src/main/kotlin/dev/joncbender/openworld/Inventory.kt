@@ -24,6 +24,17 @@ class Inventory(private val preferences: Preferences) {
         set(resource, counts.getValue(resource) + amount)
     }
 
+    /** Adds up to [amount] without going past [limit] and without saving (call [flush]); returns how much was added. */
+    fun addUpTo(resource: Resource, amount: Int, limit: Int): Int {
+        val added = minOf(amount, limit - counts.getValue(resource))
+        if (added <= 0) return 0
+        counts[resource] = counts.getValue(resource) + added
+        preferences.putInteger(keyFor(resource), counts.getValue(resource))
+        return added
+    }
+
+    fun flush() = preferences.flush()
+
     /** Removes up to [amount], returning true if there was enough; leaves the count unchanged otherwise. */
     fun remove(resource: Resource, amount: Int = 1): Boolean {
         require(amount > 0) { "amount must be positive, was $amount" }
