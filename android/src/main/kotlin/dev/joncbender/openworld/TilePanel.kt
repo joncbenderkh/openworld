@@ -213,9 +213,11 @@ class TilePanel(
             )
         }
         // The panel does not grow past a few rows: more are scrolled, and the half row shows there are.
-        // A short screen shows fewer: the list never takes more than a quarter of it.
+        // A short screen shows fewer: the list never takes more than a quarter of it. Larger type makes the rest of the panel
+        // taller, so the quarter shrinks with the font scale (at 2x the panel alone fills three quarters of a tall phone).
         val row = ink.dp(InkPalette.TOUCH_DP)
-        val room = (context.resources.displayMetrics.heightPixels * MAX_LIST_SHARE).toInt().coerceAtLeast(row)
+        val fontScale = maxOf(1f, context.resources.configuration.fontScale)
+        val room = (context.resources.displayMetrics.heightPixels * MAX_LIST_SHARE / fontScale).toInt().coerceAtLeast(row)
         val shown = if (shares.size > VISIBLE_ROWS) VISIBLE_ROWS + 0.5f else shares.size.toFloat()
         val scroll = ScrollView(context).apply { addView(rows) }
         allocationScroll = scroll
