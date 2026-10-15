@@ -35,6 +35,7 @@ class HappinessTest {
     fun `luxuries only count from the list`() {
         val grievances = HappinessModel.of(homestead, site(10), setOf(Resource.WOOD)).grievances
         assertTrue(Grievance.NO_LUXURIES in grievances)
+        assertTrue(Grievance.FEW_LUXURIES in HappinessModel.of(homestead, site(10), setOf(Resource.GEMS)).grievances)
     }
 
     @Test

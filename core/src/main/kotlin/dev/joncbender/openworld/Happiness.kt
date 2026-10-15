@@ -10,6 +10,7 @@ enum class Grievance(val text: String) {
     SHORT_WARMTH("short of warmth"),
     CROWDED("overcrowded"),
     SAME_FARE("little variety"),
+    FEW_LUXURIES("few luxuries"),
     NO_LUXURIES("no luxuries"),
 }
 
@@ -68,8 +69,9 @@ object HappinessModel {
         val kinds = site.deposits.map { it.resource }.filter { r -> Need.entries.any { r in it.sources } }.distinct().size
         val variety = minOf(1f, kinds.toFloat() / Tuning.VARIETY_TARGET)
         if (variety < 1f) grievances += Grievance.SAME_FARE
-        val luxury = minOf(1f, held.count { it in Tuning.LUXURIES }.toFloat() / Tuning.LUXURY_TARGET)
-        if (luxury < 1f) grievances += Grievance.NO_LUXURIES
+        val luxuries = held.count { it in Tuning.LUXURIES }
+        val luxury = minOf(1f, luxuries.toFloat() / Tuning.LUXURY_TARGET)
+        if (luxury < 1f) grievances += if (luxuries == 0) Grievance.NO_LUXURIES else Grievance.FEW_LUXURIES
         val share = settlement.population / settlement.tier.populationCap
         val crowding = ((share - Tuning.CROWDING_FROM) / (1f - Tuning.CROWDING_FROM)).coerceIn(0f, 1f)
         if (crowding > 0f) grievances += Grievance.CROWDED
