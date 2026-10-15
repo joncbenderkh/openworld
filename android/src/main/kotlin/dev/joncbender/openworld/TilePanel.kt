@@ -316,6 +316,7 @@ class TilePanel(
             status.locked -> "needs a ${recipe.minTier.name.lowercase()}"
             !status.enabled -> "off"
             !status.ready -> "waiting for stock"
+            status.perTick <= 0f -> "stopped by unrest"
             else -> "+" + String.format(Locale.ROOT, "%.1f", status.perTick) + " per tick"
         }
         return "${recipe.output.displayName()} · $needs · $state"

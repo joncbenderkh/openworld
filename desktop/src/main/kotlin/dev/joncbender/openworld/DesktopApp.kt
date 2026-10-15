@@ -133,7 +133,6 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
         }
         // The text goes on a dark panel: bare on the map's busy tiles it is hard to read.
         val top = Gdx.graphics.height - MARGIN
-        val layout = GlyphLayout()
         val width = lines.maxOfOrNull { layout.setText(font, it); layout.width } ?: 0f
         batch.begin()
         if (lines.isNotEmpty()) {
@@ -146,6 +145,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
         Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
     }
 
+    private val layout = GlyphLayout()
     private var panelTexture: Texture? = null
 
     // One white texel, tinted by the batch; made on first use, as it needs GL.
