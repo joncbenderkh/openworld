@@ -60,13 +60,13 @@ object HappinessModel {
         /** Units of a luxury the stockpile must hold for it to count, so one unit coming and going does not flicker the mood. */
         const val STOCKED = 10
 
-        val LUXURIES = setOf(Resource.SPICES, Resource.PEARLS, Resource.GEMS, Resource.GOLD)
+        val LUXURIES: Set<Item> = setOf(Resource.SPICES, Resource.PEARLS, Resource.GEMS, Resource.GOLD, Product.JEWELRY)
     }
 
-    /** The resources [counts] holds enough of to count toward happiness. */
-    fun stocked(counts: Map<Resource, Int>): Set<Resource> = counts.filterValues { it >= Tuning.STOCKED }.keys
+    /** The items [counts] holds enough of to count toward happiness. */
+    fun stocked(counts: Map<Item, Int>): Set<Item> = counts.filterValues { it >= Tuning.STOCKED }.keys
 
-    fun of(settlement: Settlement, site: SettlementSite, held: Set<Resource>): Happiness {
+    fun of(settlement: Settlement, site: SettlementSite, held: Set<Item>): Happiness {
         val grievances = ArrayList<Grievance>()
         val wanted = PopulationModel.needs(settlement.tier, site.cold)
         val met = wanted.map { PopulationModel.served(settlement, site, it) }

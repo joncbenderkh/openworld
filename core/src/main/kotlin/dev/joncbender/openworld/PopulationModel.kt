@@ -75,7 +75,7 @@ object PopulationModel {
     fun satisfaction(settlement: Settlement, site: SettlementSite): Float =
         needs(settlement.tier, site.cold).minOf { served(settlement, site, it) }
 
-    fun step(settlement: Settlement, site: SettlementSite, held: Set<Resource>): Settlement {
+    fun step(settlement: Settlement, site: SettlementSite, held: Set<Item>): Settlement {
         val happiness = HappinessModel.of(settlement, site, held)
         val base = maxOf(settlement.population, GROWTH_BASE)
         val change = when {
@@ -86,7 +86,7 @@ object PopulationModel {
         return settlement.copy(population = grown)
     }
 
-    fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Resource>): SettlementStatus {
+    fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Item>): SettlementStatus {
         val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), served(settlement, site, it) >= 1f) }
         val satisfaction = satisfaction(settlement, site)
         val happiness = HappinessModel.of(settlement, site, held)

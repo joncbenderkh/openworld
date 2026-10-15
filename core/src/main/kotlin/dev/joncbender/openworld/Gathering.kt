@@ -24,7 +24,7 @@ data class WorkShare(val resource: Resource, val deposits: Int, val weight: Int,
 /** What a settlement takes in each tick, what is stored, and what its land holds that it cannot work yet. */
 data class Economy(
     val income: Map<Resource, Float>,
-    val stock: Map<Resource, Int>,
+    val stock: Map<Item, Int>,
     val capacity: Int,
     val locked: List<Resource>,
     val shares: List<WorkShare> = emptyList(),
@@ -42,8 +42,6 @@ data class Economy(
     // The panel does not scroll, so a long list is cut short: at most [SHOWN] entries, then a count of the rest.
     private fun listed(entries: List<String>): String =
         if (entries.size <= SHOWN) entries.joinToString(", ") else entries.take(SHOWN).joinToString(", ") + " and ${entries.size - SHOWN} more"
-
-    private fun Resource.displayName() = name.lowercase().replaceFirstChar(Char::uppercase).replace('_', ' ')
 
     private companion object {
         const val SHOWN = 4
@@ -147,7 +145,7 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
 
     private fun plan(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Plan {
         val room = FloatArray(Resource.entries.size) { Gathering.capacity(settlements) - inventory.count(Resource.entries[it]) - carry[it] }
-        val held = HappinessModel.stocked(inventory.heldResources())
+        val held = HappinessModel.stocked(inventory.held())
         val taken = ArrayList<Pair<Settlement, Gathering.Harvest>>()
         val shares = HashMap<Int, List<WorkShare>>()
         for (settlement in settlements) {
@@ -186,7 +184,7 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
     fun economy(settlement: Settlement, settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Economy {
         val plan = plan(settlements, siteOf)
         val income = Gathering.income(plan.taken.filter { it.first == settlement }.map { it.second })
-        return Economy(income, inventory.heldResources(), Gathering.capacity(settlements), Gathering.locked(settlement, siteOf(settlement)), plan.shares[settlement.tile].orEmpty())
+        return Economy(income, inventory.held(), Gathering.capacity(settlements), Gathering.locked(settlement, siteOf(settlement)), plan.shares[settlement.tile].orEmpty())
     }
 
     fun clear() = carry.fill(0f)
