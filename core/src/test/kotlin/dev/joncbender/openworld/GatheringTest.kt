@@ -178,14 +178,17 @@ class GatheringTest {
     }
 
     @Test
-    fun `income of two settlements shares the last room in tick order`() {
+    fun `income of settlements shares the last room in tick order`() {
         val world = world(mapOf(near to listOf(Resource.STONE)))
         val first = Settlement(20, SettlementTier.HOMESTEAD, 10f)
         val second = Settlement(near, SettlementTier.HOMESTEAD, 10f)
+        val third = Settlement(near + 100, SettlementTier.HOMESTEAD, 10f)
         val site = SettlementSite.of(world, first)
-        inventory.add(Resource.STONE, 2 * Gathering.storage(SettlementTier.HOMESTEAD) - 1)
-        val both = listOf(first, second)
-        assertEquals(1f, gatherer.economy(first, both) { site }.income.getValue(Resource.STONE), 1e-4f)
-        assertTrue(gatherer.economy(second, both) { site }.income.isEmpty())
+        val all = listOf(first, second, third)
+        inventory.add(Resource.STONE, 3 * Gathering.storage(SettlementTier.HOMESTEAD) - 1)
+        // One unit of room, half a unit apiece: the first two take it, the third gets nothing.
+        assertEquals(0.5f, gatherer.economy(first, all) { site }.income.getValue(Resource.STONE), 1e-4f)
+        assertEquals(0.5f, gatherer.economy(second, all) { site }.income.getValue(Resource.STONE), 1e-4f)
+        assertEquals(emptyMap(), gatherer.economy(third, all) { site }.income)
     }
 }
