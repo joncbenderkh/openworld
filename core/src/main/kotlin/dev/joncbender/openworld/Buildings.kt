@@ -76,8 +76,8 @@ object Buildings {
     /** Resources the working buildings of [settlement] make more of. */
     fun boosted(settlement: Settlement): Set<Resource> = settlement.working().flatMapTo(HashSet()) { spec(it).boosts }
 
-    /** Room the built buildings add to every item's store. */
-    fun storage(settlement: Settlement): Int = settlement.buildings.sumOf { spec(it).storage }
+    /** Room the working buildings add to every item's store. */
+    fun storage(settlement: Settlement): Int = settlement.working().sumOf { spec(it).storage }
 
     /** Food units the working buildings add. */
     fun foodUnits(settlement: Settlement): Int = settlement.working().sumOf { spec(it).foodUnits }
@@ -107,7 +107,8 @@ object Buildings {
  * all or nothing, settlements in order, so a short stockpile idles the later ones. Nothing is saved here; GlobeScreen flushes.
  */
 class Upkeeper(private val inventory: Inventory) {
-    private var ticks = 0
+    // One tick short of a payment, so the first tick after a load pays: reopening the app does not skip upkeep.
+    private var ticks = Buildings.Tuning.UPKEEP_EVERY - 1
 
     /** The buildings left idle for the next [Buildings.Tuning.UPKEEP_EVERY] ticks per settlement tile, on a payment tick; null between payments. */
     fun tick(settlements: Collection<Settlement>): Map<Int, Set<Building>>? {
@@ -125,6 +126,6 @@ class Upkeeper(private val inventory: Inventory) {
     }
 
     fun clear() {
-        ticks = 0
+        ticks = Buildings.Tuning.UPKEEP_EVERY - 1
     }
 }

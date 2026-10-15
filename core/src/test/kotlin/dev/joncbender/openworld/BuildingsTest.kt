@@ -75,9 +75,11 @@ class BuildingsTest {
     }
 
     @Test
-    fun `a warehouse adds room for every item`() {
+    fun `a warehouse adds room for every item, unless its upkeep is unpaid`() {
         val base = Gathering.capacity(listOf(village))
-        assertEquals(base + Buildings.spec(Building.WAREHOUSE).storage, Gathering.capacity(listOf(village.copy(buildings = setOf(Building.WAREHOUSE)))))
+        val warehouse = village.copy(buildings = setOf(Building.WAREHOUSE))
+        assertEquals(base + Buildings.spec(Building.WAREHOUSE).storage, Gathering.capacity(listOf(warehouse)))
+        assertEquals(base, Gathering.capacity(listOf(warehouse.copy(idle = setOf(Building.WAREHOUSE)))))
     }
 
     @Test
@@ -111,8 +113,8 @@ class BuildingsTest {
         val upkeeper = Upkeeper(inventory)
         val settlement = homestead.copy(buildings = setOf(Building.FARM, Building.MILL))
         val every = Buildings.Tuning.UPKEEP_EVERY
-        repeat(every - 1) { assertNull(upkeeper.tick(listOf(settlement))) }
         // Both need wood, one unit each: only one unit in store, so the first (by order) is paid and the second idles.
+        // The first tick after a load is a payment tick.
         inventory.add(Resource.WOOD, 1)
         assertEquals(mapOf(20 to setOf(Building.MILL)), upkeeper.tick(listOf(settlement)))
         assertEquals(0, inventory.count(Resource.WOOD))

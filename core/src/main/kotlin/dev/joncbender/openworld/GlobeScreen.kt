@@ -82,8 +82,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             if (!worldReady) return@postRunnable
             val settlement = settlements.at(tile) ?: return@postRunnable
             if (Buildings.canBuild(settlement, siteOf(settlement), building, inventory::count) == BuildResult.OK) {
+                // Nothing is saved between the payment and the building: settlements.build flushes the one preferences store for both.
                 for ((item, units) in Buildings.spec(building).cost) inventory.take(item, units)
-                inventory.flush()
                 settlements.build(tile, building)
             }
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
