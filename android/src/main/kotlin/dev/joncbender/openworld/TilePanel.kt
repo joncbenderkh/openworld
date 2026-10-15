@@ -213,10 +213,13 @@ class TilePanel(
             )
         }
         // The panel does not grow past a few rows: more are scrolled, and the half row shows there are.
+        // A short screen shows fewer: the list never takes more than a quarter of it.
+        val row = ink.dp(InkPalette.TOUCH_DP)
+        val room = (context.resources.displayMetrics.heightPixels * MAX_LIST_SHARE).toInt().coerceAtLeast(row)
         val shown = if (shares.size > VISIBLE_ROWS) VISIBLE_ROWS + 0.5f else shares.size.toFloat()
         val scroll = ScrollView(context).apply { addView(rows) }
         allocationScroll = scroll
-        allocationBox.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (ink.dp(InkPalette.TOUCH_DP) * shown).toInt()))
+        allocationBox.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, minOf((row * shown).toInt(), room)))
         scroll.post { scroll.scrollTo(0, scrolled) }
         if (shares.any { it.explicit }) {
             allocationBox.addView(ink.textButton("Split evenly again", onAutomatic))
@@ -296,6 +299,7 @@ class TilePanel(
         const val DISC_DP = 40f
         const val GLYPH_DP = 32f
         const val VISIBLE_ROWS = 4
+        const val MAX_LIST_SHARE = 0.25f
         const val DIMMED = 0.4f
 
         fun String.toDisplayName(): String =

@@ -259,7 +259,7 @@ class GatheringTest {
         assertEquals(3, prefs.getString("settlements", "").split(':').size)
         book.allocateAutomatically(20)
         assertTrue(SettlementBook(prefs).at(20)!!.allocation.isEmpty())
-        prefs.putString("allocations", "20:GRAIN=x|NOPE=1|WOOD=2|bad,7:WOOD=1")
+        prefs.putString("allocations", "0/20:GRAIN=x|NOPE=1|WOOD=2|bad,7:WOOD=1")
         assertEquals(mapOf(Resource.WOOD to 2), SettlementBook(prefs).at(20)!!.allocation)
     }
 
@@ -272,5 +272,17 @@ class GatheringTest {
         assertTrue(shares.getValue(Resource.WOOD).full)
         assertEquals(0f, shares.getValue(Resource.WOOD).people, 0f)
         assertEquals(2f, shares.getValue(Resource.GRAIN).people, 1e-5f)
+    }
+
+    @Test
+    fun `allocations of another world are ignored`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN)))
+        prefs.putLong("seed", 7L)
+        val book = SettlementBook(prefs)
+        book.found(world, 20)
+        book.allocate(20, Resource.GRAIN, 4)
+        assertEquals(4, SettlementBook(prefs).at(20)!!.allocation.getValue(Resource.GRAIN))
+        prefs.putLong("seed", 8L)
+        assertTrue(SettlementBook(prefs).at(20)!!.allocation.isEmpty())
     }
 }
