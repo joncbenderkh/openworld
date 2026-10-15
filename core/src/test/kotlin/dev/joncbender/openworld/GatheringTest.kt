@@ -151,4 +151,29 @@ class GatheringTest {
         assertEquals(1.0, mined, 1e-3)
         assertTrue(gatherer.economy(settlement, site, listOf(settlement)).income.isEmpty())
     }
+
+    @Test
+    fun `a thinly staffed finite deposit is spent exactly and then stops`() {
+        val world = world(mapOf(near to listOf(Resource.STONE)))
+        val settlement = Settlement(20, SettlementTier.CITY, 1f)
+        val roomy = Inventory(FakePreferences())
+        val spender = Gatherer(roomy, deposits)
+        val site = SettlementSite.of(world, settlement)
+        repeat(3000) { spender.tick(listOf(settlement), { site }) }
+        assertTrue(Gathering.harvest(settlement, site, deposits).isEmpty())
+        assertEquals(Gathering.DEPOSIT, roomy.count(Resource.STONE).toFloat(), 1f)
+    }
+
+    @Test
+    fun `income near the cap is what fits and mining is saved with the inventory`() {
+        val world = world(mapOf(near to listOf(Resource.STONE)))
+        val settlement = Settlement(20, SettlementTier.CITY, 1000f)
+        val site = SettlementSite.of(world, settlement)
+        inventory.add(Resource.STONE, Gathering.storage(SettlementTier.CITY) - 1)
+        assertEquals(1f, gatherer.economy(settlement, site, listOf(settlement)).income.getValue(Resource.STONE), 1e-4f)
+        inventory.clear()
+        gatherer.tick(listOf(settlement), { site })
+        // No flush of the deposits: a flush of the shared preferences alone already carries the mining.
+        assertEquals(Gathering.DEPOSIT - 2f, Deposits(prefs).remaining(site.deposits.single()), 1e-3f)
+    }
 }

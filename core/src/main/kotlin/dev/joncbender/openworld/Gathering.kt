@@ -44,6 +44,9 @@ object Gathering {
     const val DEPOSIT = 300f
     const val PEOPLE_PER_DEPOSIT = 2f
 
+    // A finite deposit holding less than this counts as spent, so float rounding cannot leave it workable for ever.
+    private const val EXHAUSTED = 0.001f
+
     private val TOOLS = floatArrayOf(1f, 1.5f, 2.5f, 4f)
     private val STORAGE = intArrayOf(50, 150, 500, 2000)
 
@@ -67,12 +70,13 @@ object Gathering {
 
     /** What each workable deposit of the site yields this tick. Exhausted finite deposits yield nothing. */
     fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits): List<Harvest> {
-        val workable = site.deposits.filter { spec(it.resource).minTier <= settlement.tier && (spec(it.resource).renewable || deposits.remaining(it) > 0f) }
+        val workable = site.deposits.filter { spec(it.resource).minTier <= settlement.tier && (spec(it.resource).renewable || deposits.remaining(it) > EXHAUSTED) }
         if (workable.isEmpty()) return emptyList()
         val effort = minOf(1f, settlement.population / (workable.size * PEOPLE_PER_DEPOSIT))
         return workable.map {
-            val rate = if (spec(it.resource).renewable) RENEWABLE_RATE else minOf(FINITE_RATE, deposits.remaining(it) / tools(settlement.tier))
-            Harvest(it, rate * effort * tools(settlement.tier))
+            val rate = if (spec(it.resource).renewable) RENEWABLE_RATE else FINITE_RATE
+            val amount = rate * effort * tools(settlement.tier)
+            Harvest(it, if (spec(it.resource).renewable) amount else minOf(amount, deposits.remaining(it)))
         }
     }
 
@@ -107,6 +111,7 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
                 carry[resource.ordinal] += amount
             }
         }
+        deposits.stage()
         for (resource in Resource.entries) {
             val whole = floor(carry[resource.ordinal]).toInt()
             if (whole <= 0) continue
@@ -119,7 +124,10 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
     fun economy(settlement: Settlement, site: SettlementSite, settlements: Collection<Settlement>): Economy {
         val capacity = Gathering.capacity(settlements)
         val working = Gathering.harvest(settlement, site, deposits).filter { inventory.count(it.deposit.resource) < capacity }
-        return Economy(Gathering.income(working), inventory.heldResources(), capacity, Gathering.locked(settlement, site))
+        // What the store has room for, as the tick clips it.
+        val income = Gathering.income(working).mapValues { (resource, amount) -> minOf(amount, capacity - inventory.count(resource) - carry[resource.ordinal]) }
+            .filterValues { it > 0f }
+        return Economy(income, inventory.heldResources(), capacity, Gathering.locked(settlement, site))
     }
 
 

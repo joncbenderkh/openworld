@@ -5,7 +5,7 @@ import com.badlogic.gdx.Preferences
 /**
  * How much has been taken from each [Deposit], persisted in the given [Preferences] as one string
  * ("key:taken,..."). Only deposits that were worked appear; the rest hold their full [Gathering.DEPOSIT]. Like
- * [Inventory] it belongs to one world: GlobeScreen calls [clear] when a new seed is made. Nothing is written until [flush].
+ * [Inventory] it belongs to one world: GlobeScreen calls [clear] when a new seed is made. Mining is staged with [stage] after each tick and saved by [flush].
  */
 class Deposits(private val preferences: Preferences) {
     private val taken = HashMap<Int, Float>().also { map ->
@@ -28,10 +28,15 @@ class Deposits(private val preferences: Preferences) {
         dirty = true
     }
 
-    fun flush() {
+    /** Hands what was mined to the preferences without saving, so any flush of them (the settings sheet's, say) keeps it consistent with the inventory. */
+    fun stage() {
         if (!dirty) return
         dirty = false
         if (taken.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, taken.entries.joinToString(",") { "${it.key}:${it.value}" })
+    }
+
+    fun flush() {
+        stage()
         preferences.flush()
     }
 
