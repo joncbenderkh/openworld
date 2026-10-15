@@ -99,17 +99,28 @@ object Gathering {
 class Gatherer(private val inventory: Inventory, private val deposits: Deposits) {
     private val carry = FloatArray(Resource.entries.size)
 
-    fun tick(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite) {
-        val capacity = Gathering.capacity(settlements)
+    /** What each settlement takes this tick, in order, with the shared room handed out first come first served. */
+    private fun plan(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): List<Pair<Settlement, Gathering.Harvest>> {
+        val room = FloatArray(Resource.entries.size) { Gathering.capacity(settlements) - inventory.count(Resource.entries[it]) - carry[it] }
+        val taken = ArrayList<Pair<Settlement, Gathering.Harvest>>()
         for (settlement in settlements) {
             for (harvest in Gathering.harvest(settlement, siteOf(settlement), deposits)) {
-                val resource = harvest.deposit.resource
+                val r = harvest.deposit.resource.ordinal
                 // Only what the store still has room for is taken, so no finite deposit is spent on units that are lost.
-                val amount = minOf(harvest.amount, capacity - inventory.count(resource) - carry[resource.ordinal])
+                val amount = minOf(harvest.amount, room[r])
                 if (amount <= 0f) continue
-                deposits.mine(harvest.deposit, amount)
-                carry[resource.ordinal] += amount
+                room[r] -= amount
+                taken += settlement to Gathering.Harvest(harvest.deposit, amount)
             }
+        }
+        return taken
+    }
+
+    fun tick(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite) {
+        val capacity = Gathering.capacity(settlements)
+        for ((_, harvest) in plan(settlements, siteOf)) {
+            deposits.mine(harvest.deposit, harvest.amount)
+            carry[harvest.deposit.resource.ordinal] += harvest.amount
         }
         deposits.stage()
         for (resource in Resource.entries) {
@@ -120,16 +131,11 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
         }
     }
 
-    /** Income leaves out a resource whose store is full: nothing of it is gathered. */
-    fun economy(settlement: Settlement, site: SettlementSite, settlements: Collection<Settlement>): Economy {
-        val capacity = Gathering.capacity(settlements)
-        val working = Gathering.harvest(settlement, site, deposits).filter { inventory.count(it.deposit.resource) < capacity }
-        // What the store has room for, as the tick clips it.
-        val income = Gathering.income(working).mapValues { (resource, amount) -> minOf(amount, capacity - inventory.count(resource) - carry[resource.ordinal]) }
-            .filterValues { it > 0f }
-        return Economy(income, inventory.heldResources(), capacity, Gathering.locked(settlement, site))
+    /** What [settlement] will take on the next tick, as [tick] hands out the room, plus the store and what is locked. */
+    fun economy(settlement: Settlement, settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Economy {
+        val income = Gathering.income(plan(settlements, siteOf).filter { it.first == settlement }.map { it.second })
+        return Economy(income, inventory.heldResources(), Gathering.capacity(settlements), Gathering.locked(settlement, siteOf(settlement)))
     }
-
 
     fun clear() = carry.fill(0f)
 }

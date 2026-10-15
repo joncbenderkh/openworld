@@ -1019,7 +1019,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             settlements.at(tile)?.let {
                 PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all))
             },
-            settlements.at(tile)?.let { gatherer.economy(it, siteOf(it), settlements.all) },
+            settlements.at(tile)?.let { gatherer.economy(it, settlements.all, ::siteOf) },
         )
     }
 

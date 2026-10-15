@@ -106,7 +106,7 @@ class GatheringTest {
     fun `income and lines name the resources`() {
         val world = world(mapOf(near to listOf(Resource.GRAIN, Resource.GOLD)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 10f)
-        val economy = gatherer.economy(settlement, SettlementSite.of(world, settlement), listOf(settlement))
+        val economy = gatherer.economy(settlement, listOf(settlement)) { SettlementSite.of(world, settlement) }
         assertEquals("Per tick: Grain +0.3", economy.incomeLine())
         assertEquals("Needs a larger settlement: Gold", economy.lockedLine())
         assertEquals("Stockpile empty (holds 50 of each)", economy.stockLine())
@@ -149,7 +149,7 @@ class GatheringTest {
         assertEquals(Gathering.storage(SettlementTier.CITY), inventory.count(Resource.STONE) + 0)
         val mined = site.deposits.sumOf { (Gathering.DEPOSIT - deposits.remaining(it)).toDouble() }
         assertEquals(1.0, mined, 1e-3)
-        assertTrue(gatherer.economy(settlement, site, listOf(settlement)).income.isEmpty())
+        assertTrue(gatherer.economy(settlement, listOf(settlement)) { site }.income.isEmpty())
     }
 
     @Test
@@ -170,10 +170,22 @@ class GatheringTest {
         val settlement = Settlement(20, SettlementTier.CITY, 1000f)
         val site = SettlementSite.of(world, settlement)
         inventory.add(Resource.STONE, Gathering.storage(SettlementTier.CITY) - 1)
-        assertEquals(1f, gatherer.economy(settlement, site, listOf(settlement)).income.getValue(Resource.STONE), 1e-4f)
+        assertEquals(1f, gatherer.economy(settlement, listOf(settlement)) { site }.income.getValue(Resource.STONE), 1e-4f)
         inventory.clear()
         gatherer.tick(listOf(settlement), { site })
         // No flush of the deposits: a flush of the shared preferences alone already carries the mining.
         assertEquals(Gathering.DEPOSIT - 2f, Deposits(prefs).remaining(site.deposits.single()), 1e-3f)
+    }
+
+    @Test
+    fun `income of two settlements shares the last room in tick order`() {
+        val world = world(mapOf(near to listOf(Resource.STONE)))
+        val first = Settlement(20, SettlementTier.HOMESTEAD, 10f)
+        val second = Settlement(near, SettlementTier.HOMESTEAD, 10f)
+        val site = SettlementSite.of(world, first)
+        inventory.add(Resource.STONE, 2 * Gathering.storage(SettlementTier.HOMESTEAD) - 1)
+        val both = listOf(first, second)
+        assertEquals(1f, gatherer.economy(first, both) { site }.income.getValue(Resource.STONE), 1e-4f)
+        assertTrue(gatherer.economy(second, both) { site }.income.isEmpty())
     }
 }
