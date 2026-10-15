@@ -17,9 +17,9 @@ data class Deposit(val tile: Int, val slot: Int, val resource: Resource) {
 /**
  * How one resource's workers are decided: [weight] is its claim on the population, relative to the other workable
  * resources' weights ([explicit] when the player set it, else the number of [deposits] it has), and [people] the share of the
- * population that comes to.
+ * population that comes to. A resource whose store is [full] is not worked, so it takes no people and does not count in the split.
  */
-data class WorkShare(val resource: Resource, val deposits: Int, val weight: Int, val explicit: Boolean, val people: Float)
+data class WorkShare(val resource: Resource, val deposits: Int, val weight: Int, val explicit: Boolean, val people: Float, val full: Boolean = false)
 
 /** What a settlement takes in each tick, what is stored, and what its land holds that it cannot work yet. */
 data class Economy(
@@ -62,7 +62,7 @@ object Gathering {
     const val PEOPLE_PER_DEPOSIT = 2f
 
     /** The most weight the player can give one resource. */
-    const val MAX_WEIGHT = 9
+    const val MAX_WEIGHT = 99
 
     // A finite deposit holding less than this counts as spent, so float rounding cannot leave it workable for ever.
     private const val EXHAUSTED = 0.001f
@@ -88,22 +88,23 @@ object Gathering {
     /** One deposit's yield in a tick. */
     class Harvest(val deposit: Deposit, val amount: Float)
 
-    private fun workable(settlement: Settlement, site: SettlementSite, deposits: Deposits, wanted: (Resource) -> Boolean): List<Deposit> =
-        site.deposits.filter { wanted(it.resource) && spec(it.resource).minTier <= settlement.tier && (spec(it.resource).renewable || deposits.remaining(it) > EXHAUSTED) }
+    private fun workable(settlement: Settlement, site: SettlementSite, deposits: Deposits): List<Deposit> =
+        site.deposits.filter { spec(it.resource).minTier <= settlement.tier && (spec(it.resource).renewable || deposits.remaining(it) > EXHAUSTED) }
 
-    private fun shares(settlement: Settlement, workable: List<Deposit>): List<WorkShare> {
+    private fun shares(settlement: Settlement, workable: List<Deposit>, wanted: (Resource) -> Boolean): List<WorkShare> {
         val counts = workable.groupingBy { it.resource }.eachCount().toSortedMap()
         val weights = counts.mapValues { (resource, count) -> settlement.allocation[resource] ?: count }
-        val total = weights.values.sum()
+        val total = weights.filterKeys(wanted).values.sum()
         return counts.map { (resource, count) ->
             val weight = weights.getValue(resource)
-            WorkShare(resource, count, weight, resource in settlement.allocation, if (total > 0) settlement.population * weight / total else 0f)
+            val full = !wanted(resource)
+            WorkShare(resource, count, weight, resource in settlement.allocation, if (!full && total > 0) settlement.population * weight / total else 0f, full)
         }
     }
 
-    /** Where the people of [settlement] work, for every resource it can work on its land (a full store does not matter here). */
-    fun shares(settlement: Settlement, site: SettlementSite, deposits: Deposits): List<WorkShare> =
-        shares(settlement, workable(settlement, site, deposits) { true })
+    /** Where the people of [settlement] work, for every resource it can work on its land; resources not [wanted] (a full store) get none. */
+    fun shares(settlement: Settlement, site: SettlementSite, deposits: Deposits, wanted: (Resource) -> Boolean = { true }): List<WorkShare> =
+        shares(settlement, workable(settlement, site, deposits), wanted)
 
     /**
      * What each workable deposit of the site yields this tick. Exhausted finite deposits and resources not [wanted] (a full store)
@@ -111,9 +112,9 @@ object Gathering {
      * people are spread evenly over its deposits.
      */
     fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits, wanted: (Resource) -> Boolean = { true }): List<Harvest> {
-        val workable = workable(settlement, site, deposits, wanted)
+        val workable = workable(settlement, site, deposits).filter { wanted(it.resource) }
         if (workable.isEmpty()) return emptyList()
-        val people = shares(settlement, workable).associate { it.resource to it.people / it.deposits }
+        val people = shares(settlement, workable) { true }.associate { it.resource to it.people / it.deposits }
         return workable.map {
             val effort = minOf(1f, people.getValue(it.resource) / PEOPLE_PER_DEPOSIT)
             val rate = if (spec(it.resource).renewable) RENEWABLE_RATE else FINITE_RATE
@@ -141,12 +142,18 @@ object Gathering {
 class Gatherer(private val inventory: Inventory, private val deposits: Deposits) {
     private val carry = FloatArray(Resource.entries.size)
 
-    /** What each settlement takes this tick, in order, with the shared room handed out first come first served. */
-    private fun plan(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): List<Pair<Settlement, Gathering.Harvest>> {
+    /** What each settlement takes this tick, and who works what, in order, with the shared room handed out first come first served. */
+    private class Plan(val taken: List<Pair<Settlement, Gathering.Harvest>>, val shares: Map<Int, List<WorkShare>>)
+
+    private fun plan(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Plan {
         val room = FloatArray(Resource.entries.size) { Gathering.capacity(settlements) - inventory.count(Resource.entries[it]) - carry[it] }
         val taken = ArrayList<Pair<Settlement, Gathering.Harvest>>()
+        val shares = HashMap<Int, List<WorkShare>>()
         for (settlement in settlements) {
-            for (harvest in Gathering.harvest(settlement, siteOf(settlement), deposits) { room[it.ordinal] > 0f }) {
+            val site = siteOf(settlement)
+            // The same room test for the shares as for the harvest, before this settlement takes any.
+            shares[settlement.tile] = Gathering.shares(settlement, site, deposits) { room[it.ordinal] > 0f }
+            for (harvest in Gathering.harvest(settlement, site, deposits) { room[it.ordinal] > 0f }) {
                 val r = harvest.deposit.resource.ordinal
                 // Only what the store still has room for is taken, so no finite deposit is spent on units that are lost.
                 val amount = minOf(harvest.amount, room[r])
@@ -155,12 +162,12 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
                 taken += settlement to Gathering.Harvest(harvest.deposit, amount)
             }
         }
-        return taken
+        return Plan(taken, shares)
     }
 
     fun tick(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite) {
         val capacity = Gathering.capacity(settlements)
-        for ((_, harvest) in plan(settlements, siteOf)) {
+        for ((_, harvest) in plan(settlements, siteOf).taken) {
             deposits.mine(harvest.deposit, harvest.amount)
             carry[harvest.deposit.resource.ordinal] += harvest.amount
         }
@@ -175,9 +182,9 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
 
     /** What [settlement] will take on the next tick, as [tick] hands out the room, plus the store and what is locked. */
     fun economy(settlement: Settlement, settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Economy {
-        val income = Gathering.income(plan(settlements, siteOf).filter { it.first == settlement }.map { it.second })
-        val site = siteOf(settlement)
-        return Economy(income, inventory.heldResources(), Gathering.capacity(settlements), Gathering.locked(settlement, site), Gathering.shares(settlement, site, deposits))
+        val plan = plan(settlements, siteOf)
+        val income = Gathering.income(plan.taken.filter { it.first == settlement }.map { it.second })
+        return Economy(income, inventory.heldResources(), Gathering.capacity(settlements), Gathering.locked(settlement, siteOf(settlement)), plan.shares[settlement.tile].orEmpty())
     }
 
     fun clear() = carry.fill(0f)

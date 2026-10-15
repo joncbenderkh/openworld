@@ -229,7 +229,14 @@ class TilePanel(
         val name = share.resource.displayName()
         val people = share.people.roundToInt()
         val income = String.format(Locale.ROOT, "%.1f", economy.income[share.resource] ?: 0f)
-        return if (people == 0) "$name · nobody" else "$name · ${if (people == 1) "1 person" else "$people people"} · +$income"
+        val who = when {
+            share.full -> return "$name · store full"
+            share.people <= 0f -> return "$name · nobody"
+            people == 0 -> "under 1 person"
+            people == 1 -> "1 person"
+            else -> "$people people"
+        }
+        return "$name · $who · +$income"
     }
 
     private fun statusKey(status: SettlementStatus) =

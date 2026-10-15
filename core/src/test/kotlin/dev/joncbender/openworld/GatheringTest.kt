@@ -248,16 +248,29 @@ class GatheringTest {
     }
 
     @Test
-    fun `an allocation is saved with the settlement and cleared by automatic`() {
+    fun `an allocation is saved apart from the settlement and cleared by automatic`() {
         val world = world(mapOf(near to listOf(Resource.GRAIN)))
         val book = SettlementBook(prefs)
         assertEquals(FoundResult.OK, book.found(world, 20))
         book.allocate(20, Resource.GRAIN, 4)
-        book.allocate(20, Resource.WOOD, 99)
+        book.allocate(20, Resource.WOOD, 999)
         assertEquals(mapOf(Resource.GRAIN to 4, Resource.WOOD to Gathering.MAX_WEIGHT), SettlementBook(prefs).at(20)!!.allocation)
+        // A build that does not know allocations still reads the settlement record as before.
+        assertEquals(3, prefs.getString("settlements", "").split(':').size)
         book.allocateAutomatically(20)
         assertTrue(SettlementBook(prefs).at(20)!!.allocation.isEmpty())
-        prefs.putString("settlements", "20:HOMESTEAD:5.0:GRAIN=x|NOPE=1|WOOD=2|bad")
+        prefs.putString("allocations", "20:GRAIN=x|NOPE=1|WOOD=2|bad,7:WOOD=1")
         assertEquals(mapOf(Resource.WOOD to 2), SettlementBook(prefs).at(20)!!.allocation)
+    }
+
+    @Test
+    fun `a full store takes no people and the others get them`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN, Resource.WOOD)))
+        val settlement = Settlement(20, SettlementTier.HOMESTEAD, 2f)
+        inventory.add(Resource.WOOD, Gathering.storage(SettlementTier.HOMESTEAD))
+        val shares = gatherer.economy(settlement, listOf(settlement), { SettlementSite.of(world, settlement) }).shares.associateBy { it.resource }
+        assertTrue(shares.getValue(Resource.WOOD).full)
+        assertEquals(0f, shares.getValue(Resource.WOOD).people, 0f)
+        assertEquals(2f, shares.getValue(Resource.GRAIN).people, 1e-5f)
     }
 }

@@ -11,17 +11,23 @@ class SettlementBook(private val preferences: Preferences) {
     private val byTile = LinkedHashMap<Int, Settlement>().also { map ->
         preferences.getString(KEY, "").split(',').forEach { entry ->
             val parts = entry.split(':')
-            if (parts.size !in 2..4) return@forEach
+            if (parts.size !in 2..3) return@forEach
             val tile = parts[0].toIntOrNull()?.takeIf { it >= 0 } ?: return@forEach
             val tier = SettlementTier.entries.firstOrNull { it.name == parts[1] } ?: return@forEach
             // An entry saved before population existed has none: it starts like a new one.
             val population = parts.getOrNull(2)?.toFloatOrNull()?.takeIf { it.isFinite() } ?: PopulationModel.START
-            val allocation = parts.getOrNull(3).orEmpty().split('|').mapNotNull { pair ->
+            map[tile] = Settlement(tile, tier, population.coerceIn(PopulationModel.MIN, tier.populationCap.toFloat()))
+        }
+        // Allocations live under a key of their own, so a build that does not know them still reads every settlement.
+        preferences.getString(ALLOCATION_KEY, "").split(',').forEach { entry ->
+            val (tile, pairs) = entry.split(':').takeIf { it.size == 2 } ?: return@forEach
+            val settlement = tile.toIntOrNull()?.let { map[it] } ?: return@forEach
+            val allocation = pairs.split('|').mapNotNull { pair ->
                 val (name, weight) = pair.split('=').takeIf { it.size == 2 } ?: return@mapNotNull null
                 val resource = Resource.entries.firstOrNull { it.name == name } ?: return@mapNotNull null
                 resource to (weight.toIntOrNull()?.coerceIn(0, Gathering.MAX_WEIGHT) ?: return@mapNotNull null)
             }.toMap()
-            map[tile] = Settlement(tile, tier, population.coerceIn(PopulationModel.MIN, tier.populationCap.toFloat()), allocation)
+            map[settlement.tile] = settlement.copy(allocation = allocation)
         }
     }
 
@@ -99,13 +105,13 @@ class SettlementBook(private val preferences: Preferences) {
     }
 
     private fun write() {
-        if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" + allocationText(it) })
+        if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" })
+        val allocated = byTile.values.filter { it.allocation.isNotEmpty() }
+        if (allocated.isEmpty()) preferences.remove(ALLOCATION_KEY) else preferences.putString(ALLOCATION_KEY, allocated.joinToString(",") { "${it.tile}:" + it.allocation.entries.joinToString("|") { (resource, weight) -> "${resource.name}=$weight" } })
     }
-
-    private fun allocationText(settlement: Settlement) =
-        if (settlement.allocation.isEmpty()) "" else ":" + settlement.allocation.entries.joinToString("|") { "${it.key.name}=${it.value}" }
 
     private companion object {
         const val KEY = "settlements"
+        const val ALLOCATION_KEY = "allocations"
     }
 }
