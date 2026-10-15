@@ -138,4 +138,17 @@ class GatheringTest {
         assertEquals(0, inventory.addUpTo(Resource.FISH, 5, 3))
         assertEquals(3, inventory.count(Resource.FISH))
     }
+
+    @Test
+    fun `nothing is mined that the store cannot hold and a full store shows no income`() {
+        val world = world(mapOf(near to listOf(Resource.STONE, Resource.STONE)))
+        val settlement = Settlement(20, SettlementTier.CITY, 1000f)
+        val site = SettlementSite.of(world, settlement)
+        inventory.add(Resource.STONE, Gathering.storage(SettlementTier.CITY) - 1)
+        gatherer.tick(listOf(settlement), { site })
+        assertEquals(Gathering.storage(SettlementTier.CITY), inventory.count(Resource.STONE) + 0)
+        val mined = site.deposits.sumOf { (Gathering.DEPOSIT - deposits.remaining(it)).toDouble() }
+        assertEquals(1.0, mined, 1e-3)
+        assertTrue(gatherer.economy(settlement, site, listOf(settlement)).income.isEmpty())
+    }
 }

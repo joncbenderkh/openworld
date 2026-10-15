@@ -100,27 +100,28 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
         for (settlement in settlements) {
             for (harvest in Gathering.harvest(settlement, siteOf(settlement), deposits)) {
                 val resource = harvest.deposit.resource
-                if (inventory.count(resource) >= capacity) continue
-                deposits.mine(harvest.deposit, harvest.amount)
-                carry[resource.ordinal] += harvest.amount
+                // Only what the store still has room for is taken, so no finite deposit is spent on units that are lost.
+                val amount = minOf(harvest.amount, capacity - inventory.count(resource) - carry[resource.ordinal])
+                if (amount <= 0f) continue
+                deposits.mine(harvest.deposit, amount)
+                carry[resource.ordinal] += amount
             }
         }
         for (resource in Resource.entries) {
             val whole = floor(carry[resource.ordinal]).toInt()
             if (whole <= 0) continue
-            val stored = inventory.addUpTo(resource, whole, capacity)
+            inventory.addUpTo(resource, whole, capacity)
             carry[resource.ordinal] -= whole
-            // What did not fit is lost, not kept for later, so a full store does not bank a burst.
-            if (stored < whole) carry[resource.ordinal] = 0f
         }
     }
 
-    fun economy(settlement: Settlement, site: SettlementSite, settlements: Collection<Settlement>) = Economy(
-        Gathering.income(Gathering.harvest(settlement, site, deposits)),
-        inventory.heldResources(),
-        Gathering.capacity(settlements),
-        Gathering.locked(settlement, site),
-    )
+    /** Income leaves out a resource whose store is full: nothing of it is gathered. */
+    fun economy(settlement: Settlement, site: SettlementSite, settlements: Collection<Settlement>): Economy {
+        val capacity = Gathering.capacity(settlements)
+        val working = Gathering.harvest(settlement, site, deposits).filter { inventory.count(it.deposit.resource) < capacity }
+        return Economy(Gathering.income(working), inventory.heldResources(), capacity, Gathering.locked(settlement, site))
+    }
+
 
     fun clear() = carry.fill(0f)
 }
