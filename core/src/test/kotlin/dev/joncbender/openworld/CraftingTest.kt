@@ -116,4 +116,23 @@ class CraftingTest {
         val line = Crafting.line(crafter.status(homestead, listOf(homestead), 1f))
         assertTrue(line != null && line.startsWith("Making: ") && "Flour" in line && "Clothing" in line, line)
     }
+
+    @Test
+    fun `a craft reaches the store whole, with no flush between taking and giving`() {
+        inventory.add(Resource.FURS, 10)
+        tick(homestead, times = 12)
+        assertTrue(inventory.count(Product.CLOTHING) >= 2)
+        for (saved in prefs.flushed) {
+            val furs = saved["inventory_FURS"] as? Int ?: 0
+            val clothing = saved["inventory_CLOTHING"] as? Int ?: 0
+            assertEquals(10, furs + 2 * clothing, "a flush saw $furs furs and $clothing clothing")
+        }
+    }
+
+    @Test
+    fun `a settlement in unrest is not shown as making anything`() {
+        inventory.add(Resource.FURS, 4)
+        val status = crafter.status(homestead, listOf(homestead), 0f)
+        assertEquals(null, Crafting.line(status))
+    }
 }

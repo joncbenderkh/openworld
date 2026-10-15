@@ -34,6 +34,16 @@ class Inventory(private val preferences: Preferences) {
 
     fun flush() = preferences.flush()
 
+    /** Removes [amount] without saving (call [flush]), like [addUpTo]: a batch that takes and gives must reach the store together. False, and unchanged, if there is not enough. */
+    fun take(item: Item, amount: Int): Boolean {
+        require(amount > 0) { "amount must be positive, was $amount" }
+        val current = counts.getValue(item)
+        if (current < amount) return false
+        counts[item] = current - amount
+        preferences.putInteger(keyFor(item), current - amount)
+        return true
+    }
+
     /** Removes up to [amount], returning true if there was enough; leaves the count unchanged otherwise. */
     fun remove(item: Item, amount: Int = 1): Boolean {
         require(amount > 0) { "amount must be positive, was $amount" }

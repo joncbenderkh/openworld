@@ -15,7 +15,7 @@ object Crafting {
 
     /** One line for a panel of what is being made now (at most a few kinds), or null when nothing is. */
     fun line(statuses: List<CraftStatus>): String? {
-        val running = statuses.filter { it.enabled && !it.locked && it.ready }
+        val running = statuses.filter { it.enabled && !it.locked && it.ready && it.perTick > 0f }
         if (running.isEmpty()) return null
         val shown = running.take(SHOWN).joinToString(", ") { "${it.recipe.output.displayName()} +${String.format(java.util.Locale.ROOT, "%.1f", it.perTick)}" }
         return "Making: " + shown + if (running.size > SHOWN) " and ${running.size - SHOWN} more" else ""
@@ -55,7 +55,7 @@ class Crafter(private val inventory: Inventory) {
                 val key = key(settlement, recipe)
                 var work = minOf(1f + rate, (carry[key] ?: 0f) + rate)
                 while (work >= WHOLE && ready(recipe, capacity)) {
-                    for ((item, units) in recipe.inputs) inventory.remove(item, units)
+                    for ((item, units) in recipe.inputs) inventory.take(item, units)
                     inventory.addUpTo(recipe.output, recipe.amount, capacity)
                     work -= 1f
                 }
