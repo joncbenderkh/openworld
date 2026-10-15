@@ -77,9 +77,9 @@ object Gathering {
     /** One deposit's yield in a tick. */
     class Harvest(val deposit: Deposit, val amount: Float)
 
-    /** What each workable deposit of the site yields this tick. Exhausted finite deposits yield nothing. */
-    fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits): List<Harvest> {
-        val workable = site.deposits.filter { spec(it.resource).minTier <= settlement.tier && (spec(it.resource).renewable || deposits.remaining(it) > EXHAUSTED) }
+    /** What each workable deposit of the site yields this tick. Exhausted finite deposits and resources not [wanted] (a full store) are not worked, so they take none of the people. */
+    fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits, wanted: (Resource) -> Boolean = { true }): List<Harvest> {
+        val workable = site.deposits.filter { wanted(it.resource) && spec(it.resource).minTier <= settlement.tier && (spec(it.resource).renewable || deposits.remaining(it) > EXHAUSTED) }
         if (workable.isEmpty()) return emptyList()
         val effort = minOf(1f, settlement.population / (workable.size * PEOPLE_PER_DEPOSIT))
         return workable.map {
@@ -113,7 +113,7 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
         val room = FloatArray(Resource.entries.size) { Gathering.capacity(settlements) - inventory.count(Resource.entries[it]) - carry[it] }
         val taken = ArrayList<Pair<Settlement, Gathering.Harvest>>()
         for (settlement in settlements) {
-            for (harvest in Gathering.harvest(settlement, siteOf(settlement), deposits)) {
+            for (harvest in Gathering.harvest(settlement, siteOf(settlement), deposits) { room[it.ordinal] > 0f }) {
                 val r = harvest.deposit.resource.ordinal
                 // Only what the store still has room for is taken, so no finite deposit is spent on units that are lost.
                 val amount = minOf(harvest.amount, room[r])

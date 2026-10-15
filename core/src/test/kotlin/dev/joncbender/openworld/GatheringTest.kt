@@ -200,4 +200,17 @@ class GatheringTest {
         assertTrue(economy.stockLine().contains("and ${all.size - 4} more"))
         assertTrue(economy.lockedLine()!!.endsWith("and ${all.size - 4} more"))
     }
+
+    @Test
+    fun `people are not spent on a resource whose store is full`() {
+        val other = SettlementRules.claim(world(emptyMap()), 20, 1).first { it != 20 && it != near }
+        val world = world(mapOf(near to listOf(Resource.GRAIN), other to listOf(Resource.STONE)))
+        val settlement = Settlement(20, SettlementTier.HOMESTEAD, 2f)
+        val site = SettlementSite.of(world, settlement)
+        val grain = { gatherer.economy(settlement, listOf(settlement)) { site }.income.getValue(Resource.GRAIN) }
+        val shared = grain()
+        inventory.add(Resource.STONE, Gathering.storage(SettlementTier.HOMESTEAD))
+        // Two people over two deposits, then over the one that can still be stored: twice the grain.
+        assertEquals(shared * 2, grain(), 1e-5f)
+    }
 }
