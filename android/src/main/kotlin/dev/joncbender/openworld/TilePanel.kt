@@ -22,6 +22,8 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
     private val resourcesLabel = ink.label("")
     private val resourceList = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val settlementBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+    // Apart from the settlement box: its numbers change on most ticks, and a rebuild there would drop a press on Grow.
+    private val economyBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val glyphPx = ink.dp(GLYPH_DP)
     private val glyphs = HashMap<Resource, Bitmap>()
 
@@ -57,6 +59,7 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
             settlementBox,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(16f) },
         )
+        addView(economyBox)
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
     }
 
@@ -82,6 +85,7 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
             )
         }
         showSettlement(info)
+        showEconomy(info.economy)
         view.visibility = View.VISIBLE
     }
 
@@ -117,6 +121,18 @@ class TilePanel(context: Context, private val ink: InkTheme, onClose: () -> Unit
             info.canFound == FoundResult.CLAIMED -> settlementBox.addView(ink.meta("Next to a settlement's land"))
             else -> Unit
         }
+    }
+
+    private var economyKey = ""
+
+    /** What the settlement gathers each tick and keeps in store. */
+    private fun showEconomy(economy: Economy?) {
+        val lines = economy?.let { listOfNotNull(it.incomeLine(), it.stockLine(), it.lockedLine()) }.orEmpty()
+        val key = lines.joinToString("\n")
+        if (key == economyKey) return
+        economyKey = key
+        economyBox.removeAllViews()
+        lines.forEach { economyBox.addView(ink.meta(it)) }
     }
 
     private fun statusKey(status: SettlementStatus) =

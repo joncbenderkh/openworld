@@ -39,6 +39,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     /** The settlements founded in the current world - persists across restarts, reset with the inventory on a new world. */
     val settlements = SettlementBook(preferences)
+    private val deposits = Deposits(preferences)
+    private val gatherer = Gatherer(inventory, deposits)
 
     /** Grows the settlement on the selected tile into its next tier, if the rules allow, and reports the tile again. */
     fun upgradeSettlementOnSelection() {
@@ -373,6 +375,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (!request.keepInventory) {
             inventory.clear(flush = false)
             settlements.clear(flush = false)
+            deposits.clear(flush = false)
+            gatherer.clear()
         }
         // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
@@ -777,10 +781,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         tickClock += minOf(delta, TICK_SECONDS)
         if (tickClock < TICK_SECONDS) return
         tickClock -= TICK_SECONDS
+        // Gather before growing: the people who work this tick's deposits are the ones counted in the panel.
+        gatherer.tick(settlements.all, ::siteOf)
         settlements.update { PopulationModel.step(it, siteOf(it)) }
         if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
             ticksSinceFlush = 0
             settlements.flush()
+            inventory.flush()
+            deposits.flush()
         }
         // A settlement open in the panel shows its new population.
         val tile = selectedTile
@@ -1011,6 +1019,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             settlements.at(tile)?.let {
                 PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all))
             },
+            settlements.at(tile)?.let { gatherer.economy(it, siteOf(it), settlements.all) },
         )
     }
 
@@ -1021,11 +1030,17 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         return false
     }
 
-    override fun pause() = settlements.flush()
+    override fun pause() = flushSettlements()
     override fun resume() {}
     override fun hide() = stopGeneration()
-    override fun dispose() {
+    private fun flushSettlements() {
         settlements.flush()
+        inventory.flush()
+        deposits.flush()
+    }
+
+    override fun dispose() {
+        flushSettlements()
         stopGeneration()
         disposeTerrain()
         underlay.dispose()
