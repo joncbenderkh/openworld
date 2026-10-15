@@ -174,7 +174,8 @@ class TilePanel(
             allocationBox.removeAllViews()
             shareText.clear()
             allocationScroll = null
-            if (shares.isNotEmpty()) buildAllocation(info.faceIndex, shares, info.settlement?.allocation.orEmpty().isNotEmpty(), scrolled)
+            val anySet = info.settlement?.allocation.orEmpty().isNotEmpty()
+            if (shares.isNotEmpty() || anySet) buildAllocation(info.faceIndex, shares, anySet, scrolled)
         }
         shares.forEach { shareText[it.resource]?.text = shareLabel(it, info.economy!!) }
     }
@@ -182,6 +183,12 @@ class TilePanel(
     private fun buildAllocation(tile: Int, shares: List<WorkShare>, anySet: Boolean, scrolled: Int) {
         val context = view.context
         val below = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(12f) }
+        if (shares.isEmpty()) {
+            // Every deposit is spent, but the saved weights are still there (they would come back with new land): they can be cleared.
+            allocationBox.addView(ink.meta("Saved assignments have nothing to work now"), below)
+            allocationBox.addView(ink.textButton("Split evenly again") { onAutomatic(tile) })
+            return
+        }
         allocationBox.addView(
             ink.secondaryButton(if (allocationOpen) "Hide assignments" else "Assign people") {
                 allocationOpen = !allocationOpen
