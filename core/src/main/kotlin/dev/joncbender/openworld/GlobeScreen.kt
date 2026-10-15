@@ -800,8 +800,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (tickClock < TICK_SECONDS) return
         tickClock -= TICK_SECONDS
         // Gather before growing: the people who work this tick's deposits are the ones counted in the panel.
+        // One reading of the stockpile for the whole tick, so gathering and growth see the same mood.
+        val held = HappinessModel.stocked(inventory.heldResources())
         gatherer.tick(settlements.all, ::siteOf)
-        settlements.update { PopulationModel.step(it, siteOf(it)) }
+        settlements.update { PopulationModel.step(it, siteOf(it), held) }
         if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
             ticksSinceFlush = 0
             settlements.flush()
@@ -1035,7 +1037,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             settlements.at(tile),
             SettlementRules.canFound(compact, tile, settlements.all),
             settlements.at(tile)?.let {
-                PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all))
+                PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all), HappinessModel.stocked(inventory.heldResources()))
             },
             settlements.at(tile)?.let { gatherer.economy(it, settlements.all, ::siteOf) },
         )

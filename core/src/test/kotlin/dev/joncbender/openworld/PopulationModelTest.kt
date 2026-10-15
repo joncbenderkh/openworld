@@ -37,7 +37,7 @@ class PopulationModelTest {
         val tile = SettlementRules.claim(world(), 20, 1).first { it != 20 }
         val world = world(resources = mapOf(tile to List(3) { Resource.GRAIN }))
         var (settlement, site) = settle(world, 2f)
-        repeat(500) { settlement = PopulationModel.step(settlement, site) }
+        repeat(500) { settlement = PopulationModel.step(settlement, site, emptySet()) }
         assertEquals(SettlementTier.HOMESTEAD.populationCap.toFloat(), settlement.population)
     }
 
@@ -47,23 +47,23 @@ class PopulationModelTest {
         val world = world(resources = mapOf(tile to listOf(Resource.GRAIN)))
         val site = site(world, Settlement(20, SettlementTier.HOMESTEAD))
         // One unit feeds 5: ten people are at half satisfaction, so they neither grow nor shrink.
-        assertEquals(10f, PopulationModel.step(Settlement(20, SettlementTier.VILLAGE, 10f), SettlementSite(site.tiles, intArrayOf(1, 1, 0), false)).population, 1e-4f)
-        assertTrue(PopulationModel.step(Settlement(20, SettlementTier.VILLAGE, 20f), SettlementSite(site.tiles, intArrayOf(1, 1, 0), false)).population < 20f)
+        assertEquals(10f, PopulationModel.step(Settlement(20, SettlementTier.VILLAGE, 10f), SettlementSite(site.tiles, intArrayOf(1, 1, 0), false), emptySet()).population, 1e-4f)
+        assertTrue(PopulationModel.step(Settlement(20, SettlementTier.VILLAGE, 20f), SettlementSite(site.tiles, intArrayOf(1, 1, 0), false), emptySet()).population < 20f)
     }
 
     @Test
     fun `below four people growth and decline are those of four`() {
         val site = SettlementSite(IntArray(0), intArrayOf(10, 0, 0), false)
-        assertEquals(2.2f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 2f), site).population, 1e-4f)
+        assertEquals(2.2f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 2f), site, emptySet()).population, 1e-4f)
         val starving = SettlementSite(IntArray(0), intArrayOf(0, 0, 0), false)
-        assertEquals(1.0f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 1.1f), starving).population, 1e-4f)
-        assertEquals(1.8f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 2f), starving).population, 1e-4f)
+        assertEquals(1.0f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 1.1f), starving, emptySet()).population, 1e-4f)
+        assertEquals(1.6f, PopulationModel.step(Settlement(20, SettlementTier.HOMESTEAD, 2f), starving, emptySet()).population, 1e-4f)
     }
 
     @Test
     fun `starvation declines but never below the minimum`() {
         var (settlement, site) = settle(world(), 8f)
-        repeat(1000) { settlement = PopulationModel.step(settlement, site) }
+        repeat(1000) { settlement = PopulationModel.step(settlement, site, emptySet()) }
         assertEquals(PopulationModel.MIN, settlement.population)
     }
 
@@ -119,10 +119,10 @@ class PopulationModelTest {
     @Test
     fun `status reports the trend`() {
         val full = SettlementSite(IntArray(0), intArrayOf(10, 10, 0), false)
-        val status = PopulationModel.status(Settlement(20, SettlementTier.VILLAGE, 5f), full, UpgradeResult.TOO_SMALL)
+        val status = PopulationModel.status(Settlement(20, SettlementTier.VILLAGE, 5f), full, UpgradeResult.TOO_SMALL, emptySet())
         assertEquals(Trend.GROWING, status.trend)
         assertTrue(status.needs.all { it.met })
-        val starving = PopulationModel.status(Settlement(20, SettlementTier.HOMESTEAD, 5f), SettlementSite(IntArray(0), intArrayOf(0, 0, 0), false), UpgradeResult.TOO_SMALL)
+        val starving = PopulationModel.status(Settlement(20, SettlementTier.HOMESTEAD, 5f), SettlementSite(IntArray(0), intArrayOf(0, 0, 0), false), UpgradeResult.TOO_SMALL, emptySet())
         assertEquals(Trend.DECLINING, starving.trend)
     }
 }

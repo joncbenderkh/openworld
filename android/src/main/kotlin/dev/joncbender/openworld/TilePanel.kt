@@ -120,6 +120,7 @@ class TilePanel(
                 settlementBox.addView(ink.label("SETTLEMENT"))
                 settlementBox.addView(ink.title(settlement.tier.name.toDisplayName()))
                 settlementBox.addView(ink.bodyText("People  ${settlement.population.toInt()} of ${settlement.tier.populationCap}  ·  ${trendText(status.trend)}"))
+                settlementBox.addView(ink.meta(status.happiness.line()))
                 status.needs.forEach { settlementBox.addView(ink.meta(needText(it))) }
                 settlementBox.addView(ink.meta("Claims tiles within ${settlement.tier.claimRadius} of this one"))
                 when (status.upgrade) {
@@ -253,7 +254,7 @@ class TilePanel(
     }
 
     private fun statusKey(status: SettlementStatus) =
-        "${status.settlement.tier}:${status.settlement.population.toInt()}:${status.trend}:${status.upgrade}:${status.needs.map { it.supported to it.met }}"
+        "${status.settlement.tier}:${status.settlement.population.toInt()}:${status.trend}:${status.upgrade}:${status.happiness.mood}:${status.happiness.grievances}:${status.needs.map { it.supported to it.met }}"
 
     private fun trendText(trend: Trend) = when (trend) {
         Trend.GROWING -> "growing"

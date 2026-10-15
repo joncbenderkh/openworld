@@ -20,10 +20,14 @@ class GatheringTest {
         return CompactWorld(w, sphere.faceCount, IntArray(sphere.faceCount) { it }, IntArray(0))
     }
 
+    // Plenty of everything the people need, so they are content and work at full strength; happiness has its own tests.
+    private fun fed(world: CompactWorld, settlement: Settlement): SettlementSite =
+        SettlementSite.of(world, settlement).let { SettlementSite(it.tiles, IntArray(Need.entries.size) { 1000 }, it.cold, it.deposits) }
+
     private val near = SettlementRules.claim(world(emptyMap()), 20, 1).first { it != 20 }
 
     private fun tickMany(world: CompactWorld, settlement: Settlement, ticks: Int) {
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         repeat(ticks) { gatherer.tick(listOf(settlement), { site }) }
     }
 
@@ -36,9 +40,18 @@ class GatheringTest {
     }
 
     @Test
+    fun `a settlement in unrest gathers nothing`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN)))
+        val settlement = Settlement(20, SettlementTier.HOMESTEAD, 10f)
+        val unfed = SettlementSite.of(world, settlement).let { SettlementSite(it.tiles, IntArray(Need.entries.size), it.cold, it.deposits) }
+        repeat(40) { gatherer.tick(listOf(settlement)) { unfed } }
+        assertEquals(0, inventory.count(Resource.GRAIN))
+    }
+
+    @Test
     fun `fewer people work a deposit less`() {
         val world = world(mapOf(near to listOf(Resource.GRAIN)))
-        val site = SettlementSite.of(world, Settlement(20, SettlementTier.HOMESTEAD, 1f))
+        val site = fed(world, Settlement(20, SettlementTier.HOMESTEAD, 1f))
         val full = Gathering.income(Gathering.harvest(Settlement(20, SettlementTier.HOMESTEAD, 10f), site, deposits))
         val half = Gathering.income(Gathering.harvest(Settlement(20, SettlementTier.HOMESTEAD, 1f), site, deposits))
         assertEquals(full.getValue(Resource.GRAIN) / 2, half.getValue(Resource.GRAIN), 1e-5f)
@@ -47,7 +60,7 @@ class GatheringTest {
     @Test
     fun `better tools gather more`() {
         val world = world(mapOf(near to listOf(Resource.GRAIN)))
-        val site = SettlementSite.of(world, Settlement(20, SettlementTier.VILLAGE, 50f))
+        val site = fed(world, Settlement(20, SettlementTier.VILLAGE, 50f))
         val homestead = Gathering.income(Gathering.harvest(Settlement(20, SettlementTier.HOMESTEAD, 50f), site, deposits))
         val village = Gathering.income(Gathering.harvest(Settlement(20, SettlementTier.VILLAGE, 50f), site, deposits))
         assertTrue(village.getValue(Resource.GRAIN) > homestead.getValue(Resource.GRAIN))
@@ -57,7 +70,7 @@ class GatheringTest {
     fun `a settlement too small cannot work a resource and lists it as locked`() {
         val world = world(mapOf(near to listOf(Resource.GOLD)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 10f)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         assertTrue(Gathering.harvest(settlement, site, deposits).isEmpty())
         assertEquals(listOf(Resource.GOLD), Gathering.locked(settlement, site))
         assertTrue(Gathering.locked(Settlement(20, SettlementTier.TOWN, 10f), site).isEmpty())
@@ -69,7 +82,7 @@ class GatheringTest {
         val settlement = Settlement(20, SettlementTier.CITY, 1000f)
         val roomy = Inventory(FakePreferences())
         val spender = Gatherer(roomy, deposits)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         repeat(2000) { spender.tick(listOf(settlement), { site }) }
         assertEquals(Gathering.DEPOSIT, roomy.count(Resource.STONE).toFloat(), 1f)
         assertTrue(Gathering.harvest(settlement, site, deposits).isEmpty())
@@ -79,7 +92,7 @@ class GatheringTest {
     fun `renewable resources never deplete`() {
         val world = world(mapOf(near to listOf(Resource.WOOD)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 10f)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         tickMany(world, settlement, 100)
         assertEquals(Gathering.DEPOSIT, deposits.remaining(site.deposits.single()))
     }
@@ -88,7 +101,7 @@ class GatheringTest {
     fun `the stockpile stops at the storage of the tiers and a full resource is not worked`() {
         val world = world(mapOf(near to listOf(Resource.STONE)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 10f)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         tickMany(world, settlement, 1000)
         assertEquals(Gathering.storage(SettlementTier.HOMESTEAD), inventory.count(Resource.STONE))
         // About 50 units were mined (and a tick's worth at most over), not the 125 that 1000 ticks would yield.
@@ -106,7 +119,7 @@ class GatheringTest {
     fun `income and lines name the resources`() {
         val world = world(mapOf(near to listOf(Resource.GRAIN, Resource.GOLD)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 10f)
-        val economy = gatherer.economy(settlement, listOf(settlement)) { SettlementSite.of(world, settlement) }
+        val economy = gatherer.economy(settlement, listOf(settlement)) { fed(world, settlement) }
         assertEquals("Per tick: Grain +0.3", economy.incomeLine())
         assertEquals("Needs a larger settlement: Gold", economy.lockedLine())
         assertEquals("Stockpile empty (holds 50 of each)", economy.stockLine())
@@ -118,7 +131,7 @@ class GatheringTest {
     fun `deposits persist and a damaged save is ignored`() {
         val world = world(mapOf(near to listOf(Resource.STONE)))
         val settlement = Settlement(20, SettlementTier.CITY, 1000f)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         deposits.mine(site.deposits.single(), 40f)
         deposits.flush()
         assertEquals(260f, Deposits(prefs).remaining(site.deposits.single()), 1e-4f)
@@ -143,7 +156,7 @@ class GatheringTest {
     fun `nothing is mined that the store cannot hold and a full store shows no income`() {
         val world = world(mapOf(near to listOf(Resource.STONE, Resource.STONE)))
         val settlement = Settlement(20, SettlementTier.CITY, 1000f)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         inventory.add(Resource.STONE, Gathering.storage(SettlementTier.CITY) - 1)
         gatherer.tick(listOf(settlement), { site })
         assertEquals(Gathering.storage(SettlementTier.CITY), inventory.count(Resource.STONE) + 0)
@@ -158,7 +171,7 @@ class GatheringTest {
         val settlement = Settlement(20, SettlementTier.CITY, 1f)
         val roomy = Inventory(FakePreferences())
         val spender = Gatherer(roomy, deposits)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         repeat(3000) { spender.tick(listOf(settlement), { site }) }
         assertTrue(Gathering.harvest(settlement, site, deposits).isEmpty())
         assertEquals(Gathering.DEPOSIT, roomy.count(Resource.STONE).toFloat(), 1f)
@@ -168,7 +181,7 @@ class GatheringTest {
     fun `income near the cap is what fits and mining is saved with the inventory`() {
         val world = world(mapOf(near to listOf(Resource.STONE)))
         val settlement = Settlement(20, SettlementTier.CITY, 1000f)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         inventory.add(Resource.STONE, Gathering.storage(SettlementTier.CITY) - 1)
         assertEquals(1f, gatherer.economy(settlement, listOf(settlement)) { site }.income.getValue(Resource.STONE), 1e-4f)
         inventory.clear()
@@ -183,7 +196,7 @@ class GatheringTest {
         val first = Settlement(20, SettlementTier.HOMESTEAD, 10f)
         val second = Settlement(near, SettlementTier.HOMESTEAD, 10f)
         val third = Settlement(near + 100, SettlementTier.HOMESTEAD, 10f)
-        val site = SettlementSite.of(world, first)
+        val site = fed(world, first)
         val all = listOf(first, second, third)
         inventory.add(Resource.STONE, 3 * Gathering.storage(SettlementTier.HOMESTEAD) - 1)
         // One unit of room, half a unit apiece: the first two take it, the third gets nothing.
@@ -206,7 +219,7 @@ class GatheringTest {
         val other = SettlementRules.claim(world(emptyMap()), 20, 1).first { it != 20 && it != near }
         val world = world(mapOf(near to listOf(Resource.GRAIN), other to listOf(Resource.STONE)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 2f)
-        val site = SettlementSite.of(world, settlement)
+        val site = fed(world, settlement)
         val grain = { gatherer.economy(settlement, listOf(settlement)) { site }.income.getValue(Resource.GRAIN) }
         val shared = grain()
         inventory.add(Resource.STONE, Gathering.storage(SettlementTier.HOMESTEAD))
@@ -215,7 +228,7 @@ class GatheringTest {
     }
 
     private fun incomeOf(settlement: Settlement, world: CompactWorld): Map<Resource, Float> =
-        Gathering.income(Gathering.harvest(settlement, SettlementSite.of(world, settlement), deposits))
+        Gathering.income(Gathering.harvest(settlement, fed(world, settlement), deposits))
 
     @Test
     fun `an allocation moves people between resources`() {
@@ -241,7 +254,7 @@ class GatheringTest {
     fun `no allocation is the even split over deposits`() {
         val world = world(mapOf(near to listOf(Resource.GRAIN), near + 1 to listOf(Resource.GRAIN, Resource.WOOD)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 3f)
-        val shares = Gathering.shares(settlement, SettlementSite.of(world, settlement), deposits)
+        val shares = Gathering.shares(settlement, fed(world, settlement), deposits)
         assertEquals(mapOf(Resource.GRAIN to 2, Resource.WOOD to 1), shares.associate { it.resource to it.deposits })
         assertEquals(mapOf(Resource.GRAIN to 2f, Resource.WOOD to 1f), shares.associate { it.resource to it.people })
         assertTrue(shares.none { it.explicit })
@@ -268,7 +281,7 @@ class GatheringTest {
         val world = world(mapOf(near to listOf(Resource.GRAIN, Resource.WOOD)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 2f)
         inventory.add(Resource.WOOD, Gathering.storage(SettlementTier.HOMESTEAD))
-        val shares = gatherer.economy(settlement, listOf(settlement), { SettlementSite.of(world, settlement) }).shares.associateBy { it.resource }
+        val shares = gatherer.economy(settlement, listOf(settlement), { fed(world, settlement) }).shares.associateBy { it.resource }
         assertTrue(shares.getValue(Resource.WOOD).full)
         assertEquals(0f, shares.getValue(Resource.WOOD).people, 0f)
         assertEquals(2f, shares.getValue(Resource.GRAIN).people, 1e-5f)

@@ -109,16 +109,16 @@ object Gathering {
     /**
      * What each workable deposit of the site yields this tick. Exhausted finite deposits and resources not [wanted] (a full store)
      * are not worked, so they take none of the people. The rest share the population by the [shares] weights, and a resource's
-     * people are spread evenly over its deposits.
+     * people are spread evenly over its deposits. [output] is the settlement's happiness factor, 0 in unrest.
      */
-    fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits, wanted: (Resource) -> Boolean = { true }): List<Harvest> {
+    fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits, output: Float = 1f, wanted: (Resource) -> Boolean = { true }): List<Harvest> {
         val workable = workable(settlement, site, deposits).filter { wanted(it.resource) }
         if (workable.isEmpty()) return emptyList()
         val people = shares(settlement, workable) { true }.associate { it.resource to it.people / it.deposits }
         return workable.map {
             val effort = minOf(1f, people.getValue(it.resource) / PEOPLE_PER_DEPOSIT)
             val rate = if (spec(it.resource).renewable) RENEWABLE_RATE else FINITE_RATE
-            val amount = rate * effort * tools(settlement.tier)
+            val amount = rate * effort * tools(settlement.tier) * output
             Harvest(it, if (spec(it.resource).renewable) amount else minOf(amount, deposits.remaining(it)))
         }
     }
@@ -147,13 +147,15 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
 
     private fun plan(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Plan {
         val room = FloatArray(Resource.entries.size) { Gathering.capacity(settlements) - inventory.count(Resource.entries[it]) - carry[it] }
+        val held = HappinessModel.stocked(inventory.heldResources())
         val taken = ArrayList<Pair<Settlement, Gathering.Harvest>>()
         val shares = HashMap<Int, List<WorkShare>>()
         for (settlement in settlements) {
             val site = siteOf(settlement)
             // The same room test for the shares as for the harvest, before this settlement takes any.
             shares[settlement.tile] = Gathering.shares(settlement, site, deposits) { room[it.ordinal] > 0f }
-            for (harvest in Gathering.harvest(settlement, site, deposits) { room[it.ordinal] > 0f }) {
+            val output = HappinessModel.of(settlement, site, held).output
+            for (harvest in Gathering.harvest(settlement, site, deposits, output) { room[it.ordinal] > 0f }) {
                 val r = harvest.deposit.resource.ordinal
                 // Only what the store still has room for is taken, so no finite deposit is spent on units that are lost.
                 val amount = minOf(harvest.amount, room[r])
