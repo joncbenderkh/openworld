@@ -130,9 +130,12 @@ class InkTheme(private val context: Context) {
         }
 
     /** A round 48dp close button for a panel or sheet: a warm disc with a cross. */
-    fun closeButton(description: String, onClick: () -> Unit): View =
+    fun closeButton(description: String, onClick: () -> Unit): View = roundButton("✕", description, onClick)
+
+    /** A round 48dp button with a one-character [glyph] on a warm disc: close, or the minus and plus of a stepper. */
+    fun roundButton(glyph: String, description: String, onClick: () -> Unit): View =
         TextView(context).apply {
-            text = "✕"
+            text = glyph
             textSize = 18f
             gravity = Gravity.CENTER
             setTextColor(InkPalette.INK)
