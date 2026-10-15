@@ -1,7 +1,7 @@
 package dev.joncbender.openworld
 
 /** A special resource a tile can hold, alongside its biome. Data only for now - no tile art yet. */
-enum class Resource {
+enum class Resource : Item {
     FISH, WHALES, PEARLS,
     WOOD, FURS, GAME, GRAIN,
     GOLD, GEMS, ORE, STONE,

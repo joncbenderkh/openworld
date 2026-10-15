@@ -8,12 +8,12 @@ import kotlin.test.assertTrue
 class InventoryTest {
 
     @Test
-    fun `every resource starts at zero`() {
+    fun `every item starts at zero`() {
         val inventory = Inventory(FakePreferences())
-        for (resource in Resource.entries) {
-            assertEquals(0, inventory.count(resource))
+        for (item in Items.all) {
+            assertEquals(0, inventory.count(item))
         }
-        assertTrue(inventory.heldResources().isEmpty())
+        assertTrue(inventory.held().isEmpty())
     }
 
     @Test
@@ -22,7 +22,25 @@ class InventoryTest {
         inventory.add(Resource.WOOD)
         inventory.add(Resource.WOOD, 4)
         assertEquals(5, inventory.count(Resource.WOOD))
-        assertEquals(mapOf(Resource.WOOD to 5), inventory.heldResources())
+        assertEquals(mapOf<Item, Int>(Resource.WOOD to 5), inventory.held())
+    }
+
+    @Test
+    fun `products are kept beside raw resources and survive a restart`() {
+        val preferences = FakePreferences()
+        Inventory(preferences).apply {
+            add(Product.METAL, 4)
+            add(Resource.ORE, 2)
+        }
+        val again = Inventory(preferences)
+        assertEquals(mapOf<Item, Int>(Product.METAL to 4, Resource.ORE to 2), again.held())
+        again.clear()
+        assertEquals(0, again.count(Product.METAL))
+    }
+
+    @Test
+    fun `items have distinct slots in one dense numbering`() {
+        assertEquals(Items.all.indices.toList(), Items.all.map { Items.slot(it) })
     }
 
     @Test
@@ -47,10 +65,10 @@ class InventoryTest {
         inventory.add(Resource.FISH, 3)
         inventory.add(Resource.STONE, 7)
         inventory.clear()
-        for (resource in Resource.entries) {
-            assertEquals(0, inventory.count(resource))
+        for (item in Items.all) {
+            assertEquals(0, inventory.count(item))
         }
-        assertTrue(inventory.heldResources().isEmpty())
+        assertTrue(inventory.held().isEmpty())
     }
 
     @Test

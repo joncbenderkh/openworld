@@ -79,7 +79,7 @@ class PopulationModelTest {
     @Test
     fun `a village short of shelter is held back by its worst need`() {
         val site = SettlementSite(IntArray(0), intArrayOf(10, 0, 0), false)
-        assertEquals(0f, PopulationModel.satisfaction(Settlement(20, SettlementTier.VILLAGE, 10f), site))
+        assertEquals(0f, PopulationModel.satisfaction(Settlement(20, SettlementTier.VILLAGE, 10f), site, emptySet()))
     }
 
     @Test

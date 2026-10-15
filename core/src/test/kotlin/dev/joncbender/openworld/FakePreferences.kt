@@ -6,6 +6,9 @@ import com.badlogic.gdx.Preferences
 class FakePreferences : Preferences {
     private val values = mutableMapOf<String, Any?>()
 
+    /** What each [flush] wrote: the state a kill right then would leave on disk. */
+    val flushed = mutableListOf<Map<String, Any?>>()
+
     override fun putBoolean(key: String, `val`: Boolean): Preferences {
         values[key] = `val`
         return this
@@ -54,5 +57,7 @@ class FakePreferences : Preferences {
     override fun remove(key: String) {
         values.remove(key)
     }
-    override fun flush() {}
+    override fun flush() {
+        flushed += values.toMap()
+    }
 }

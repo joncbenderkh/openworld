@@ -33,7 +33,7 @@ class SettlementSite(val tiles: IntArray, private val units: IntArray, val cold:
 enum class Trend { GROWING, STEADY, FULL, DECLINING }
 
 /** How one need stands: [supported] people can be served from the claimed tiles. */
-data class NeedStatus(val need: Need, val supported: Int, val met: Boolean)
+data class NeedStatus(val need: Need, val supported: Int, val met: Boolean, val byGoods: Boolean = false)
 
 /** Everything the panel shows about a settlement. */
 data class SettlementStatus(
@@ -67,28 +67,29 @@ object PopulationModel {
 
     fun supported(site: SettlementSite, need: Need): Int = (site.supply(need) * PEOPLE_PER_UNIT).toInt()
 
-    /** Share of the population [need] serves, 0..1. */
-    fun served(settlement: Settlement, site: SettlementSite, need: Need): Float =
-        minOf(1f, site.supply(need) * PEOPLE_PER_UNIT / settlement.population)
+    /** Share of the population [need] serves, 0..1. Stocked [Product.CLOTHING] covers warmth, wherever the people live. */
+    fun served(settlement: Settlement, site: SettlementSite, need: Need, held: Set<Item>): Float =
+        if (need == Need.WARMTH && Product.CLOTHING in held) 1f
+        else minOf(1f, site.supply(need) * PEOPLE_PER_UNIT / settlement.population)
 
     /** Share of the population the worst-met need serves, 0..1. */
-    fun satisfaction(settlement: Settlement, site: SettlementSite): Float =
-        needs(settlement.tier, site.cold).minOf { served(settlement, site, it) }
+    fun satisfaction(settlement: Settlement, site: SettlementSite, held: Set<Item>): Float =
+        needs(settlement.tier, site.cold).minOf { served(settlement, site, it, held) }
 
-    fun step(settlement: Settlement, site: SettlementSite, held: Set<Resource>): Settlement {
+    fun step(settlement: Settlement, site: SettlementSite, held: Set<Item>): Settlement {
         val happiness = HappinessModel.of(settlement, site, held)
         val base = maxOf(settlement.population, GROWTH_BASE)
         val change = when {
             happiness.mood == Mood.UNREST -> -base * HappinessModel.Tuning.LEAVE_RATE
-            else -> base * GROWTH_RATE * (2 * satisfaction(settlement, site) - 1).let { if (it > 0f) it * happiness.output else it }
+            else -> base * GROWTH_RATE * (2 * satisfaction(settlement, site, held) - 1).let { if (it > 0f) it * happiness.output else it }
         }
         val grown = (settlement.population + change).coerceIn(MIN, settlement.tier.populationCap.toFloat())
         return settlement.copy(population = grown)
     }
 
-    fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Resource>): SettlementStatus {
-        val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), served(settlement, site, it) >= 1f) }
-        val satisfaction = satisfaction(settlement, site)
+    fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Item>): SettlementStatus {
+        val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), served(settlement, site, it, held) >= 1f, it == Need.WARMTH && Product.CLOTHING in held) }
+        val satisfaction = satisfaction(settlement, site, held)
         val happiness = HappinessModel.of(settlement, site, held)
         val trend = when {
             happiness.mood == Mood.UNREST -> Trend.DECLINING

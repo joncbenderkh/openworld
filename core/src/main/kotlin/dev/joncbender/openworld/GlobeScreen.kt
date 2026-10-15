@@ -41,6 +41,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     val settlements = SettlementBook(preferences)
     private val deposits = Deposits(preferences)
     private val gatherer = Gatherer(inventory, deposits)
+    private val crafter = Crafter(inventory)
 
     /** Grows the settlement on the selected tile into its next tier, if the rules allow, and reports the tile again. */
     fun upgradeSettlementOnSelection() {
@@ -70,6 +71,15 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app.postRunnable {
             if (!worldReady) return@postRunnable
             settlements.allocate(tile, resource, weight)
+            if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
+        }
+    }
+
+    /** Switches the recipe for [product] on or off for the settlement on [tile]. */
+    fun craft(tile: Int, product: Product, on: Boolean) {
+        Gdx.app.postRunnable {
+            if (!worldReady) return@postRunnable
+            settlements.craft(tile, product, on)
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
@@ -395,6 +405,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             settlements.clear(flush = false)
             deposits.clear(flush = false)
             gatherer.clear()
+            crafter.clear()
         }
         // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
@@ -801,8 +812,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         tickClock -= TICK_SECONDS
         // Gather before growing: the people who work this tick's deposits are the ones counted in the panel.
         // One reading of the stockpile for the whole tick, so gathering and growth see the same mood.
-        val held = HappinessModel.stocked(inventory.heldResources())
+        val held = HappinessModel.stocked(inventory.held())
         gatherer.tick(settlements.all, ::siteOf)
+        crafter.tick(settlements.all) { HappinessModel.of(it, siteOf(it), held).output }
         settlements.update { PopulationModel.step(it, siteOf(it), held) }
         if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
             ticksSinceFlush = 0
@@ -1037,9 +1049,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             settlements.at(tile),
             SettlementRules.canFound(compact, tile, settlements.all),
             settlements.at(tile)?.let {
-                PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all), HappinessModel.stocked(inventory.heldResources()))
+                PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all), HappinessModel.stocked(inventory.held()))
             },
             settlements.at(tile)?.let { gatherer.economy(it, settlements.all, ::siteOf) },
+            settlements.at(tile)?.let { s -> crafter.status(s, settlements.all, HappinessModel.of(s, siteOf(s), HappinessModel.stocked(inventory.held())).output) }.orEmpty(),
         )
     }
 

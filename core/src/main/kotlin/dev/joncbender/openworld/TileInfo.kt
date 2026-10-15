@@ -20,4 +20,6 @@ data class TileInfo(
     val status: SettlementStatus? = null,
     /** Income, stockpile and locked resources, for a settled tile. */
     val economy: Economy? = null,
+    /** Every recipe's standing in the settled tile, empty elsewhere. */
+    val crafting: List<CraftStatus> = emptyList(),
 )

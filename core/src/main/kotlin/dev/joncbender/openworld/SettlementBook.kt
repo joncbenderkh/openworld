@@ -32,6 +32,15 @@ class SettlementBook(private val preferences: Preferences) {
             }.toMap()
             map[settlement.tile] = settlement.copy(allocation = allocation)
         }
+        // Switched-off recipes are kept the same way, under a key and a seed of their own.
+        val savedOff = preferences.getString(RECIPES_KEY, "").split('/', limit = 2)
+        val currentOff = savedOff.size == 2 && savedOff[0] == worldSeed().toString()
+        (if (currentOff) savedOff[1] else "").split(',').forEach { entry ->
+            val (tile, names) = entry.split(':').takeIf { it.size == 2 } ?: return@forEach
+            val settlement = tile.toIntOrNull()?.let { map[it] } ?: return@forEach
+            val off = names.split('|').mapNotNull { name -> Product.entries.firstOrNull { it.name == name } }.toSet()
+            map[settlement.tile] = settlement.copy(recipesOff = off)
+        }
     }
 
     /** Bumped on every change, so a drawing layer can tell when to rebuild. */
@@ -67,6 +76,14 @@ class SettlementBook(private val preferences: Preferences) {
     fun allocate(tile: Int, resource: Resource, weight: Int) {
         val settlement = byTile[tile] ?: return
         byTile[tile] = settlement.copy(allocation = settlement.allocation + (resource to weight.coerceIn(0, Gathering.MAX_WEIGHT)))
+        write()
+        preferences.flush()
+    }
+
+    /** Switches the recipe for [product] on or off for the settlement on [tile]. */
+    fun craft(tile: Int, product: Product, on: Boolean) {
+        val settlement = byTile[tile] ?: return
+        byTile[tile] = settlement.copy(recipesOff = if (on) settlement.recipesOff - product else settlement.recipesOff + product)
         write()
         preferences.flush()
     }
@@ -108,9 +125,16 @@ class SettlementBook(private val preferences: Preferences) {
     }
 
     private fun write() {
+        writeRecipes()
         if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" })
         val allocated = byTile.values.filter { it.allocation.isNotEmpty() }
         if (allocated.isEmpty()) preferences.remove(ALLOCATION_KEY) else preferences.putString(ALLOCATION_KEY, worldSeed().toString() + "/" + allocated.joinToString(",") { "${it.tile}:" + it.allocation.entries.joinToString("|") { (resource, weight) -> "${resource.name}=$weight" } })
+    }
+
+    private fun writeRecipes() {
+        val off = byTile.values.filter { it.recipesOff.isNotEmpty() }
+        if (off.isEmpty()) preferences.remove(RECIPES_KEY)
+        else preferences.putString(RECIPES_KEY, worldSeed().toString() + "/" + off.joinToString(",") { "${it.tile}:" + it.recipesOff.sortedBy { p -> p.ordinal }.joinToString("|") { p -> p.name } })
     }
 
     private fun worldSeed() = preferences.getLong(SEED_KEY, 0L)
@@ -120,5 +144,6 @@ class SettlementBook(private val preferences: Preferences) {
         const val SEED_KEY = "seed"
         const val KEY = "settlements"
         const val ALLOCATION_KEY = "allocations"
+        const val RECIPES_KEY = "recipes_off"
     }
 }
