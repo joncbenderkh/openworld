@@ -26,6 +26,7 @@ class TilePanel(
     private val onUpgrade: () -> Unit,
     private val onAllocate: (Int, Resource, Int) -> Unit,
     private val onAutomatic: (Int) -> Unit,
+    private val onCraft: (Int, Product, Boolean) -> Unit,
 ) {
     private val eyebrow = ink.label("Selected tile")
     private val biome = ink.title("")
@@ -37,6 +38,8 @@ class TilePanel(
     private val economyBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     // Where the people work: built again only when the weights change, so a tick's new numbers cannot drop a press on a stepper.
     private val allocationBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+    // What the settlement makes: like the assignments, built again only when a recipe's switch or tier gate changes.
+    private val craftingBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val glyphPx = ink.dp(GLYPH_DP)
     private val glyphs = HashMap<Resource, Bitmap>()
 
@@ -74,6 +77,7 @@ class TilePanel(
         )
         addView(economyBox)
         addView(allocationBox)
+        addView(craftingBox)
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
     }
 
@@ -101,6 +105,7 @@ class TilePanel(
         showSettlement(info)
         showEconomy(info.economy)
         showAllocation(info)
+        showCrafting(info)
         view.visibility = View.VISIBLE
     }
 
@@ -221,22 +226,99 @@ class TilePanel(
                 },
             )
         }
-        // The panel does not grow past a few rows: more are scrolled, and the half row shows there are.
-        // A short screen shows fewer: the list never takes more than a quarter of it. Larger type makes the rest of the panel
-        // taller, so the quarter shrinks with the font scale (at 2x the panel alone fills three quarters of a tall phone).
-        val row = ink.dp(InkPalette.TOUCH_DP)
-        val fontScale = maxOf(1f, context.resources.configuration.fontScale)
-        val room = (context.resources.displayMetrics.heightPixels * MAX_LIST_SHARE / fontScale).toInt().coerceAtLeast(row)
-        val shown = if (shares.size > VISIBLE_ROWS) VISIBLE_ROWS + 0.5f else shares.size.toFloat()
         val scroll = ScrollView(context).apply { addView(rows) }
         allocationScroll = scroll
-        allocationBox.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, minOf((row * shown).toInt(), room)))
+        allocationBox.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight(shares.size)))
         scroll.post { scroll.scrollTo(0, scrolled) }
         if (anySet) {
             allocationBox.addView(ink.textButton("Split evenly again") { onAutomatic(tile) })
         } else {
             allocationBox.addView(ink.meta("Split evenly over the deposits"))
         }
+    }
+
+    /**
+     * The height of a list of [count] rows. The panel does not grow past a few rows: more are scrolled, and the half row shows
+     * there are. A short screen shows fewer: the list never takes more than a quarter of it. Larger type makes the rest of the
+     * panel taller, so the quarter shrinks with the font scale (at 2x the panel alone fills three quarters of a tall phone).
+     */
+    private fun listHeight(count: Int): Int {
+        val context = view.context
+        val row = ink.dp(InkPalette.TOUCH_DP)
+        val fontScale = maxOf(1f, context.resources.configuration.fontScale)
+        val room = (context.resources.displayMetrics.heightPixels * MAX_LIST_SHARE / fontScale).toInt().coerceAtLeast(row)
+        val shown = if (count > VISIBLE_ROWS) VISIBLE_ROWS + 0.5f else count.toFloat()
+        return minOf((row * shown).toInt(), room)
+    }
+
+    private var craftingInfo: TileInfo? = null
+    private var craftingTile = -1
+    private var craftingOpen = false
+    private var craftingKey = ""
+    private val craftText = HashMap<Product, TextView>()
+
+    /** What the settlement can make: a button that opens a row per recipe, each with its state and a switch. */
+    private fun showCrafting(info: TileInfo) {
+        craftingInfo = info
+        if (info.faceIndex != craftingTile) {
+            craftingTile = info.faceIndex
+            craftingOpen = false
+            craftingKey = ""
+        }
+        val key = "$craftingOpen:" + info.crafting.joinToString { "${it.recipe.output}${it.enabled}${it.locked}" }
+        if (key != craftingKey) {
+            craftingKey = key
+            craftingBox.removeAllViews()
+            craftText.clear()
+            if (info.crafting.isNotEmpty()) buildCrafting(info.faceIndex, info.crafting)
+        }
+        info.crafting.forEach { craftText[it.recipe.output]?.text = craftLabel(it) }
+    }
+
+    private fun buildCrafting(tile: Int, recipes: List<CraftStatus>) {
+        val context = view.context
+        val below = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(12f) }
+        craftingBox.addView(
+            ink.secondaryButton(if (craftingOpen) "Hide crafting" else "Crafting") {
+                craftingOpen = !craftingOpen
+                craftingInfo?.let(::showCrafting)
+            },
+            below,
+        )
+        if (!craftingOpen) return
+        val rows = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        recipes.forEach { status ->
+            val name = status.recipe.output.displayName()
+            val label = ink.bodyText("").apply { gravity = Gravity.CENTER_VERTICAL }
+            craftText[status.recipe.output] = label
+            val toggle = ink.switch(status.enabled) { on -> onCraft(tile, status.recipe.output, on) }.apply {
+                contentDescription = "Make $name"
+                isEnabled = !status.locked
+                alpha = if (status.locked) DIMMED else 1f
+            }
+            rows.addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    minimumHeight = ink.dp(InkPalette.TOUCH_DP)
+                    addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(toggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = ink.dp(8f) })
+                },
+            )
+        }
+        craftingBox.addView(ScrollView(context).apply { addView(rows) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight(recipes.size)))
+    }
+
+    private fun craftLabel(status: CraftStatus): String {
+        val recipe = status.recipe
+        val needs = recipe.inputs.entries.joinToString(" + ") { (item, units) -> "$units ${item.displayName().lowercase()}" }
+        val state = when {
+            status.locked -> "needs a ${recipe.minTier.name.lowercase()}"
+            !status.enabled -> "off"
+            !status.ready -> "waiting for stock"
+            else -> "+" + String.format(Locale.ROOT, "%.1f", status.perTick) + " per tick"
+        }
+        return "${recipe.output.displayName()} · $needs · $state"
     }
 
     private fun shareLabel(share: WorkShare, economy: Economy): String {

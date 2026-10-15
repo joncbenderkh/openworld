@@ -13,6 +13,16 @@ object Crafting {
         const val PEOPLE_PER_RECIPE = 2f
     }
 
+    /** One line for a panel of what is being made now (at most a few kinds), or null when nothing is. */
+    fun line(statuses: List<CraftStatus>): String? {
+        val running = statuses.filter { it.enabled && !it.locked && it.ready }
+        if (running.isEmpty()) return null
+        val shown = running.take(SHOWN).joinToString(", ") { "${it.recipe.output.displayName()} +${String.format(java.util.Locale.ROOT, "%.1f", it.perTick)}" }
+        return "Making: " + shown + if (running.size > SHOWN) " and ${running.size - SHOWN} more" else ""
+    }
+
+    private const val SHOWN = 3
+
     fun locked(settlement: Settlement, recipe: Recipe): Boolean = recipe.minTier > settlement.tier
 
     fun enabled(settlement: Settlement, recipe: Recipe): Boolean = !locked(settlement, recipe) && recipe.output !in settlement.recipesOff

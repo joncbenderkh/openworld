@@ -177,6 +177,13 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
 - Happiness (`Happiness.kt`): derived, never stored - 0..1 from the worst-met need, variety of need-meeting resources on the land, luxuries
   (`Tuning.LUXURIES`) in the stockpile and crowding near the tier's cap. Output (gathering, and growth when positive) falls linearly from full at
   `Tuning.CONTENT` to none at `Tuning.UNREST`; below it people leave. Every number is in `HappinessModel.Tuning`. The panel lists the grievances.
+- Crafting (`Item.kt`, `Recipes.kt`, `Crafting.kt`): the stockpile holds `Item`s - raw `Resource`s and crafted `Product`s (`Items.slot` numbers
+  them densely; the icon atlas uses it). Products are never on a tile, so world generation and its caches only know `Resource`.
+  Recipes are a data table (`Recipes.ALL`: inputs, amount, ticks, minimum tier; a test checks none makes units from nothing or loops). A settlement
+  crafts every recipe its tier allows and the player has not switched off (`Settlement.recipesOff`, saved under the `recipes_off` key with the
+  world seed), at a rate set by its people and mood (`Crafting.batches`), from the shared stockpile, in the 2 s tick after gathering (`Crafter`).
+  Effects: stocked tools (`Gathering.CRAFTED_TOOLS`) raise every yield, stocked clothing meets WARMTH, stocked jewelry is a luxury. Buildings (#108)
+  will add a requirement to `Recipe`.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
   the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set

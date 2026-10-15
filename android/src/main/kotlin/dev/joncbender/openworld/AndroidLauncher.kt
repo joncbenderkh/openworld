@@ -85,6 +85,7 @@ class AndroidLauncher : AndroidApplication() {
             onUpgrade = { game.globeScreen.upgradeSettlementOnSelection() },
             onAllocate = { tile, resource, weight -> game.globeScreen.allocate(tile, resource, weight) },
             onAutomatic = { tile -> game.globeScreen.allocateAutomatically(tile) },
+            onCraft = { tile, product, on -> game.globeScreen.craft(tile, product, on) },
         )
     }
 

@@ -107,4 +107,13 @@ class CraftingTest {
         prefs.putString("recipes_off", "0/20:NOPE|FLOUR")
         assertEquals(setOf(Product.FLOUR), SettlementBook(prefs).at(20)?.recipesOff)
     }
+
+    @Test
+    fun `the panel line names what is being made and stays quiet when nothing is`() {
+        assertEquals(null, Crafting.line(crafter.status(homestead, listOf(homestead), 1f)))
+        inventory.add(Resource.GRAIN, 4)
+        inventory.add(Resource.FURS, 4)
+        val line = Crafting.line(crafter.status(homestead, listOf(homestead), 1f))
+        assertTrue(line != null && line.startsWith("Making: ") && "Flour" in line && "Clothing" in line, line)
+    }
 }

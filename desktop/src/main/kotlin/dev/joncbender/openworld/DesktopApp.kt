@@ -120,6 +120,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                             text(economy.incomeLine())
                             text(economy.stockLine())
                             economy.lockedLine()?.let(::text)
+                            Crafting.line(it.crafting)?.let(::text)
                         }
                         if (status.upgrade == UpgradeResult.OK) text("Press U to grow into a ${settlement.tier.next!!.name.lowercase()}")
                     }
