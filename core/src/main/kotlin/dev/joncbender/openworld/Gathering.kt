@@ -22,15 +22,24 @@ data class Economy(
     val locked: List<Resource>,
 ) {
     fun incomeLine(): String =
-        if (income.isEmpty()) "Gathers nothing yet" else "Per tick: " + income.entries.joinToString(", ") { "${it.key.displayName()} +${"%.1f".format(it.value)}" }
+        if (income.isEmpty()) "Gathers nothing yet" else "Per tick: " + listed(income.entries.map { "${it.key.displayName()} +${"%.1f".format(it.value)}" })
 
     fun stockLine(): String =
-        if (stock.isEmpty()) "Stockpile empty (holds $capacity of each)" else "Stockpile: " + stock.entries.joinToString(", ") { "${it.key.displayName()} ${it.value}" } + " (holds $capacity of each)"
+        if (stock.isEmpty()) "Stockpile empty (holds $capacity of each)"
+        else "Stockpile: " + listed(stock.entries.sortedByDescending { it.value }.map { "${it.key.displayName()} ${it.value}" }) + " (holds $capacity of each)"
 
     fun lockedLine(): String? =
-        if (locked.isEmpty()) null else "Needs a larger settlement: " + locked.joinToString(", ") { it.displayName() }
+        if (locked.isEmpty()) null else "Needs a larger settlement: " + listed(locked.map { it.displayName() })
+
+    // The panel does not scroll, so a long list is cut short: at most [SHOWN] entries, then a count of the rest.
+    private fun listed(entries: List<String>): String =
+        if (entries.size <= SHOWN) entries.joinToString(", ") else entries.take(SHOWN).joinToString(", ") + " and ${entries.size - SHOWN} more"
 
     private fun Resource.displayName() = name.lowercase().replaceFirstChar(Char::uppercase).replace('_', ' ')
+
+    private companion object {
+        const val SHOWN = 4
+    }
 }
 
 /**

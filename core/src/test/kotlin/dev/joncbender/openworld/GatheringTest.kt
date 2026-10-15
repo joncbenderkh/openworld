@@ -191,4 +191,13 @@ class GatheringTest {
         assertEquals(0.5f, gatherer.economy(second, all) { site }.income.getValue(Resource.STONE), 1e-4f)
         assertEquals(emptyMap(), gatherer.economy(third, all) { site }.income)
     }
+
+    @Test
+    fun `long lists are cut short so the panel stays small`() {
+        val all = Resource.entries
+        val economy = Economy(all.associateWith { 1f }, all.associateWith { 5 }, 50, all)
+        assertTrue(economy.incomeLine().endsWith("and ${all.size - 4} more"))
+        assertTrue(economy.stockLine().contains("and ${all.size - 4} more"))
+        assertTrue(economy.lockedLine()!!.endsWith("and ${all.size - 4} more"))
+    }
 }
