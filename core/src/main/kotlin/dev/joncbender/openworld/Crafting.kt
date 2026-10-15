@@ -1,7 +1,7 @@
 package dev.joncbender.openworld
 
 /** How one recipe stands in a settlement: [perTick] batches' worth of output it would make now, and whether it is [enabled] and [ready] (inputs stocked, room for the output). */
-data class CraftStatus(val recipe: Recipe, val enabled: Boolean, val locked: Boolean, val ready: Boolean, val perTick: Float)
+data class CraftStatus(val recipe: Recipe, val enabled: Boolean, val locked: Boolean, val ready: Boolean, val perTick: Float, val done: Boolean = false)
 
 /**
  * Crafting. Pure like [Gathering]: a recipe a settlement may work (its tier is high enough and the player has not
@@ -11,6 +11,13 @@ object Crafting {
     object Tuning {
         /** People a settlement needs to run a recipe at full rate; fewer run it proportionally slower. */
         const val PEOPLE_PER_RECIPE = 2f
+
+        /**
+         * Units of a product a recipe makes before it rests. Nothing uses a product up (apart from a later recipe), so without
+         * this the inputs would drain into goods for ever. Above [HappinessModel.Tuning.STOCKED], so a product still counts
+         * as stocked when the next recipe takes a few.
+         */
+        const val TARGET = 15
     }
 
     /** One line for a panel of what is being made now (at most a few kinds), or null when nothing is. */
@@ -42,8 +49,10 @@ class Crafter(private val inventory: Inventory) {
 
     private fun key(settlement: Settlement, recipe: Recipe) = settlement.tile * Product.entries.size + recipe.output.ordinal
 
+    private fun done(recipe: Recipe): Boolean = inventory.count(recipe.output) >= Crafting.Tuning.TARGET
+
     private fun ready(recipe: Recipe, capacity: Int): Boolean =
-        recipe.inputs.all { (item, units) -> inventory.count(item) >= units } && inventory.count(recipe.output) + recipe.amount <= capacity
+        !done(recipe) && recipe.inputs.all { (item, units) -> inventory.count(item) >= units } && inventory.count(recipe.output) + recipe.amount <= capacity
 
     fun tick(settlements: Collection<Settlement>, outputOf: (Settlement) -> Float) {
         val capacity = Gathering.capacity(settlements)
@@ -69,7 +78,7 @@ class Crafter(private val inventory: Inventory) {
     fun status(settlement: Settlement, settlements: Collection<Settlement>, output: Float): List<CraftStatus> {
         val capacity = Gathering.capacity(settlements)
         return Recipes.ALL.map { recipe ->
-            CraftStatus(recipe, recipe.output !in settlement.recipesOff, Crafting.locked(settlement, recipe), ready(recipe, capacity), Crafting.batches(settlement, recipe, output) * recipe.amount)
+            CraftStatus(recipe, recipe.output !in settlement.recipesOff, Crafting.locked(settlement, recipe), ready(recipe, capacity), Crafting.batches(settlement, recipe, output) * recipe.amount, done(recipe))
         }
     }
 

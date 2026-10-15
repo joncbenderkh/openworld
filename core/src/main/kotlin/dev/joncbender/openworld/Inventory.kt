@@ -13,8 +13,11 @@ import com.badlogic.gdx.Preferences
  */
 class Inventory(private val preferences: Preferences) {
 
+    // Crafted goods are saved with the seed of their world: a build that does not know them never clears them on a new world.
+    private val productsCurrent = preferences.getLong(PRODUCTS_SEED_KEY, NONE) == worldSeed()
+
     private val counts: MutableMap<Item, Int> =
-        Items.all.associateWithTo(mutableMapOf()) { preferences.getInteger(keyFor(it), 0) }
+        Items.all.associateWithTo(mutableMapOf()) { if (it is Product && !productsCurrent) 0 else preferences.getInteger(keyFor(it), 0) }
 
     fun count(item: Item): Int = counts.getValue(item)
 
@@ -28,7 +31,7 @@ class Inventory(private val preferences: Preferences) {
         val added = minOf(amount, limit - counts.getValue(item))
         if (added <= 0) return 0
         counts[item] = counts.getValue(item) + added
-        preferences.putInteger(keyFor(item), counts.getValue(item))
+        save(item)
         return added
     }
 
@@ -40,7 +43,7 @@ class Inventory(private val preferences: Preferences) {
         val current = counts.getValue(item)
         if (current < amount) return false
         counts[item] = current - amount
-        preferences.putInteger(keyFor(item), current - amount)
+        save(item)
         return true
     }
 
@@ -62,14 +65,28 @@ class Inventory(private val preferences: Preferences) {
             counts[item] = 0
             preferences.remove(keyFor(item))
         }
+        preferences.remove(PRODUCTS_SEED_KEY)
         if (flush) preferences.flush()
     }
 
     private fun set(item: Item, amount: Int) {
         counts[item] = amount
-        preferences.putInteger(keyFor(item), amount)
+        save(item)
         preferences.flush()
     }
 
+    private fun save(item: Item) {
+        preferences.putInteger(keyFor(item), counts.getValue(item))
+        if (item is Product) preferences.putLong(PRODUCTS_SEED_KEY, worldSeed())
+    }
+
+    // GlobeScreen's seed preference.
+    private fun worldSeed() = preferences.getLong("seed", 0L)
+
     private fun keyFor(item: Item) = "inventory_${item.name}"
+
+    private companion object {
+        const val PRODUCTS_SEED_KEY = "inventory_products_seed"
+        const val NONE = Long.MIN_VALUE
+    }
 }

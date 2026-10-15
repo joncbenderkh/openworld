@@ -182,7 +182,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   Recipes are a data table (`Recipes.ALL`: inputs, amount, ticks, minimum tier; a test checks none makes units from nothing or loops). A settlement
   crafts every recipe its tier allows and the player has not switched off (`Settlement.recipesOff`, saved under the `recipes_off` key with the
   world seed), at a rate set by its people and mood (`Crafting.batches`), from the shared stockpile, in the 2 s tick after gathering (`Crafter`).
-  Effects: stocked tools (`Gathering.CRAFTED_TOOLS`) raise every yield, stocked clothing meets WARMTH, stocked jewelry is a luxury. Buildings (#108)
+  A recipe rests once `Crafting.Tuning.TARGET` of its product is held, so inputs do not drain into goods nothing uses. Effects (a good counts as stocked from `HappinessModel.Tuning.STOCKED` = 10 units, the same rule as luxuries): tools (`Gathering.CRAFTED_TOOLS`) raise every yield, clothing meets WARMTH, jewelry is a luxury. Product counts are saved with the world seed (`inventory_products_seed`). Buildings (#108)
   will add a requirement to `Recipe`.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner

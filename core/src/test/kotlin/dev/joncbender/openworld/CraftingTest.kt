@@ -67,13 +67,13 @@ class CraftingTest {
     }
 
     @Test
-    fun `a full store for the output stops the recipe`() {
-        val capacity = Gathering.storage(SettlementTier.HOMESTEAD)
-        inventory.add(Product.CLOTHING, capacity)
-        inventory.add(Resource.FURS, 10)
-        tick(homestead, times = 10)
-        assertEquals(capacity, inventory.count(Product.CLOTHING))
-        assertEquals(10, inventory.count(Resource.FURS))
+    fun `a recipe rests once enough of its product is held`() {
+        inventory.add(Resource.FURS, 100)
+        tick(homestead, times = 100)
+        val made = inventory.count(Product.CLOTHING)
+        assertTrue(made >= Crafting.Tuning.TARGET && made < Crafting.Tuning.TARGET + 1 + 1, "$made clothing")
+        assertEquals(100 - 2 * made, inventory.count(Resource.FURS), "no furs spent beyond the target")
+        assertTrue(crafter.status(homestead, listOf(homestead), 1f).first { it.recipe.output == Product.CLOTHING }.done)
     }
 
     @Test
@@ -134,5 +134,16 @@ class CraftingTest {
         inventory.add(Resource.FURS, 4)
         val status = crafter.status(homestead, listOf(homestead), 0f)
         assertEquals(null, Crafting.line(status))
+    }
+
+    @Test
+    fun `crafted goods belong to the world seed they were made in`() {
+        inventory.add(Product.CLOTHING, 6)
+        inventory.add(Resource.FURS, 3)
+        assertEquals(6, Inventory(prefs).count(Product.CLOTHING))
+        prefs.putLong("seed", 99L)
+        val newWorld = Inventory(prefs)
+        assertEquals(0, newWorld.count(Product.CLOTHING), "a new seed does not inherit products")
+        assertEquals(3, newWorld.count(Resource.FURS))
     }
 }
