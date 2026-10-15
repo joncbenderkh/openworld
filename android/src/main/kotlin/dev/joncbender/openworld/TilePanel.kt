@@ -256,6 +256,7 @@ class TilePanel(
     private var craftingOpen = false
     private var craftingKey = ""
     private val craftText = HashMap<Product, TextView>()
+    private var craftingScroll: ScrollView? = null
 
     /** What the settlement can make: a button that opens a row per recipe, each with its state and a switch. */
     private fun showCrafting(info: TileInfo) {
@@ -268,14 +269,16 @@ class TilePanel(
         val key = "$craftingOpen:" + info.crafting.joinToString { "${it.recipe.output}${it.enabled}${it.locked}" }
         if (key != craftingKey) {
             craftingKey = key
+            val scrolled = craftingScroll?.scrollY ?: 0
             craftingBox.removeAllViews()
             craftText.clear()
-            if (info.crafting.isNotEmpty()) buildCrafting(info.faceIndex, info.crafting)
+            craftingScroll = null
+            if (info.crafting.isNotEmpty()) buildCrafting(info.faceIndex, info.crafting, scrolled)
         }
         info.crafting.forEach { craftText[it.recipe.output]?.text = craftLabel(it) }
     }
 
-    private fun buildCrafting(tile: Int, recipes: List<CraftStatus>) {
+    private fun buildCrafting(tile: Int, recipes: List<CraftStatus>, scrolled: Int) {
         val context = view.context
         val below = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(12f) }
         craftingBox.addView(
@@ -306,7 +309,11 @@ class TilePanel(
                 },
             )
         }
-        craftingBox.addView(ScrollView(context).apply { addView(rows) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight(recipes.size)))
+        val scroll = ScrollView(context).apply { addView(rows) }
+        craftingScroll = scroll
+        craftingBox.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight(recipes.size)))
+        scroll.post { scroll.scrollTo(0, scrolled) }
+        craftingBox.addView(ink.meta("Tools, clothing and jewelry count once ${HappinessModel.Tuning.STOCKED} are stocked"))
     }
 
     private fun craftLabel(status: CraftStatus): String {
@@ -315,6 +322,7 @@ class TilePanel(
         val state = when {
             status.locked -> "needs a ${recipe.minTier.name.lowercase()}"
             !status.enabled -> "off"
+            status.done -> "enough made"
             !status.ready -> "waiting for stock"
             status.perTick <= 0f -> "stopped by unrest"
             else -> "+" + String.format(Locale.ROOT, "%.1f", status.perTick) + " per tick"
