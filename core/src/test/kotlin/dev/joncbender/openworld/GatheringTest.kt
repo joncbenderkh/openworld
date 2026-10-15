@@ -298,4 +298,15 @@ class GatheringTest {
         prefs.putLong("seed", 8L)
         assertTrue(SettlementBook(prefs).at(20)!!.allocation.isEmpty())
     }
+
+    @Test
+    fun `stocked tools raise every yield`() {
+        val world = world(mapOf(near to listOf(Resource.GRAIN)))
+        val settlement = Settlement(20, SettlementTier.HOMESTEAD, 10f)
+        val site = fed(world, settlement)
+        val plain = Gathering.income(Gathering.harvest(settlement, site, Deposits(FakePreferences()))).getValue(Resource.GRAIN)
+        val equipped = Gathering.income(Gathering.harvest(settlement, site, Deposits(FakePreferences()), toolsFactor = Gathering.toolsFactor(setOf(Product.TOOLS)))).getValue(Resource.GRAIN)
+        assertEquals(plain * (1f + Gathering.CRAFTED_TOOLS), equipped, 1e-5f)
+        assertEquals(1f, Gathering.toolsFactor(emptySet()))
+    }
 }

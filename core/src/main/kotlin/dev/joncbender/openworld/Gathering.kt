@@ -59,6 +59,9 @@ object Gathering {
     const val DEPOSIT = 300f
     const val PEOPLE_PER_DEPOSIT = 2f
 
+    /** The gain in yield while the stockpile holds tools (see [Crafting]). */
+    const val CRAFTED_TOOLS = 0.25f
+
     /** The most weight the player can give one resource. */
     const val MAX_WEIGHT = 99
 
@@ -82,6 +85,9 @@ object Gathering {
     fun storage(tier: SettlementTier): Int = STORAGE[tier.ordinal]
 
     fun tools(tier: SettlementTier): Float = TOOLS[tier.ordinal]
+
+    /** What stocked [Product.TOOLS] add to every yield: [CRAFTED_TOOLS] more. */
+    fun toolsFactor(held: Set<Item>): Float = if (Product.TOOLS in held) 1f + CRAFTED_TOOLS else 1f
 
     /** One deposit's yield in a tick. */
     class Harvest(val deposit: Deposit, val amount: Float)
@@ -107,16 +113,16 @@ object Gathering {
     /**
      * What each workable deposit of the site yields this tick. Exhausted finite deposits and resources not [wanted] (a full store)
      * are not worked, so they take none of the people. The rest share the population by the [shares] weights, and a resource's
-     * people are spread evenly over its deposits. [output] is the settlement's happiness factor, 0 in unrest.
+     * people are spread evenly over its deposits. [output] is the settlement's happiness factor, 0 in unrest, and [toolsFactor] what crafted tools add.
      */
-    fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits, output: Float = 1f, wanted: (Resource) -> Boolean = { true }): List<Harvest> {
+    fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits, output: Float = 1f, toolsFactor: Float = 1f, wanted: (Resource) -> Boolean = { true }): List<Harvest> {
         val workable = workable(settlement, site, deposits).filter { wanted(it.resource) }
         if (workable.isEmpty()) return emptyList()
         val people = shares(settlement, workable) { true }.associate { it.resource to it.people / it.deposits }
         return workable.map {
             val effort = minOf(1f, people.getValue(it.resource) / PEOPLE_PER_DEPOSIT)
             val rate = if (spec(it.resource).renewable) RENEWABLE_RATE else FINITE_RATE
-            val amount = rate * effort * tools(settlement.tier) * output
+            val amount = rate * effort * tools(settlement.tier) * toolsFactor * output
             Harvest(it, if (spec(it.resource).renewable) amount else minOf(amount, deposits.remaining(it)))
         }
     }
@@ -153,7 +159,7 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
             // The same room test for the shares as for the harvest, before this settlement takes any.
             shares[settlement.tile] = Gathering.shares(settlement, site, deposits) { room[it.ordinal] > 0f }
             val output = HappinessModel.of(settlement, site, held).output
-            for (harvest in Gathering.harvest(settlement, site, deposits, output) { room[it.ordinal] > 0f }) {
+            for (harvest in Gathering.harvest(settlement, site, deposits, output, Gathering.toolsFactor(held)) { room[it.ordinal] > 0f }) {
                 val r = harvest.deposit.resource.ordinal
                 // Only what the store still has room for is taken, so no finite deposit is spent on units that are lost.
                 val amount = minOf(harvest.amount, room[r])

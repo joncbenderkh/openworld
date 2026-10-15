@@ -69,11 +69,12 @@ object HappinessModel {
     fun of(settlement: Settlement, site: SettlementSite, held: Set<Item>): Happiness {
         val grievances = ArrayList<Grievance>()
         val wanted = PopulationModel.needs(settlement.tier, site.cold)
-        val met = wanted.map { PopulationModel.served(settlement, site, it) }
+        val met = wanted.map { PopulationModel.served(settlement, site, it, held) }
         wanted.forEachIndexed { i, need ->
             when {
+                met[i] >= 1f -> Unit
                 site.supply(need) == 0 -> grievances += none(need)
-                met[i] < 1f -> grievances += short(need)
+                else -> grievances += short(need)
             }
         }
         val kinds = site.deposits.map { it.resource }.filter { r -> Need.entries.any { r in it.sources } }.distinct().size
