@@ -76,9 +76,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             val tile = selectedTile
             if (tile < 0 || !worldReady) return@postRunnable
             // The time before the first settlement is nobody's: the clock starts with it.
-            val first = settlements.all.isEmpty()
+            // Stamped first, so the settlement's own save carries the start time with it.
+            if (settlements.all.isEmpty()) offline.stamp(seed)
             settlements.found(compact, tile)
-            if (first && settlements.all.isNotEmpty()) offline.stamp(seed)
             onTileSelected?.invoke(describe(tile))
         }
     }
@@ -892,9 +892,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (replayCatchUp()) return
         repeat(clock.advance(delta)) {
             simulation.tick()
+            // Every tick, in memory: any save (an allocation, a build) then carries the time its state has reached.
+            offline.stamp(seed)
             if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
                 ticksSinceFlush = 0
-                offline.stamp(seed)
                 flushSettlements()
             }
             refreshPanel()
