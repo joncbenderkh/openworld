@@ -80,15 +80,30 @@ object PopulationModel {
     fun satisfaction(settlement: Settlement, site: SettlementSite, held: Set<Item>): Float =
         needs(settlement.tier, site.cold).minOf { served(settlement, site, it, held) }
 
-    fun step(settlement: Settlement, site: SettlementSite, held: Set<Item>): Settlement {
-        val happiness = HappinessModel.of(settlement, site, held)
-        val base = maxOf(settlement.population, GROWTH_BASE)
-        val change = when {
-            happiness.mood == Mood.UNREST -> -base * HappinessModel.Tuning.LEAVE_RATE
-            else -> base * GROWTH_RATE * (2 * satisfaction(settlement, site, held) - 1).let { if (it > 0f) it * happiness.output else it }
+    /**
+     * [ticks] ticks of growth at once. A tick changes the population by `base * k`, `base` being the larger of the people and
+     * [GROWTH_BASE] and `k` the growth (or, in unrest, the leaving) rate, so over a stretch it is exponential once the people reach
+     * the base and linear below it, then held between [MIN] and the tier's cap. One tick is exactly the old step.
+     */
+    fun step(settlement: Settlement, site: SettlementSite, held: Set<Item>, happiness: Happiness = HappinessModel.of(settlement, site, held), ticks: Int = 1): Settlement {
+        val k = when {
+            happiness.mood == Mood.UNREST -> -HappinessModel.Tuning.LEAVE_RATE
+            else -> GROWTH_RATE * (2 * satisfaction(settlement, site, held) - 1).let { if (it > 0f) it * happiness.output else it }
         }
-        val grown = (settlement.population + change).coerceIn(MIN, settlement.tier.populationCap.toFloat())
-        return settlement.copy(population = grown)
+        var people = settlement.population
+        var left = ticks
+        if (people < GROWTH_BASE && k != 0f) {
+            val toBase = if (k > 0f) kotlin.math.ceil((GROWTH_BASE - people) / (GROWTH_BASE * k)).toInt() else Int.MAX_VALUE
+            if (toBase >= left) {
+                people += GROWTH_BASE * k * left
+                left = 0
+            } else {
+                people += GROWTH_BASE * k * toBase
+                left -= toBase
+            }
+        }
+        if (left > 0) people *= Math.pow((1f + k).toDouble(), left.toDouble()).toFloat()
+        return settlement.copy(population = people.coerceIn(MIN, settlement.tier.populationCap.toFloat()))
     }
 
     fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Item>): SettlementStatus {

@@ -44,9 +44,58 @@ class SimulationTest {
     }
 
     @Test
-    fun `a full away time of replay fills the store and no further`() {
+    fun `a full away time fills the store and no further`() {
         val rig = Rig(world(mapOf(near to listOf(Resource.GRAIN))))
-        repeat(OfflineProgress.Tuning.CAP_TICKS) { rig.simulation.tick() }
+        rig.simulation.away(OfflineProgress.Tuning.CAP_TICKS)
         assertEquals(Gathering.capacity(rig.settlements.all), rig.inventory.count(Resource.GRAIN))
+    }
+
+    @Test
+    fun `time away is close to ticking it one by one`() {
+        val resources = mapOf(near to listOf(Resource.GRAIN, Resource.WOOD))
+        val one = Rig(world(resources)).also { rig -> repeat(120) { rig.simulation.tick() } }
+        val many = Rig(world(resources)).also { rig -> rig.simulation.away(120) }
+        for (item in listOf(Resource.GRAIN, Resource.WOOD)) {
+            val a = one.inventory.count(item).toFloat()
+            val b = many.inventory.count(item).toFloat()
+            assertTrue(a > 0 && kotlin.math.abs(a - b) <= maxOf(2f, a * 0.1f), "$item: $a ticks vs $b away")
+        }
+        val p1 = one.settlements.all.first().population
+        val p2 = many.settlements.all.first().population
+        assertTrue(kotlin.math.abs(p1 - p2) <= maxOf(0.5f, p1 * 0.15f), "people: $p1 vs $p2")
+    }
+
+    @Test
+    fun `no time away changes nothing`() {
+        val rig = Rig(world(mapOf(near to listOf(Resource.GRAIN))))
+        val report = rig.simulation.away(0)
+        assertEquals(0, report.ticks)
+        assertTrue(report.stock.isEmpty() && report.idle.isEmpty())
+        assertEquals(0, rig.inventory.count(Resource.GRAIN))
+    }
+
+    @Test
+    fun `the report says what the time away changed`() {
+        val rig = Rig(world(mapOf(near to listOf(Resource.GRAIN))))
+        val report = rig.simulation.away(200)
+        assertEquals(200, report.ticks)
+        assertEquals(rig.inventory.count(Resource.GRAIN), report.stock.getValue(Resource.GRAIN))
+        assertEquals(1, report.settlements.size)
+        assertEquals(rig.settlements.all.first().population, report.settlements.first().after)
+    }
+
+    @Test
+    fun `a building that cannot be paid goes idle during the time away`() {
+        val rig = Rig(world(mapOf(near to listOf(Resource.GRAIN))))
+        rig.settlements.update { it.copy(buildings = setOf(Building.MILL)) }
+        val report = rig.simulation.away(100)
+        assertEquals(setOf(Building.MILL), report.idle.getValue(20))
+    }
+
+    @Test
+    fun `growth over a long time stops at the tier cap`() {
+        val rig = Rig(world(mapOf(near to listOf(Resource.GRAIN))))
+        rig.simulation.away(OfflineProgress.Tuning.CAP_TICKS)
+        assertTrue(rig.settlements.all.first().population <= SettlementTier.HOMESTEAD.populationCap)
     }
 }

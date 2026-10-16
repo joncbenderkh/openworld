@@ -44,7 +44,7 @@ class GatheringTest {
         val world = world(mapOf(near to listOf(Resource.GRAIN)))
         val settlement = Settlement(20, SettlementTier.HOMESTEAD, 10f)
         val unfed = SettlementSite.of(world, settlement).let { SettlementSite(it.tiles, IntArray(Need.entries.size), it.cold, it.deposits) }
-        repeat(40) { gatherer.tick(listOf(settlement)) { unfed } }
+        repeat(40) { gatherer.tick(listOf(settlement), { unfed }) }
         assertEquals(0, inventory.count(Resource.GRAIN))
     }
 

@@ -19,7 +19,7 @@ class GameClock {
         if (on) holds.add(reason) else holds.remove(reason)
     }
 
-    /** True while something holds the clock; the offline replay waits too, though a paused [speed] does not stop it. */
+    /** True while something holds the clock (a paused [speed] is not a hold). */
     val held: Boolean get() = holds.isNotEmpty()
 
     val running: Boolean get() = speed != Speed.PAUSED && !held

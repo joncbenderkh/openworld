@@ -1,9 +1,20 @@
 package dev.joncbender.openworld
 
+/** What time away did, for whatever shows it: the stock change per item, each settlement's people before and after, and the buildings that went idle. */
+data class AwayReport(
+    val ticks: Int,
+    val stock: Map<Item, Int>,
+    val settlements: List<SettlementChange>,
+    val idle: Map<Int, Set<Building>>,
+)
+
+data class SettlementChange(val tile: Int, val before: Float, val after: Float)
+
 /**
- * One settlement tick: upkeep, gathering, crafting, then growth, in that order, all from one reading of the stockpile. The live clock
- * and the offline replay both call [tick], so away time plays out exactly as played time would. Nothing is saved or shown here:
- * the caller flushes and refreshes the panel.
+ * The settlement tick: upkeep, gathering, crafting, then growth, in that order, from one reading of the stockpile. [advance] does
+ * any number of ticks at once (rates times ticks, clamped by the store, the deposits, the inputs and the tier cap), and one tick
+ * is [tick]; time away is [away], which splits it into a few such steps. Nothing is saved or shown here: the caller flushes and
+ * refreshes the panel.
  */
 class Simulation(
     private val settlements: SettlementBook,
@@ -13,14 +24,52 @@ class Simulation(
     private val upkeeper: Upkeeper,
     private val siteOf: (Settlement) -> SettlementSite,
 ) {
-    fun tick() {
-        // One reading of the stockpile for the whole tick, so gathering and growth see the same mood.
+    fun tick() = advance(1)
+
+    fun advance(ticks: Int) {
+        if (ticks <= 0) return
+        // One reading of the stockpile for the whole step, so gathering and growth see the same mood.
         val held = HappinessModel.stocked(inventory.held())
-        // Upkeep first: a building that could not be paid does nothing from this tick on, here and in the panel.
-        upkeeper.tick(settlements.all)?.let { idle -> settlements.update { it.copy(idle = idle[it.tile].orEmpty()) } }
-        // Gather before growing: the people who work this tick's deposits are the ones counted in the panel.
-        gatherer.tick(settlements.all, siteOf)
-        crafter.tick(settlements.all) { HappinessModel.of(it, siteOf(it), held).output }
-        settlements.update { PopulationModel.step(it, siteOf(it), held) }
+        // Upkeep first: a building that could not be paid does nothing from this step on, here and in the panel.
+        upkeeper.advance(settlements.all, ticks)?.let { idle -> settlements.update { it.copy(idle = idle[it.tile].orEmpty()) } }
+        // Everyone's mood is read once, from the settlements as upkeep left them, and shared by gathering, crafting and growth.
+        val mood = HashMap<Int, Happiness>(settlements.all.size * 2)
+        for (settlement in settlements.all) mood[settlement.tile] = HappinessModel.of(settlement, siteOf(settlement), held)
+        // Gather before growing: the people who work this step's deposits are the ones counted in the panel.
+        gatherer.tick(settlements.all, siteOf, { mood.getValue(it.tile).output }, ticks)
+        crafter.tick(settlements.all, ticks) { mood.getValue(it.tile).output }
+        settlements.update { PopulationModel.step(it, siteOf(it), held, mood.getValue(it.tile), ticks) }
+    }
+
+    /**
+     * [ticks] ticks of time away, applied in steps with the moods, stores and idle buildings read again between them. The steps
+     * double in size from one tick (growth and a filling store change fastest at the start, and a step uses the rates it begins with),
+     * up to an eighth of the time, so a few dozen steps at most, however long the absence.
+     */
+    fun away(ticks: Int): AwayReport {
+        val stockBefore = inventory.held()
+        val peopleBefore = settlements.all.associate { it.tile to it.population }
+        val idleBefore = settlements.all.associate { it.tile to it.idle }
+        var left = maxOf(ticks, 0)
+        var step = 1
+        val longest = maxOf(1, ticks / LONGEST_SHARE)
+        while (left > 0) {
+            val now = minOf(step, longest, left)
+            advance(now)
+            left -= now
+            step *= 2
+        }
+        val stockAfter = inventory.held()
+        return AwayReport(
+            ticks = maxOf(ticks, 0),
+            stock = (stockBefore.keys + stockAfter.keys).associateWith { (stockAfter[it] ?: 0) - (stockBefore[it] ?: 0) }.filterValues { it != 0 },
+            settlements = settlements.all.map { SettlementChange(it.tile, peopleBefore[it.tile] ?: it.population, it.population) },
+            idle = settlements.all.associate { it.tile to it.idle - idleBefore[it.tile].orEmpty() }.filterValues { it.isNotEmpty() },
+        )
+    }
+
+    companion object {
+        /** No step is longer than this share of the time away. */
+        const val LONGEST_SHARE = 8
     }
 }

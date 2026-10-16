@@ -451,7 +451,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             crafter.clear()
             upkeeper.clear()
             offline.clear()
-            catchUp = 0
         }
         // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
@@ -485,7 +484,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                 restoreOldWorld(request, problem)
             } else {
                 // Nothing to go back to: the time spent trying is not time away for a world that loads later.
-                offline.stamp(seed, catchUp)
+                offline.stamp(seed)
                 picker = null
                 compact = placeholderWorld()
                 onWorldProblem?.invoke(problem ?: WorldProblem.NOT_SAVED, seed)
@@ -505,7 +504,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // The menu may have set the density just before asking (see the refusal in regenerateWorld).
         request.before.loadedDensity?.let { resourceDensity = it }
         // The time spent making the other world was not spent in this one: it is not time away.
-        offline.stamp(seed, catchUp)
+        offline.stamp(seed)
         loadWorld()
         if (problem != null && worldReady) {
             // The old world is back, so what failed was only the new one.
@@ -578,7 +577,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (problem == null) {
             settlements.retainWithin(compact.fineCount)
             prepareTilePicker()
-            queueCatchUp()
+            applyAway()
         }
         if (problem != null) {
             picker = null
@@ -853,51 +852,31 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     private var ticksSinceFlush = 0
 
-    // Ticks the time away is still owed, replayed a slice per frame so the globe stays alive while they run.
-    private var catchUp = 0
-    private var catchUpTotal = 0
-    private var catchUpTimer: PerfTimer? = null
+    /** What the last time away did, for whatever shows it; null until there has been some. */
+    var lastAway: AwayReport? = null
+        private set
 
-    /** Owes the ticks the time away is worth (and any still owed from before); called once the world is up and on every resume. */
-    private fun queueCatchUp() {
-        // With nobody settled there is nothing to replay on, and it must not be saved up for the first settlement.
-        catchUp = if (settlements.all.isEmpty()) 0 else offline.pending(seed)
-        offline.stamp(seed, catchUp)
-        if (catchUp <= 0) return
-        catchUpTotal = maxOf(catchUpTotal, catchUp)
-        if (catchUpTimer == null) catchUpTimer = PerfTimer("perf")
-    }
+    /** Called with each [AwayReport] once it is applied (the hook for a "while you were away" view; nothing uses it yet). */
+    var onAway: ((AwayReport) -> Unit)? = null
 
-    /** Replays owed ticks until this frame's budget is spent; true while any are left. */
-    private fun replayCatchUp(): Boolean {
-        if (catchUp <= 0) return false
-        val start = System.nanoTime()
-        do {
-            simulation.tick()
-            catchUp--
-        } while (catchUp > 0 && System.nanoTime() - start < CATCH_UP_BUDGET_NANOS)
-        // What is left, beside the state it will be replayed into: any flush now (a build, a kill) leaves the two in step.
-        offline.stamp(seed, catchUp)
-        if (catchUp == 0) {
-            offline.stamp(seed)
-            flushSettlements()
-            catchUpTimer?.lap("offline: replayed $catchUpTotal ticks")
-            catchUpTimer = null
-            catchUpTotal = 0
-            refreshPanel()
-        }
-        return catchUp > 0
+    /** Applies the time since the world was last played, once the world is up and on every resume: counted, not replayed. */
+    private fun applyAway() {
+        // With nobody settled there is nothing to count on, and it must not be saved up for the first settlement.
+        val ticks = if (settlements.all.isEmpty()) 0 else offline.pending(seed)
+        offline.stamp(seed)
+        if (ticks <= 0) return
+        val perf = PerfTimer("perf")
+        val report = simulation.away(ticks)
+        flushSettlements()
+        perf.lap("away: $ticks ticks")
+        lastAway = report
+        onAway?.invoke(report)
+        refreshPanel()
     }
 
     private fun tickSettlements(delta: Float) {
         if (!worldReady || settlements.all.isEmpty()) return
-        // The sheet holds the world still, a replay included, and the time it is up is not time away: the stamp keeps pace with it.
-        if (clock.held) {
-            offline.stamp(seed, catchUp)
-            return
-        }
-        if (replayCatchUp()) return
-        // Paused on purpose is not time away either.
+        // The sheet holds the world still, and the time it is up (or a pause) is not time away: the stamp keeps pace with it.
         if (!clock.running) {
             offline.stamp(seed)
             return
@@ -1159,12 +1138,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     override fun pause() {
         // Not before the world is up (or while it is being replaced): the stamp belongs to the world that was played, and its time must stay owed.
-        if (worldReady) offline.stamp(seed, catchUp)
+        if (worldReady) offline.stamp(seed)
         flushSettlements()
     }
 
     override fun resume() {
-        if (worldReady) queueCatchUp()
+        if (worldReady) applyAway()
     }
     override fun hide() = stopGeneration()
     private fun flushSettlements() {
@@ -1195,7 +1174,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
         private const val CLAIM_RING_SHARE = 0.6f
         private const val FLUSH_EVERY_TICKS = 5
-        private const val CATCH_UP_BUDGET_NANOS = 8_000_000L
         private const val CLAIM_RING_RELATIVE_WIDTH = 0.12f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_DP = 2.2f
