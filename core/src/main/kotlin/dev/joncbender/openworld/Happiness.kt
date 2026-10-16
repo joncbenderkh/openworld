@@ -27,7 +27,7 @@ data class Happiness(val value: Float, val mood: Mood, val grievances: List<Grie
  * stockpile holds. Every number is in [Tuning] so the balance can change without touching the logic.
  *
  * Value = [Tuning.BASE] + worst-met need * [Tuning.NEEDS] + variety * [Tuning.VARIETY] + luxuries * [Tuning.LUXURY]
- * - crowding * [Tuning.CROWDING]. Output (gathering, and growth when positive) falls linearly from full at [Tuning.CONTENT]
+ * - crowding * [Tuning.CROWDING] + what working buildings add ([Buildings.mood]). Output (gathering, and growth when positive) falls linearly from full at [Tuning.CONTENT]
  * to none at [Tuning.UNREST]; below [Tuning.UNREST] output stops and people leave.
  *
  * Distance from trade partners is not modelled yet (there are no trade routes).
@@ -73,7 +73,7 @@ object HappinessModel {
         wanted.forEachIndexed { i, need ->
             when {
                 met[i] >= 1f -> Unit
-                site.supply(need) == 0 -> grievances += none(need)
+                PopulationModel.supply(settlement, site, need) == 0 -> grievances += none(need)
                 else -> grievances += short(need)
             }
         }
@@ -86,7 +86,7 @@ object HappinessModel {
         val share = settlement.population / settlement.tier.populationCap
         val crowding = ((share - Tuning.CROWDING_FROM) / (1f - Tuning.CROWDING_FROM)).coerceIn(0f, 1f)
         if (crowding > 0f) grievances += Grievance.CROWDED
-        val value = (Tuning.BASE + (met.minOrNull() ?: 1f) * Tuning.NEEDS + variety * Tuning.VARIETY + luxury * Tuning.LUXURY - crowding * Tuning.CROWDING).coerceIn(0f, 1f)
+        val value = (Tuning.BASE + (met.minOrNull() ?: 1f) * Tuning.NEEDS + variety * Tuning.VARIETY + luxury * Tuning.LUXURY - crowding * Tuning.CROWDING + Buildings.mood(settlement)).coerceIn(0f, 1f)
         val mood = when {
             value < Tuning.UNREST -> Mood.UNREST
             value < Tuning.CONTENT -> Mood.UNHAPPY

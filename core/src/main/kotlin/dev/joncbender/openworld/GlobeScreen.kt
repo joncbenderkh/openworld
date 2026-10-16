@@ -42,6 +42,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private val deposits = Deposits(preferences)
     private val gatherer = Gatherer(inventory, deposits)
     private val crafter = Crafter(inventory)
+    private val upkeeper = Upkeeper(inventory, preferences)
 
     /** Grows the settlement on the selected tile into its next tier, if the rules allow, and reports the tile again. */
     fun upgradeSettlementOnSelection() {
@@ -71,6 +72,32 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app.postRunnable {
             if (!worldReady) return@postRunnable
             settlements.allocate(tile, resource, weight)
+            if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
+        }
+    }
+
+    /** Builds [building] in the settlement on [tile] if the rules allow, paying its cost from the stockpile. */
+    fun build(tile: Int, building: Building) {
+        Gdx.app.postRunnable {
+            if (!worldReady) return@postRunnable
+            val settlement = settlements.at(tile) ?: return@postRunnable
+            if (Buildings.canBuild(settlement, siteOf(settlement), building, inventory::count) == BuildResult.OK) {
+                // Nothing is saved between the payment and the building: settlements.build flushes the one preferences store for both.
+                for ((item, units) in Buildings.spec(building).cost) inventory.take(item, units)
+                settlements.build(tile, building)
+            }
+            if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
+        }
+    }
+
+    /** Takes [building] down in the settlement on [tile]; nothing is refunded, and a warehouse's stock past the room left is lost with it. */
+    fun demolish(tile: Int, building: Building) {
+        Gdx.app.postRunnable {
+            if (!worldReady) return@postRunnable
+            // A warehouse's stock goes with it: the building and the stockpile reach the one preferences store together (trimTo flushes).
+            val storage = building == Building.WAREHOUSE
+            settlements.demolish(tile, building, flush = !storage)
+            if (storage) inventory.trimTo(Gathering.capacity(settlements.all))
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
@@ -406,6 +433,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             deposits.clear(flush = false)
             gatherer.clear()
             crafter.clear()
+            upkeeper.clear()
         }
         // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
@@ -813,6 +841,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // Gather before growing: the people who work this tick's deposits are the ones counted in the panel.
         // One reading of the stockpile for the whole tick, so gathering and growth see the same mood.
         val held = HappinessModel.stocked(inventory.held())
+        // Upkeep first: a building that could not be paid does nothing from this tick on, here and in the panel.
+        upkeeper.tick(settlements.all)?.let { idle -> settlements.update { it.copy(idle = idle[it.tile].orEmpty()) } }
         gatherer.tick(settlements.all, ::siteOf)
         crafter.tick(settlements.all) { HappinessModel.of(it, siteOf(it), held).output }
         settlements.update { PopulationModel.step(it, siteOf(it), held) }
@@ -1052,6 +1082,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                 PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all), HappinessModel.stocked(inventory.held()))
             },
             settlements.at(tile)?.let { gatherer.economy(it, settlements.all, ::siteOf) },
+            settlements.at(tile)?.let { s -> Buildings.status(s, siteOf(s), inventory::count) }.orEmpty(),
             settlements.at(tile)?.let { s -> crafter.status(s, settlements.all, HappinessModel.of(s, siteOf(s), HappinessModel.stocked(inventory.held())).output) }.orEmpty(),
         )
     }
@@ -1093,7 +1124,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
         private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
         private const val CLAIM_RING_SHARE = 0.6f
-        private const val TICK_SECONDS = 2f
+        private const val TICK_SECONDS = Buildings.Tuning.TICK_SECONDS
         private const val FLUSH_EVERY_TICKS = 5
         private const val CLAIM_RING_RELATIVE_WIDTH = 0.12f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f

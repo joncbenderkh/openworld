@@ -69,6 +69,8 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                 }
                 Input.Keys.B -> screen.foundSettlementOnSelection()
                 Input.Keys.U -> screen.upgradeSettlementOnSelection()
+                // No list here: V builds the first building the settlement can now afford, in the order of the panel.
+                Input.Keys.V -> selected?.let { info -> info.buildings.firstOrNull { it.now == BuildResult.OK }?.let { screen.build(info.faceIndex, it.building) } }
                 Input.Keys.C -> {
                     Gdx.app.clipboard.contents = screen.seed.toString()
                     notice = "Seed ${screen.seed} copied"
@@ -103,7 +105,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
             lines += s
         }
         if (showHelp) {
-            text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear   B: found a homestead   U: grow it")
+            text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear   B: found a homestead   U: grow it   V: build")
             text("R: reset view   F: flip drag   1 2 3: resource density   N: new world   C: copy seed   H: hide help   Esc: quit")
         }
         text("seed ${game.globeScreen.seed}")
@@ -123,6 +125,7 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                             text(economy.stockLine())
                             economy.lockedLine()?.let(::text)
                             Crafting.line(it.crafting)?.let(::text)
+                            if (it.buildings.any { b -> b.built }) text("Buildings: " + it.buildings.filter { b -> b.built }.joinToString(", ") { b -> b.building.name.toDisplayName() + if (b.idle) " (idle)" else "" })
                         }
                         if (status.upgrade == UpgradeResult.OK) text("Press U to grow into a ${settlement.tier.next!!.name.lowercase()}")
                     }

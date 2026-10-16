@@ -27,6 +27,8 @@ class TilePanel(
     private val onAllocate: (Int, Resource, Int) -> Unit,
     private val onAutomatic: (Int) -> Unit,
     private val onCraft: (Int, Product, Boolean) -> Unit,
+    private val onBuild: (Int, Building) -> Unit,
+    private val onDemolish: (Int, Building) -> Unit,
 ) {
     private val eyebrow = ink.label("Selected tile")
     private val biome = ink.title("")
@@ -40,6 +42,8 @@ class TilePanel(
     private val allocationBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     // What the settlement makes: like the assignments, built again only when a recipe's switch or tier gate changes.
     private val craftingBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+    // What the settlement has built, or could: the same shape again.
+    private val buildingsBox = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val glyphPx = ink.dp(GLYPH_DP)
     private val glyphs = HashMap<Resource, Bitmap>()
 
@@ -78,6 +82,7 @@ class TilePanel(
         addView(economyBox)
         addView(allocationBox)
         addView(craftingBox)
+        addView(buildingsBox)
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
     }
 
@@ -106,6 +111,7 @@ class TilePanel(
         showEconomy(info.economy)
         showAllocation(info)
         showCrafting(info)
+        showBuildings(info)
         view.visibility = View.VISIBLE
     }
 
@@ -199,8 +205,8 @@ class TilePanel(
             ink.secondaryButton(if (allocationOpen) "Hide assignments" else "Assign people") {
                 allocationOpen = !allocationOpen
                 // One list at a time: two together would not fit a short screen, and the panel does not scroll.
-                if (allocationOpen) craftingOpen = false
-                allocationInfo?.let { showAllocation(it); showCrafting(it) }
+                if (allocationOpen) { craftingOpen = false; buildingsOpen = false }
+                allocationInfo?.let(::refreshLists)
             },
             below,
         )
@@ -253,6 +259,119 @@ class TilePanel(
         return minOf((row * shown).toInt(), room)
     }
 
+    private fun refreshLists(info: TileInfo) {
+        showAllocation(info)
+        showCrafting(info)
+        showBuildings(info)
+    }
+
+    private var buildingsInfo: TileInfo? = null
+    private var buildingsTile = -1
+    private var buildingsOpen = false
+    private var buildingsKey = ""
+    private var buildingsScroll: ScrollView? = null
+    private val buildingText = HashMap<Building, TextView>()
+    private val buildButton = HashMap<Building, View>()
+
+    // The building whose Demolish was pressed once: a second press takes it down, as nothing is refunded.
+    private var demolishing: Building? = null
+
+    /** What the settlement has built and could build: a button that opens a row per building, with Build or Demolish. */
+    private fun showBuildings(info: TileInfo) {
+        buildingsInfo = info
+        if (info.faceIndex != buildingsTile) {
+            buildingsTile = info.faceIndex
+            buildingsOpen = false
+            demolishing = null
+            buildingsKey = ""
+        }
+        // Stock changes on most ticks, so whether a building is affordable is not in the key: the row's text follows it in place instead.
+        val key = "$buildingsOpen:$demolishing:" + info.buildings.joinToString { "${it.building}${it.built}${it.idle}${if (it.now == BuildResult.NO_STOCK) BuildResult.OK else it.now}" }
+        if (key != buildingsKey) {
+            buildingsKey = key
+            val scrolled = buildingsScroll?.scrollY ?: 0
+            buildingsBox.removeAllViews()
+            buildingText.clear()
+            buildButton.clear()
+            buildingsScroll = null
+            if (info.buildings.isNotEmpty()) buildBuildings(info.faceIndex, info.buildings, scrolled)
+        }
+        info.buildings.forEach {
+            buildingText[it.building]?.text = buildingLabel(it)
+            buildButton[it.building]?.let { button -> styleBuild(button, it) }
+        }
+    }
+
+    private fun buildBuildings(tile: Int, buildings: List<BuildingStatus>, scrolled: Int) {
+        val context = view.context
+        val below = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = ink.dp(12f) }
+        buildingsBox.addView(
+            ink.secondaryButton(if (buildingsOpen) "Hide buildings" else "Buildings") {
+                buildingsOpen = !buildingsOpen
+                demolishing = null
+                if (buildingsOpen) { allocationOpen = false; craftingOpen = false }
+                buildingsInfo?.let(::refreshLists)
+            },
+            below,
+        )
+        if (!buildingsOpen) return
+        val rows = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        buildings.forEach { status ->
+            val name = status.building.name.toDisplayName()
+            val label = ink.bodyText("").apply { gravity = Gravity.CENTER_VERTICAL }
+            buildingText[status.building] = label
+            val button = when {
+                status.built && demolishing == status.building -> ink.textButton("Sure?") {
+                    demolishing = null
+                    onDemolish(tile, status.building)
+                }
+                status.built -> ink.textButton("Demolish") {
+                    demolishing = status.building
+                    buildingsInfo?.let(::refreshLists)
+                }
+                else -> ink.textButton("Build") { onBuild(tile, status.building) }.apply {
+                    contentDescription = "Build $name"
+                    buildButton[status.building] = this
+                    styleBuild(this, status)
+                }
+            }
+            rows.addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    minimumHeight = ink.dp(InkPalette.TOUCH_DP)
+                    addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ink.dp(InkPalette.TOUCH_DP)).apply { marginStart = ink.dp(8f) })
+                },
+            )
+        }
+        val scroll = ScrollView(context).apply { addView(rows) }
+        buildingsScroll = scroll
+        buildingsBox.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, listHeight(buildings.size)))
+        scroll.post { scroll.scrollTo(0, scrolled) }
+    }
+
+    // Build is live only when it would work now; stock changes on most ticks, so this is set in place, not by a rebuild.
+    private fun styleBuild(button: View, status: BuildingStatus) {
+        button.isEnabled = status.now == BuildResult.OK
+        button.alpha = if (button.isEnabled) 1f else DIMMED
+    }
+
+    private fun buildingLabel(status: BuildingStatus): String {
+        val spec = Buildings.spec(status.building)
+        val head = "${status.building.name.toDisplayName()} · ${Buildings.effect(status.building)}"
+        val state = when {
+            status.built && status.idle -> "idle: needs ${Buildings.upkeepText(status.building)}"
+            status.built -> "built · upkeep ${Buildings.upkeepText(status.building)}"
+            status.now == BuildResult.TIER -> "needs a ${spec.minTier.name.lowercase()}"
+            status.now == BuildResult.FULL -> "no free slot"
+            status.now == BuildResult.NO_SITE -> "needs ${spec.boosts.joinToString(" or ") { it.name.toDisplayName().lowercase() }} on its land"
+            status.now == BuildResult.NO_STOCK -> "needs ${Buildings.itemsText(spec.cost)} · upkeep ${Buildings.upkeepText(status.building)}"
+            else -> "costs ${Buildings.itemsText(spec.cost)} · upkeep ${Buildings.upkeepText(status.building)}"
+        }
+        return "$head · $state"
+    }
+
     private var craftingInfo: TileInfo? = null
     private var craftingTile = -1
     private var craftingOpen = false
@@ -286,8 +405,8 @@ class TilePanel(
         craftingBox.addView(
             ink.secondaryButton(if (craftingOpen) "Hide crafting" else "Crafting") {
                 craftingOpen = !craftingOpen
-                if (craftingOpen) allocationOpen = false
-                craftingInfo?.let { showAllocation(it); showCrafting(it) }
+                if (craftingOpen) { allocationOpen = false; buildingsOpen = false }
+                craftingInfo?.let(::refreshLists)
             },
             below,
         )
@@ -324,6 +443,8 @@ class TilePanel(
         val needs = recipe.inputs.entries.joinToString(" + ") { (item, units) -> "$units ${item.displayName().lowercase()}" }
         val state = when {
             status.locked -> "needs a ${recipe.minTier.name.lowercase()}"
+            status.idleBuilding -> "${recipe.requires.name.toDisplayName().lowercase()} idle: upkeep unpaid"
+            status.unbuilt -> "needs a ${recipe.requires.name.toDisplayName().lowercase()}"
             !status.enabled -> "off"
             status.done -> "enough made"
             !status.ready -> "waiting for stock"

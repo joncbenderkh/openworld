@@ -61,6 +61,15 @@ class Inventory(private val preferences: Preferences) {
         return true
     }
 
+    /** Cuts every count above [limit] down to it, and saves once: what a demolished warehouse held is lost. */
+    fun trimTo(limit: Int) {
+        for ((item, count) in counts.toMap()) if (count > limit) {
+            counts[item] = limit
+            save(item)
+        }
+        preferences.flush()
+    }
+
     /** Every item currently held, in a positive amount. */
     fun held(): Map<Item, Int> = counts.filterValues { it > 0 }
 

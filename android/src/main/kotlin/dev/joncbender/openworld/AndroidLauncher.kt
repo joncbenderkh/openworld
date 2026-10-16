@@ -86,6 +86,8 @@ class AndroidLauncher : AndroidApplication() {
             onAllocate = { tile, resource, weight -> game.globeScreen.allocate(tile, resource, weight) },
             onAutomatic = { tile -> game.globeScreen.allocateAutomatically(tile) },
             onCraft = { tile, product, on -> game.globeScreen.craft(tile, product, on) },
+            onBuild = { tile, building -> game.globeScreen.build(tile, building) },
+            onDemolish = { tile, building -> game.globeScreen.demolish(tile, building) },
         )
     }
 

@@ -118,11 +118,12 @@ object Gathering {
     fun harvest(settlement: Settlement, site: SettlementSite, deposits: Deposits, output: Float = 1f, toolsFactor: Float = 1f, wanted: (Resource) -> Boolean = { true }): List<Harvest> {
         val workable = workable(settlement, site, deposits).filter { wanted(it.resource) }
         if (workable.isEmpty()) return emptyList()
+        val boosted = Buildings.boosted(settlement)
         val people = shares(settlement, workable) { true }.associate { it.resource to it.people / it.deposits }
         return workable.map {
             val effort = minOf(1f, people.getValue(it.resource) / PEOPLE_PER_DEPOSIT)
             val rate = if (spec(it.resource).renewable) RENEWABLE_RATE else FINITE_RATE
-            val amount = rate * effort * tools(settlement.tier) * toolsFactor * output
+            val amount = rate * effort * tools(settlement.tier) * toolsFactor * output * (if (it.resource in boosted) 1f + Buildings.Tuning.GATHER_BONUS else 1f)
             Harvest(it, if (spec(it.resource).renewable) amount else minOf(amount, deposits.remaining(it)))
         }
     }
@@ -135,7 +136,7 @@ object Gathering {
         harvests.groupBy { it.deposit.resource }.mapValues { (_, list) -> list.sumOf { it.amount.toDouble() }.toFloat() }.toSortedMap()
 
     /** The room for each resource in the shared stockpile: every settlement adds its tier's storage. */
-    fun capacity(settlements: Collection<Settlement>): Int = settlements.sumOf { storage(it.tier) }
+    fun capacity(settlements: Collection<Settlement>): Int = settlements.sumOf { storage(it.tier) + Buildings.storage(it) }
 }
 
 /**

@@ -65,12 +65,16 @@ object PopulationModel {
         else -> listOf(Need.FOOD, Need.SHELTER)
     }
 
-    fun supported(site: SettlementSite, need: Need): Int = (site.supply(need) * PEOPLE_PER_UNIT).toInt()
+    /** Resource units serving [need]: those on the land, and a working granary's for food. */
+    fun supply(settlement: Settlement, site: SettlementSite, need: Need): Int =
+        site.supply(need) + if (need == Need.FOOD) Buildings.foodUnits(settlement) else 0
+
+    fun supported(settlement: Settlement, site: SettlementSite, need: Need): Int = (supply(settlement, site, need) * PEOPLE_PER_UNIT).toInt()
 
     /** Share of the population [need] serves, 0..1. Stocked [Product.CLOTHING] covers warmth, wherever the people live. */
     fun served(settlement: Settlement, site: SettlementSite, need: Need, held: Set<Item>): Float =
         if (need == Need.WARMTH && Product.CLOTHING in held) 1f
-        else minOf(1f, site.supply(need) * PEOPLE_PER_UNIT / settlement.population)
+        else minOf(1f, supply(settlement, site, need) * PEOPLE_PER_UNIT / settlement.population)
 
     /** Share of the population the worst-met need serves, 0..1. */
     fun satisfaction(settlement: Settlement, site: SettlementSite, held: Set<Item>): Float =
@@ -88,7 +92,7 @@ object PopulationModel {
     }
 
     fun status(settlement: Settlement, site: SettlementSite, upgrade: UpgradeResult, held: Set<Item>): SettlementStatus {
-        val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(site, it), served(settlement, site, it, held) >= 1f, it == Need.WARMTH && Product.CLOTHING in held) }
+        val needs = needs(settlement.tier, site.cold).map { NeedStatus(it, supported(settlement, site, it), served(settlement, site, it, held) >= 1f, it == Need.WARMTH && Product.CLOTHING in held) }
         val satisfaction = satisfaction(settlement, site, held)
         val happiness = HappinessModel.of(settlement, site, held)
         val trend = when {
