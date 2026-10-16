@@ -20,7 +20,7 @@ enum class SettlementTier(val claimRadius: Int, val populationCap: Int) {
  * [allocation] is the player's weight for where those people work, per resource (see [Gathering.shares]); a resource
  * without one gets the automatic weight, so the default - an empty map - spreads the people evenly over the deposits.
  * [recipesOff] are the products the player has switched off (see [Crafting]); by default every recipe the tier allows runs.
- * [buildings] are what it has built (see [Buildings]); [idle] are those whose upkeep went unpaid, which are not saved and do nothing.
+ * [buildings] are what it has built (see [Buildings]); [idle] are those whose upkeep went unpaid, which do nothing until the next payment; they are saved with the payment cycle, so a restart does not revive them.
  */
 data class Settlement(
     val tile: Int,

@@ -50,6 +50,15 @@ class SettlementBook(private val preferences: Preferences) {
             val built = names.split('|').mapNotNull { name -> Building.entries.firstOrNull { it.name == name } }.toSet()
             map[settlement.tile] = settlement.copy(buildings = built)
         }
+        // Those whose upkeep went unpaid, the same way: a restart must not revive them before the next payment.
+        val savedIdle = preferences.getString(IDLE_KEY, "").split('/', limit = 2)
+        val currentIdle = savedIdle.size == 2 && savedIdle[0] == worldSeed().toString()
+        (if (currentIdle) savedIdle[1] else "").split(',').forEach { entry ->
+            val (tile, names) = entry.split(':').takeIf { it.size == 2 } ?: return@forEach
+            val settlement = tile.toIntOrNull()?.let { map[it] } ?: return@forEach
+            val idle = names.split('|').mapNotNull { name -> Building.entries.firstOrNull { it.name == name } }.filter { it in settlement.buildings }.toSet()
+            map[settlement.tile] = settlement.copy(idle = idle)
+        }
     }
 
     /** Bumped on every change, so a drawing layer can tell when to rebuild. */
@@ -152,9 +161,16 @@ class SettlementBook(private val preferences: Preferences) {
     private fun write() {
         writeRecipes()
         writeBuildings()
+        writeIdle()
         if (byTile.isEmpty()) preferences.remove(KEY) else preferences.putString(KEY, byTile.values.joinToString(",") { "${it.tile}:${it.tier.name}:${it.population}" })
         val allocated = byTile.values.filter { it.allocation.isNotEmpty() }
         if (allocated.isEmpty()) preferences.remove(ALLOCATION_KEY) else preferences.putString(ALLOCATION_KEY, worldSeed().toString() + "/" + allocated.joinToString(",") { "${it.tile}:" + it.allocation.entries.joinToString("|") { (resource, weight) -> "${resource.name}=$weight" } })
+    }
+
+    private fun writeIdle() {
+        val idle = byTile.values.filter { it.idle.isNotEmpty() }
+        if (idle.isEmpty()) preferences.remove(IDLE_KEY)
+        else preferences.putString(IDLE_KEY, worldSeed().toString() + "/" + idle.joinToString(",") { "${it.tile}:" + it.idle.sortedBy { b -> b.ordinal }.joinToString("|") { b -> b.name } })
     }
 
     private fun writeBuildings() {
@@ -178,5 +194,6 @@ class SettlementBook(private val preferences: Preferences) {
         const val ALLOCATION_KEY = "allocations"
         const val RECIPES_KEY = "recipes_off"
         const val BUILDINGS_KEY = "buildings"
+        const val IDLE_KEY = "buildings_idle"
     }
 }

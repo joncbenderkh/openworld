@@ -152,15 +152,29 @@ class BuildingsTest {
     }
 
     @Test
-    fun `unknown names in a save are ignored and idle is never saved`() {
-        val book = book()
+    fun `unknown names in a save are ignored`() {
+        book()
         prefs.putString("buildings", "0/20:NOPE|MILL")
+        prefs.putString("buildings_idle", "0/20:NOPE|MILL|FARM")
         val loaded = SettlementBook(prefs).at(20)
         assertEquals(setOf(Building.MILL), loaded?.buildings)
-        assertEquals(emptySet(), loaded?.idle)
+        assertEquals(setOf(Building.MILL), loaded?.idle, "only what is built can be idle")
+    }
+
+    @Test
+    fun `an unpaid building is still idle after a restart, until it is paid`() {
+        val book = book()
         book.build(20, Building.FARM)
-        book.update { it.copy(idle = setOf(Building.FARM)) }
+        book.build(20, Building.MILL)
+        book.update { it.copy(idle = setOf(Building.MILL)) }
+        val restarted = SettlementBook(prefs)
+        assertEquals(setOf(Building.MILL), restarted.at(20)?.idle)
+        assertEquals(setOf(Building.FARM), restarted.at(20)?.working())
+        restarted.update { it.copy(idle = emptySet()) }
         assertEquals(emptySet(), SettlementBook(prefs).at(20)?.idle)
+        book.update { it.copy(idle = setOf(Building.MILL)) }
+        prefs.putLong("seed", 99L)
+        assertEquals(emptySet(), SettlementBook(prefs).at(20)?.idle, "another world's idle set is not kept")
     }
 
     @Test
