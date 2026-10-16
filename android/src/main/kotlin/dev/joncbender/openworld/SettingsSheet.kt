@@ -144,6 +144,9 @@ class SettingsSheet(
 
         dialog = ink.sheet(ScrollView(context).apply { addView(content) })
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        // The world waits while the sheet is up, however it is closed.
+        screen.hold("settings", true)
+        dialog.setOnDismissListener { screen.hold("settings", false) }
         dialog.show()
     }
 

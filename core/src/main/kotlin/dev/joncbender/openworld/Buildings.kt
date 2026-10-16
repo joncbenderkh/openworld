@@ -118,14 +118,26 @@ class Upkeeper(private val inventory: Inventory, private val preferences: Prefer
     // Where the payment cycle stands, kept in the preferences (with the next flush) so a restart neither skips a payment nor makes an early one.
     private var ticks = preferences.getInteger(KEY, 0).coerceIn(0, Buildings.Tuning.UPKEEP_EVERY - 1)
 
-    /** The buildings left idle for the next [Buildings.Tuning.UPKEEP_EVERY] ticks per settlement tile, on a payment tick; null between payments. */
-    fun tick(settlements: Collection<Settlement>): Map<Int, Set<Building>>? {
-        ticks = (ticks + 1) % Buildings.Tuning.UPKEEP_EVERY
-        preferences.putInteger(KEY, ticks)
-        if (ticks != 0) return null
-        return settlements.associate { settlement ->
-            settlement.tile to settlement.buildings.sortedBy { it.ordinal }.filterNotTo(LinkedHashSet()) { pay(it) }
+    /** [tick] for one tick. */
+    fun tick(settlements: Collection<Settlement>): Map<Int, Set<Building>>? = advance(settlements, 1)
+
+    /**
+     * Moves the cycle on by [ticks] ticks, paying once for each payment tick passed (each all or nothing, from what the stockpile holds now);
+     * the buildings left idle after the last payment per settlement tile, or null if none was due.
+     */
+    fun advance(settlements: Collection<Settlement>, ticks: Int): Map<Int, Set<Building>>? {
+        val every = Buildings.Tuning.UPKEEP_EVERY
+        val cycles = (ticks + this.ticks) / every
+        this.ticks = (this.ticks + ticks) % every
+        preferences.putInteger(KEY, this.ticks)
+        if (cycles <= 0) return null
+        var idle: Map<Int, Set<Building>> = emptyMap()
+        repeat(cycles) {
+            idle = settlements.associate { settlement ->
+                settlement.tile to settlement.buildings.sortedBy { it.ordinal }.filterNotTo(LinkedHashSet()) { pay(it) }
+            }
         }
+        return idle
     }
 
     private fun pay(building: Building): Boolean {

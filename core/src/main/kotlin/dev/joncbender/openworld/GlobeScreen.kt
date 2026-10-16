@@ -43,6 +43,19 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private val gatherer = Gatherer(inventory, deposits)
     private val crafter = Crafter(inventory)
     private val upkeeper = Upkeeper(inventory, preferences)
+    private val simulation = Simulation(settlements, inventory, gatherer, crafter, upkeeper, ::siteOf)
+    private val offline = OfflineProgress(preferences)
+
+    /** The simulation's clock: pause and speed. Nothing but the settlement tick reads it. */
+    private val clock = GameClock()
+    var speed: Speed
+        get() = clock.speed
+        set(value) { clock.speed = value }
+
+    /** Stops the simulation while [on], for [reason] (the settings sheet); each reason must be released. */
+    fun hold(reason: String, on: Boolean) {
+        Gdx.app?.postRunnable { clock.hold(reason, on) }
+    }
 
     /** Grows the settlement on the selected tile into its next tier, if the rules allow, and reports the tile again. */
     fun upgradeSettlementOnSelection() {
@@ -62,6 +75,9 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app.postRunnable {
             val tile = selectedTile
             if (tile < 0 || !worldReady) return@postRunnable
+            // The time before the first settlement is nobody's: the clock starts with it.
+            // Stamped first, so the settlement's own save carries the start time with it.
+            if (settlements.all.isEmpty()) offline.stamp(seed)
             settlements.found(compact, tile)
             onTileSelected?.invoke(describe(tile))
         }
@@ -342,6 +358,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app?.log("perf", "regenerating: seed $seed -> $newSeed, keepOld=$keepOld")
         val before = Previous(seed, loadedDensity, resourceDensity)
         val request = Request(newSeed, keepInventory, keepOld, before)
+        // The time spent making the world is not time away, even if the process is killed meanwhile: restoring or finishing stamps again.
+        offline.clear()
         if (keepOld) {
             leftovers().forEach { it.delete() }
             seed = newSeed
@@ -434,6 +452,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             gatherer.clear()
             crafter.clear()
             upkeeper.clear()
+            offline.clear()
+            lastAway = null
         }
         // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
@@ -466,6 +486,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             if (request.keepOld) {
                 restoreOldWorld(request, problem)
             } else {
+                // Nothing to go back to: the time spent trying is not time away for a world that loads later.
+                offline.stamp(seed)
                 picker = null
                 compact = placeholderWorld()
                 onWorldProblem?.invoke(problem ?: WorldProblem.NOT_SAVED, seed)
@@ -474,6 +496,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             return
         }
         onGenerationStage?.invoke("Drawing the map")
+        // Building the same world again keeps the inventory and the stamp: the time spent making it is not time away.
+        offline.stamp(seed)
         loadWorld()
         remindOfPendingWorld()
     }
@@ -484,6 +508,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         seed = request.before.seed
         // The menu may have set the density just before asking (see the refusal in regenerateWorld).
         request.before.loadedDensity?.let { resourceDensity = it }
+        // The time spent making the other world was not spent in this one: it is not time away.
+        offline.stamp(seed)
         loadWorld()
         if (problem != null && worldReady) {
             // The old world is back, so what failed was only the new one.
@@ -556,6 +582,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (problem == null) {
             settlements.retainWithin(compact.fineCount)
             prepareTilePicker()
+            applyAway()
         }
         if (problem != null) {
             picker = null
@@ -828,31 +855,52 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         return sites.getValue(settlement.tile)
     }
 
-    // The time since the last population tick; the clock proper (speed, pause, offline) is a later issue.
-    private var tickClock = 0f
     private var ticksSinceFlush = 0
+
+    /** What the last time away did, for whatever shows it; null until there has been some. */
+    var lastAway: AwayReport? = null
+        private set
+
+    /** Called with each [AwayReport] once it is applied (the hook for a "while you were away" view; nothing uses it yet). */
+    var onAway: ((AwayReport) -> Unit)? = null
+
+    /** Applies the time since the world was last played, once the world is up and on every resume: counted, not replayed. */
+    private fun applyAway() {
+        // With nobody settled there is nothing to count on, and it must not be saved up for the first settlement.
+        val ticks = if (settlements.all.isEmpty()) 0 else offline.pending(seed)
+        offline.stamp(seed)
+        // Held or paused when it was left: that time is not time away.
+        if (ticks <= 0 || !clock.running) return
+        val perf = PerfTimer("perf")
+        val report = simulation.away(ticks)
+        flushSettlements()
+        perf.lap("away: $ticks ticks")
+        lastAway = report
+        onAway?.invoke(report)
+        refreshPanel()
+    }
 
     private fun tickSettlements(delta: Float) {
         if (!worldReady || settlements.all.isEmpty()) return
-        // A long frame (the app was away, or a world was loading) is not made up for.
-        tickClock += minOf(delta, TICK_SECONDS)
-        if (tickClock < TICK_SECONDS) return
-        tickClock -= TICK_SECONDS
-        // Gather before growing: the people who work this tick's deposits are the ones counted in the panel.
-        // One reading of the stockpile for the whole tick, so gathering and growth see the same mood.
-        val held = HappinessModel.stocked(inventory.held())
-        // Upkeep first: a building that could not be paid does nothing from this tick on, here and in the panel.
-        upkeeper.tick(settlements.all)?.let { idle -> settlements.update { it.copy(idle = idle[it.tile].orEmpty()) } }
-        gatherer.tick(settlements.all, ::siteOf)
-        crafter.tick(settlements.all) { HappinessModel.of(it, siteOf(it), held).output }
-        settlements.update { PopulationModel.step(it, siteOf(it), held) }
-        if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
-            ticksSinceFlush = 0
-            settlements.flush()
-            inventory.flush()
-            deposits.flush()
+        // The sheet holds the world still, and the time it is up (or a pause) is not time away: the stamp keeps pace with it.
+        if (!clock.running) {
+            offline.stamp(seed)
+            return
         }
-        // A settlement open in the panel shows its new population.
+        repeat(clock.advance(delta)) {
+            simulation.tick()
+            // Every tick, in memory: any save (an allocation, a build) then carries the time its state has reached.
+            offline.stamp(seed)
+            if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
+                ticksSinceFlush = 0
+                flushSettlements()
+            }
+            refreshPanel()
+        }
+    }
+
+    // A settlement open in the panel shows its new population.
+    private fun refreshPanel() {
         val tile = selectedTile
         if (tile >= 0 && settlements.at(tile) != null) onTileSelected?.invoke(describe(tile))
     }
@@ -1094,8 +1142,16 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         return false
     }
 
-    override fun pause() = flushSettlements()
-    override fun resume() {}
+    override fun pause() {
+        // Not before the world is up (or while it is being replaced): the stamp belongs to the world that was played, and its time must stay owed.
+        // A held or paused clock leaves no credit behind either: a restart would otherwise start at 1x and count the absence.
+        if (worldReady) { if (clock.running) offline.stamp(seed) else offline.clear() }
+        flushSettlements()
+    }
+
+    override fun resume() {
+        if (worldReady) applyAway()
+    }
     override fun hide() = stopGeneration()
     private fun flushSettlements() {
         settlements.flush()
@@ -1124,7 +1180,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
         private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
         private const val CLAIM_RING_SHARE = 0.6f
-        private const val TICK_SECONDS = Buildings.Tuning.TICK_SECONDS
         private const val FLUSH_EVERY_TICKS = 5
         private const val CLAIM_RING_RELATIVE_WIDTH = 0.12f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f

@@ -189,6 +189,13 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   claimed tile; a recipe needs its building (`Recipe.requires`); a warehouse adds storage (demolishing one drops the stock past the room left, `Inventory.trimTo`; idling does not), a working granary food units, a shrine and a market mood.
   Effects read `Settlement.working()` (built minus idle). Built sets are saved like `recipes_off`, under `buildings` with the world seed. The Android panel opens
   one list at a time (assign, crafting, buildings); the desktop builds with V and shows what is built.
+- Clock (`Simulation.kt`, `GameClock.kt`, `OfflineProgress.kt`): `Simulation.advance(ticks)` is the settlement tick (upkeep, gather, craft, grow) done for any number of ticks at once: rates times ticks,
+  clamped by the store, the deposits, the inputs and the tier cap (`Gatherer`, `Crafter`, `Upkeeper.advance` and `PopulationModel.step` take `ticks`; growth is exponential in closed form); `tick()` is `advance(1)`: one tick pays upkeep first, a longer step pays its payments after the step's income is in, so a long absence does not idle buildings the income covers.
+  `GameClock` turns frame time into ticks (2 s each; `Speed` PAUSED/X1/X3, not saved, no control yet; `hold(reason)` stops it, as the Android settings sheet does; a long frame is not made up for).
+  Time away is counted, not replayed: `OfflineProgress` stamps the wall time with the seed (`clock_saved_ms`) after every tick (in memory, so any save carries it), while the clock is held or paused, after a
+  cancelled or failed replacement and on pause (never before the world is up; time before the first settlement is dropped); on world load and on resume `GlobeScreen.applyAway` turns the time since into ticks (none if the clock is held or paused then),
+  capped at 4 h (`CAP_TICKS`), and `Simulation.away` applies them in steps that double in size from one tick up to an eighth of the time (moods, stores and idle buildings are read again between steps), so the cost is a
+  few dozen ticks' worth however long the absence. It returns an `AwayReport` (stock change per item, people before and after per settlement, buildings gone idle), kept as `GlobeScreen.lastAway` and passed to `onAway` (nothing shows it yet); the timing is logged under `perf`.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
   the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set
