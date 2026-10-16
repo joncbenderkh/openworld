@@ -191,7 +191,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   one list at a time (assign, crafting, buildings); the desktop builds with V and shows what is built.
 - Clock (`Simulation.kt`, `GameClock.kt`, `OfflineProgress.kt`): `Simulation.tick` is one settlement tick (upkeep, gather, craft, grow); `GameClock` turns frame time into
   ticks (2 s each; `Speed` PAUSED/X1/X3, not saved, no control yet; `hold(reason)` stops it, as the Android settings sheet does; a long frame is not made up for). Time away is
-  `OfflineProgress`: the wall time is stamped with the seed (`clock_saved_ms`) after every tick (in memory, so any save carries it), while the clock is held, after a cancelled replacement, and on pause, and on resume or world load the ticks since, capped at 4 h
+  `OfflineProgress`: the wall time is stamped with the seed (`clock_saved_ms`) after every tick (in memory, so any save carries it), while the clock is held or paused, after a cancelled or failed replacement, and on pause, and on resume or world load the ticks since, capped at 4 h
   (`CAP_TICKS`; ticks not yet replayed are kept in the stamp, `clock_owed_ticks`, after every slice; time with nobody settled is dropped, and the stamp is only written while the world is up), are replayed through the same `Simulation.tick` on the GL thread, 8 ms of them per frame (`CATCH_UP_BUDGET_NANOS`), with live ticks waiting, and nothing runs while the clock is held; the timing is logged under `perf`.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner

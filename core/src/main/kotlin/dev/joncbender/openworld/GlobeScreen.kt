@@ -484,6 +484,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             if (request.keepOld) {
                 restoreOldWorld(request, problem)
             } else {
+                // Nothing to go back to: the time spent trying is not time away for a world that loads later.
+                offline.stamp(seed, catchUp)
                 picker = null
                 compact = placeholderWorld()
                 onWorldProblem?.invoke(problem ?: WorldProblem.NOT_SAVED, seed)
@@ -895,6 +897,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             return
         }
         if (replayCatchUp()) return
+        // Paused on purpose is not time away either.
+        if (!clock.running) {
+            offline.stamp(seed)
+            return
+        }
         repeat(clock.advance(delta)) {
             simulation.tick()
             // Every tick, in memory: any save (an allocation, a build) then carries the time its state has reached.
