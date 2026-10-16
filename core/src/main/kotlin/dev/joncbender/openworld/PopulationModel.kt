@@ -92,17 +92,21 @@ object PopulationModel {
         }
         var people = settlement.population
         var left = ticks
-        if (people < GROWTH_BASE && k != 0f) {
-            val toBase = if (k > 0f) kotlin.math.ceil((GROWTH_BASE - people) / (GROWTH_BASE * k)).toInt() else Int.MAX_VALUE
-            if (toBase >= left) {
-                people += GROWTH_BASE * k * left
-                left = 0
-            } else {
-                people += GROWTH_BASE * k * toBase
-                left -= toBase
+        if (k > 0f) {
+            if (people < GROWTH_BASE) {
+                val n = minOf(kotlin.math.ceil((GROWTH_BASE - people) / (GROWTH_BASE * k)).toInt(), left)
+                people += GROWTH_BASE * k * n
+                left -= n
             }
+            if (left > 0) people *= Math.pow((1f + k).toDouble(), left.toDouble()).toFloat()
+        } else if (k < 0f) {
+            if (people >= GROWTH_BASE) {
+                val n = minOf(kotlin.math.ceil(kotlin.math.ln(GROWTH_BASE / people) / kotlin.math.ln(1f + k)).toInt(), left)
+                people *= Math.pow((1f + k).toDouble(), n.toDouble()).toFloat()
+                left -= n
+            }
+            if (left > 0) people += GROWTH_BASE * k * left
         }
-        if (left > 0) people *= Math.pow((1f + k).toDouble(), left.toDouble()).toFloat()
         return settlement.copy(population = people.coerceIn(MIN, settlement.tier.populationCap.toFloat()))
     }
 

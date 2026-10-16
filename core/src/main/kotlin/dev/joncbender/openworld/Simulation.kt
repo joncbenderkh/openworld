@@ -30,15 +30,21 @@ class Simulation(
         if (ticks <= 0) return
         // One reading of the stockpile for the whole step, so gathering and growth see the same mood.
         val held = HappinessModel.stocked(inventory.held())
-        // Upkeep first: a building that could not be paid does nothing from this step on, here and in the panel.
-        upkeeper.advance(settlements.all, ticks)?.let { idle -> settlements.update { it.copy(idle = idle[it.tile].orEmpty()) } }
+        // One tick pays first: a building that could not be paid does nothing from this tick on, here and in the panel.
+        if (ticks == 1) payUpkeep(1)
         // Everyone's mood is read once, from the settlements as upkeep left them, and shared by gathering, crafting and growth.
         val mood = HashMap<Int, Happiness>(settlements.all.size * 2)
         for (settlement in settlements.all) mood[settlement.tile] = HappinessModel.of(settlement, siteOf(settlement), held)
         // Gather before growing: the people who work this step's deposits are the ones counted in the panel.
         gatherer.tick(settlements.all, siteOf, { mood.getValue(it.tile).output }, ticks)
+        // Several ticks pay after the step's income is in: the buildings worked the whole step, and many payments made from the stock the step began with would idle them though the income covers them.
+        if (ticks > 1) payUpkeep(ticks)
         crafter.tick(settlements.all, ticks) { mood.getValue(it.tile).output }
         settlements.update { PopulationModel.step(it, siteOf(it), held, mood.getValue(it.tile), ticks) }
+    }
+
+    private fun payUpkeep(ticks: Int) {
+        upkeeper.advance(settlements.all, ticks)?.let { idle -> settlements.update { it.copy(idle = idle[it.tile].orEmpty()) } }
     }
 
     /**

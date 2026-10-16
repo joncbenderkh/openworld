@@ -98,4 +98,23 @@ class SimulationTest {
         rig.simulation.away(OfflineProgress.Tuning.CAP_TICKS)
         assertTrue(rig.settlements.all.first().population <= SettlementTier.HOMESTEAD.populationCap)
     }
+
+    @Test
+    fun `a building the income can pay for is not idled by a long time away`() {
+        val rig = Rig(world(mapOf(near to listOf(Resource.GRAIN, Resource.WOOD))))
+        rig.settlements.update { it.copy(buildings = setOf(Building.MILL)) }
+        val report = rig.simulation.away(1000)
+        assertTrue(report.idle.isEmpty(), "idle: ${report.idle}")
+        assertTrue(Building.MILL !in rig.settlements.all.first().idle)
+    }
+
+    @Test
+    fun `people leaving fall as they would tick by tick, linearly below the base`() {
+        val site = SettlementSite(IntArray(0), IntArray(Need.entries.size) { 1000 }, false, emptyList())
+        val unrest = Happiness(0f, Mood.UNREST, emptyList(), 0f)
+        var single = Settlement(20, SettlementTier.VILLAGE, 4f)
+        repeat(10) { single = PopulationModel.step(single, site, emptySet(), unrest) }
+        val at = PopulationModel.step(Settlement(20, SettlementTier.VILLAGE, 4f), site, emptySet(), unrest, ticks = 10)
+        assertEquals(single.population, at.population, 0.05f)
+    }
 }

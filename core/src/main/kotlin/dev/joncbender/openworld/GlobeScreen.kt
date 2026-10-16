@@ -864,7 +864,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // With nobody settled there is nothing to count on, and it must not be saved up for the first settlement.
         val ticks = if (settlements.all.isEmpty()) 0 else offline.pending(seed)
         offline.stamp(seed)
-        if (ticks <= 0) return
+        // Held or paused when it was left: that time is not time away.
+        if (ticks <= 0 || !clock.running) return
         val perf = PerfTimer("perf")
         val report = simulation.away(ticks)
         flushSettlements()
