@@ -26,6 +26,21 @@ class InventoryTest {
     }
 
     @Test
+    fun `trimming cuts what is over the limit and keeps the rest, across a restart`() {
+        val preferences = FakePreferences()
+        Inventory(preferences).apply {
+            add(Resource.WOOD, 150)
+            add(Product.TOOLS, 20)
+            add(Resource.ORE, 100)
+            trimTo(100)
+        }
+        val again = Inventory(preferences)
+        assertEquals(100, again.count(Resource.WOOD))
+        assertEquals(20, again.count(Product.TOOLS))
+        assertEquals(100, again.count(Resource.ORE))
+    }
+
+    @Test
     fun `products are kept beside raw resources and survive a restart`() {
         val preferences = FakePreferences()
         Inventory(preferences).apply {

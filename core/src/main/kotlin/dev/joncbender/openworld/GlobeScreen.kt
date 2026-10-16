@@ -90,11 +90,12 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         }
     }
 
-    /** Takes [building] down in the settlement on [tile]; nothing is refunded. */
+    /** Takes [building] down in the settlement on [tile]; nothing is refunded, and stock past the room left is lost with it. */
     fun demolish(tile: Int, building: Building) {
         Gdx.app.postRunnable {
             if (!worldReady) return@postRunnable
             settlements.demolish(tile, building)
+            inventory.trimTo(Gathering.capacity(settlements.all))
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
