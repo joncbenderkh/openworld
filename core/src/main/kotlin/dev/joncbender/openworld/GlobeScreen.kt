@@ -493,6 +493,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             return
         }
         onGenerationStage?.invoke("Drawing the map")
+        // Building the same world again keeps the inventory and the stamp: the time spent making it is not time away.
+        offline.stamp(seed)
         loadWorld()
         remindOfPendingWorld()
     }
@@ -1139,7 +1141,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     override fun pause() {
         // Not before the world is up (or while it is being replaced): the stamp belongs to the world that was played, and its time must stay owed.
-        if (worldReady) offline.stamp(seed)
+        // A held or paused clock leaves no credit behind either: a restart would otherwise start at 1x and count the absence.
+        if (worldReady) { if (clock.running) offline.stamp(seed) else offline.clear() }
         flushSettlements()
     }
 
