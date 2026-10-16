@@ -49,4 +49,13 @@ class GameClockTest {
         assertEquals(1, clock.advance(3600f))
         assertEquals(0, clock.advance(tick / 2))
     }
+
+    @Test
+    fun `a hold is held, a paused speed is not`() {
+        val clock = GameClock()
+        clock.speed = Speed.PAUSED
+        assertEquals(false, clock.held)
+        clock.hold("settings", true)
+        assertEquals(true, clock.held)
+    }
 }

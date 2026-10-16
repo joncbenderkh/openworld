@@ -14,26 +14,30 @@ class OfflineProgress(private val preferences: Preferences, private val now: () 
         const val CAP_TICKS = (CAP_SECONDS / Buildings.Tuning.TICK_SECONDS).toInt()
     }
 
-    /** Notes that the world of [seed] was last played now; saved with the next flush. */
-    fun stamp(seed: Long) {
+    /** Notes that the world of [seed] was last played now, with [owed] ticks of earlier time away not yet replayed; saved with the next flush. */
+    fun stamp(seed: Long, owed: Int = 0) {
         preferences.putLong(TIME_KEY, now())
         preferences.putLong(SEED_KEY, seed)
+        preferences.putInteger(OWED_KEY, owed)
     }
 
-    /** The ticks the time since the last [stamp] of this world is worth: none for another world, a clock gone backwards or no stamp. */
+    /** The ticks owed to this world: those still owed at the last [stamp] plus the time since, capped; none for another world, a clock gone backwards or no stamp. */
     fun pending(seed: Long): Int {
         if (!preferences.contains(TIME_KEY) || preferences.getLong(SEED_KEY, 0L) != seed) return 0
-        return ticksBetween(preferences.getLong(TIME_KEY, 0L), now())
+        val owed = preferences.getInteger(OWED_KEY, 0).coerceIn(0, Tuning.CAP_TICKS)
+        return minOf(owed + ticksBetween(preferences.getLong(TIME_KEY, 0L), now()), Tuning.CAP_TICKS)
     }
 
     fun clear() {
         preferences.remove(TIME_KEY)
         preferences.remove(SEED_KEY)
+        preferences.remove(OWED_KEY)
     }
 
     companion object {
         private const val TIME_KEY = "clock_saved_ms"
         private const val SEED_KEY = "clock_saved_seed"
+        private const val OWED_KEY = "clock_owed_ticks"
 
         fun ticksBetween(savedMillis: Long, nowMillis: Long): Int {
             val elapsed = nowMillis - savedMillis

@@ -42,4 +42,16 @@ class OfflineProgressTest {
         offline.clear()
         assertEquals(0, OfflineProgress(prefs) { clock }.pending(7L))
     }
+
+    @Test
+    fun `ticks still owed at a stamp are kept and added to the time since`() {
+        offline.stamp(7L, owed = 100)
+        clock += 5 * tickMillis
+        assertEquals(105, OfflineProgress(prefs) { clock }.pending(7L))
+        offline.stamp(7L, owed = OfflineProgress.Tuning.CAP_TICKS)
+        clock += 50 * tickMillis
+        assertEquals(OfflineProgress.Tuning.CAP_TICKS, offline.pending(7L))
+        offline.stamp(7L)
+        assertEquals(0, offline.pending(7L))
+    }
 }

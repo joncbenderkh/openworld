@@ -19,7 +19,10 @@ class GameClock {
         if (on) holds.add(reason) else holds.remove(reason)
     }
 
-    val running: Boolean get() = speed != Speed.PAUSED && holds.isEmpty()
+    /** True while something holds the clock; the offline replay waits too, though a paused [speed] does not stop it. */
+    val held: Boolean get() = holds.isNotEmpty()
+
+    val running: Boolean get() = speed != Speed.PAUSED && !held
 
     /** The whole ticks due after [delta] seconds of real time, at most [MAX_TICKS_PER_FRAME]. */
     fun advance(delta: Float): Int {

@@ -851,14 +851,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private var catchUpTotal = 0
     private var catchUpTimer: PerfTimer? = null
 
-    /** Counts the time since the world was last played as ticks to replay; called once the world is up and on every resume. */
+    /** Owes the ticks the time away is worth (and any still owed from before); called once the world is up and on every resume. */
     private fun queueCatchUp() {
-        val ticks = offline.pending(seed)
-        offline.stamp(seed)
-        if (ticks <= 0) return
-        if (catchUp == 0) catchUpTimer = PerfTimer("perf")
-        catchUp += ticks
-        catchUpTotal += ticks
+        // With nobody settled there is nothing to replay on, and it must not be saved up for the first settlement.
+        catchUp = if (settlements.all.isEmpty()) 0 else offline.pending(seed)
+        offline.stamp(seed, catchUp)
+        if (catchUp <= 0) return
+        catchUpTotal = maxOf(catchUpTotal, catchUp)
+        if (catchUpTimer == null) catchUpTimer = PerfTimer("perf")
     }
 
     /** Replays owed ticks until this frame's budget is spent; true while any are left. */
@@ -870,6 +870,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             catchUp--
         } while (catchUp > 0 && System.nanoTime() - start < CATCH_UP_BUDGET_NANOS)
         if (catchUp == 0) {
+            offline.stamp(seed)
             flushSettlements()
             catchUpTimer?.lap("offline: replayed $catchUpTotal ticks")
             catchUpTimer = null
@@ -881,6 +882,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     private fun tickSettlements(delta: Float) {
         if (!worldReady || settlements.all.isEmpty()) return
+        // The sheet holds the world still, a replay included.
+        if (clock.held) return
         if (replayCatchUp()) return
         repeat(clock.advance(delta)) {
             simulation.tick()
@@ -1137,7 +1140,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     }
 
     override fun pause() {
-        offline.stamp(seed)
+        // What is still owed goes with the state it has not yet been replayed into.
+        offline.stamp(seed, catchUp)
         flushSettlements()
     }
 
