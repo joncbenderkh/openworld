@@ -358,6 +358,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app?.log("perf", "regenerating: seed $seed -> $newSeed, keepOld=$keepOld")
         val before = Previous(seed, loadedDensity, resourceDensity)
         val request = Request(newSeed, keepInventory, keepOld, before)
+        // The time spent making the world is not time away, even if the process is killed meanwhile: restoring or finishing stamps again.
+        offline.clear()
         if (keepOld) {
             leftovers().forEach { it.delete() }
             seed = newSeed
@@ -451,6 +453,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             crafter.clear()
             upkeeper.clear()
             offline.clear()
+            lastAway = null
         }
         // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
