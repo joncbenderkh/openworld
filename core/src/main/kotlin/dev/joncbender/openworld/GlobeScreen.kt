@@ -43,6 +43,19 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private val gatherer = Gatherer(inventory, deposits)
     private val crafter = Crafter(inventory)
     private val upkeeper = Upkeeper(inventory, preferences)
+    private val simulation = Simulation(settlements, inventory, gatherer, crafter, upkeeper, ::siteOf)
+    private val offline = OfflineProgress(preferences)
+
+    /** The simulation's clock: pause and speed. Nothing but the settlement tick reads it. */
+    private val clock = GameClock()
+    var speed: Speed
+        get() = clock.speed
+        set(value) { clock.speed = value }
+
+    /** Stops the simulation while [on], for [reason] (the settings sheet); each reason must be released. */
+    fun hold(reason: String, on: Boolean) {
+        Gdx.app.postRunnable { clock.hold(reason, on) }
+    }
 
     /** Grows the settlement on the selected tile into its next tier, if the rules allow, and reports the tile again. */
     fun upgradeSettlementOnSelection() {
@@ -434,6 +447,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             gatherer.clear()
             crafter.clear()
             upkeeper.clear()
+            offline.clear()
+            catchUp = 0
         }
         // One write for all of it: a kill cannot leave the new seed with the old inventory or density.
         preferences.flush()
@@ -556,6 +571,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         if (problem == null) {
             settlements.retainWithin(compact.fineCount)
             prepareTilePicker()
+            queueCatchUp()
         }
         if (problem != null) {
             picker = null
@@ -828,31 +844,57 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         return sites.getValue(settlement.tile)
     }
 
-    // The time since the last population tick; the clock proper (speed, pause, offline) is a later issue.
-    private var tickClock = 0f
     private var ticksSinceFlush = 0
+
+    // Ticks the time away is still owed, replayed a slice per frame so the globe stays alive while they run.
+    private var catchUp = 0
+    private var catchUpTotal = 0
+    private var catchUpTimer: PerfTimer? = null
+
+    /** Counts the time since the world was last played as ticks to replay; called once the world is up and on every resume. */
+    private fun queueCatchUp() {
+        val ticks = offline.pending(seed)
+        offline.stamp(seed)
+        if (ticks <= 0) return
+        if (catchUp == 0) catchUpTimer = PerfTimer("perf")
+        catchUp += ticks
+        catchUpTotal += ticks
+    }
+
+    /** Replays owed ticks until this frame's budget is spent; true while any are left. */
+    private fun replayCatchUp(): Boolean {
+        if (catchUp <= 0) return false
+        val start = System.nanoTime()
+        do {
+            simulation.tick()
+            catchUp--
+        } while (catchUp > 0 && System.nanoTime() - start < CATCH_UP_BUDGET_NANOS)
+        if (catchUp == 0) {
+            flushSettlements()
+            catchUpTimer?.lap("offline: replayed $catchUpTotal ticks")
+            catchUpTimer = null
+            catchUpTotal = 0
+            refreshPanel()
+        }
+        return catchUp > 0
+    }
 
     private fun tickSettlements(delta: Float) {
         if (!worldReady || settlements.all.isEmpty()) return
-        // A long frame (the app was away, or a world was loading) is not made up for.
-        tickClock += minOf(delta, TICK_SECONDS)
-        if (tickClock < TICK_SECONDS) return
-        tickClock -= TICK_SECONDS
-        // Gather before growing: the people who work this tick's deposits are the ones counted in the panel.
-        // One reading of the stockpile for the whole tick, so gathering and growth see the same mood.
-        val held = HappinessModel.stocked(inventory.held())
-        // Upkeep first: a building that could not be paid does nothing from this tick on, here and in the panel.
-        upkeeper.tick(settlements.all)?.let { idle -> settlements.update { it.copy(idle = idle[it.tile].orEmpty()) } }
-        gatherer.tick(settlements.all, ::siteOf)
-        crafter.tick(settlements.all) { HappinessModel.of(it, siteOf(it), held).output }
-        settlements.update { PopulationModel.step(it, siteOf(it), held) }
-        if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
-            ticksSinceFlush = 0
-            settlements.flush()
-            inventory.flush()
-            deposits.flush()
+        if (replayCatchUp()) return
+        repeat(clock.advance(delta)) {
+            simulation.tick()
+            if (++ticksSinceFlush >= FLUSH_EVERY_TICKS) {
+                ticksSinceFlush = 0
+                offline.stamp(seed)
+                flushSettlements()
+            }
+            refreshPanel()
         }
-        // A settlement open in the panel shows its new population.
+    }
+
+    // A settlement open in the panel shows its new population.
+    private fun refreshPanel() {
         val tile = selectedTile
         if (tile >= 0 && settlements.at(tile) != null) onTileSelected?.invoke(describe(tile))
     }
@@ -1094,8 +1136,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         return false
     }
 
-    override fun pause() = flushSettlements()
-    override fun resume() {}
+    override fun pause() {
+        offline.stamp(seed)
+        flushSettlements()
+    }
+
+    override fun resume() {
+        if (worldReady) queueCatchUp()
+    }
     override fun hide() = stopGeneration()
     private fun flushSettlements() {
         settlements.flush()
@@ -1124,8 +1172,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
         private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
         private const val CLAIM_RING_SHARE = 0.6f
-        private const val TICK_SECONDS = Buildings.Tuning.TICK_SECONDS
         private const val FLUSH_EVERY_TICKS = 5
+        private const val CATCH_UP_BUDGET_NANOS = 8_000_000L
         private const val CLAIM_RING_RELATIVE_WIDTH = 0.12f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_DP = 2.2f

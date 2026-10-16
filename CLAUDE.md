@@ -189,6 +189,10 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
   claimed tile; a recipe needs its building (`Recipe.requires`); a warehouse adds storage (demolishing one drops the stock past the room left, `Inventory.trimTo`; idling does not), a working granary food units, a shrine and a market mood.
   Effects read `Settlement.working()` (built minus idle). Built sets are saved like `recipes_off`, under `buildings` with the world seed. The Android panel opens
   one list at a time (assign, crafting, buildings); the desktop builds with V and shows what is built.
+- Clock (`Simulation.kt`, `GameClock.kt`, `OfflineProgress.kt`): `Simulation.tick` is one settlement tick (upkeep, gather, craft, grow); `GameClock` turns frame time into
+  ticks (2 s each; `Speed` PAUSED/X1/X3, not saved, no control yet; `hold(reason)` stops it, as the Android settings sheet does; a long frame is not made up for). Time away is
+  `OfflineProgress`: the wall time is stamped with the seed (`clock_saved_ms`) on pause and on each flush, and on resume or world load the ticks since, capped at 4 h
+  (`CAP_TICKS`), are replayed through the same `Simulation.tick` on the GL thread, 8 ms of them per frame (`CATCH_UP_BUDGET_NANOS`), with live ticks waiting; the timing is logged under `perf`.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
   waves). Glyphs have an up, so with `INK` tiles are not rotated at random: `BiomeTextures.uprightUV` gives each corner
   the UV of its true bearing on the sphere, so glyphs stand north-up. Set `INK = false` for the pixel-art set
