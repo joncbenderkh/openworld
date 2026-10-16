@@ -75,7 +75,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app.postRunnable {
             val tile = selectedTile
             if (tile < 0 || !worldReady) return@postRunnable
+            // The time before the first settlement is nobody's: the clock starts with it.
+            val first = settlements.all.isEmpty()
             settlements.found(compact, tile)
+            if (first && settlements.all.isNotEmpty()) offline.stamp(seed)
             onTileSelected?.invoke(describe(tile))
         }
     }
@@ -869,6 +872,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             simulation.tick()
             catchUp--
         } while (catchUp > 0 && System.nanoTime() - start < CATCH_UP_BUDGET_NANOS)
+        // What is left, beside the state it will be replayed into: any flush now (a build, a kill) leaves the two in step.
+        offline.stamp(seed, catchUp)
         if (catchUp == 0) {
             offline.stamp(seed)
             flushSettlements()
@@ -1140,8 +1145,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     }
 
     override fun pause() {
-        // What is still owed goes with the state it has not yet been replayed into.
-        offline.stamp(seed, catchUp)
+        // Not before the world is up (or while it is being replaced): the stamp belongs to the world that was played, and its time must stay owed.
+        if (worldReady) offline.stamp(seed, catchUp)
         flushSettlements()
     }
 
