@@ -1,5 +1,7 @@
 package dev.joncbender.openworld
 
+import com.badlogic.gdx.Preferences
+
 /** What a settlement can build on its land. See [Buildings] for what each one costs and does. */
 enum class Building { FARM, FISHERY, LUMBER_CAMP, QUARRY, MINE, SMELTER, WORKSHOP, MILL, MARKET, GRANARY, WAREHOUSE, SHRINE }
 
@@ -29,6 +31,9 @@ object Buildings {
     object Tuning {
         /** The gain in yield for a resource a working building boosts. */
         const val GATHER_BONUS = 0.5f
+
+        /** Seconds between settlement ticks. */
+        const val TICK_SECONDS = 2f
 
         /** Settlement ticks between upkeep payments. */
         const val UPKEEP_EVERY = 10
@@ -70,6 +75,9 @@ object Buildings {
     /** [items] as "15 wood + 10 stone". */
     fun itemsText(items: Map<Item, Int>): String = items.entries.joinToString(" + ") { (item, units) -> "$units ${item.displayName().lowercase()}" }
 
+    /** [building]'s upkeep as "1 wood per 20 s". */
+    fun upkeepText(building: Building): String = itemsText(spec(building).upkeep) + " per ${(Tuning.UPKEEP_EVERY * Tuning.TICK_SECONDS).toInt()} s"
+
     /** How many buildings a settlement of [tier] holds. */
     fun slots(tier: SettlementTier): Int = Tuning.SLOTS[tier.ordinal]
 
@@ -106,13 +114,15 @@ object Buildings {
  * Pays the buildings' upkeep out of the [inventory] every [Buildings.Tuning.UPKEEP_EVERY] ticks, a building at a time and
  * all or nothing, settlements in order, so a short stockpile idles the later ones. Nothing is saved here; GlobeScreen flushes.
  */
-class Upkeeper(private val inventory: Inventory) {
-    // One tick short of a payment, so the first tick after a load pays: reopening the app does not skip upkeep.
-    private var ticks = Buildings.Tuning.UPKEEP_EVERY - 1
+class Upkeeper(private val inventory: Inventory, private val preferences: Preferences) {
+    // Where the payment cycle stands, kept in the preferences (with the next flush) so a restart neither skips a payment nor makes an early one.
+    private var ticks = preferences.getInteger(KEY, 0).coerceIn(0, Buildings.Tuning.UPKEEP_EVERY - 1)
 
     /** The buildings left idle for the next [Buildings.Tuning.UPKEEP_EVERY] ticks per settlement tile, on a payment tick; null between payments. */
     fun tick(settlements: Collection<Settlement>): Map<Int, Set<Building>>? {
-        if (++ticks % Buildings.Tuning.UPKEEP_EVERY != 0) return null
+        ticks = (ticks + 1) % Buildings.Tuning.UPKEEP_EVERY
+        preferences.putInteger(KEY, ticks)
+        if (ticks != 0) return null
         return settlements.associate { settlement ->
             settlement.tile to settlement.buildings.sortedBy { it.ordinal }.filterNotTo(LinkedHashSet()) { pay(it) }
         }
@@ -126,6 +136,11 @@ class Upkeeper(private val inventory: Inventory) {
     }
 
     fun clear() {
-        ticks = Buildings.Tuning.UPKEEP_EVERY - 1
+        ticks = 0
+        preferences.remove(KEY)
+    }
+
+    private companion object {
+        const val KEY = "upkeep_ticks"
     }
 }

@@ -42,7 +42,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private val deposits = Deposits(preferences)
     private val gatherer = Gatherer(inventory, deposits)
     private val crafter = Crafter(inventory)
-    private val upkeeper = Upkeeper(inventory)
+    private val upkeeper = Upkeeper(inventory, preferences)
 
     /** Grows the settlement on the selected tile into its next tier, if the rules allow, and reports the tile again. */
     fun upgradeSettlementOnSelection() {
@@ -1121,7 +1121,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // Never thinner than this on screen: 2.5 pixels, or 2.2 dp on a dense phone screen where that is a speck.
         private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
         private const val CLAIM_RING_SHARE = 0.6f
-        private const val TICK_SECONDS = 2f
+        private const val TICK_SECONDS = Buildings.Tuning.TICK_SECONDS
         private const val FLUSH_EVERY_TICKS = 5
         private const val CLAIM_RING_RELATIVE_WIDTH = 0.12f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f

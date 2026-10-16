@@ -110,11 +110,11 @@ class BuildingsTest {
 
     @Test
     fun `upkeep is paid every tenth tick, and what cannot be paid idles until it can`() {
-        val upkeeper = Upkeeper(inventory)
+        val upkeeper = Upkeeper(inventory, prefs)
         val settlement = homestead.copy(buildings = setOf(Building.FARM, Building.MILL))
         val every = Buildings.Tuning.UPKEEP_EVERY
         // Both need wood, one unit each: only one unit in store, so the first (by order) is paid and the second idles.
-        // The first tick after a load is a payment tick.
+        repeat(every - 1) { assertNull(upkeeper.tick(listOf(settlement))) }
         inventory.add(Resource.WOOD, 1)
         assertEquals(mapOf(20 to setOf(Building.MILL)), upkeeper.tick(listOf(settlement)))
         assertEquals(0, inventory.count(Resource.WOOD))
@@ -126,7 +126,7 @@ class BuildingsTest {
 
     @Test
     fun `an upkeep payment is not saved by itself`() {
-        val upkeeper = Upkeeper(inventory)
+        val upkeeper = Upkeeper(inventory, prefs)
         inventory.add(Resource.WOOD, 5)
         val before = prefs.flushed.size
         repeat(Buildings.Tuning.UPKEEP_EVERY) { upkeeper.tick(listOf(homestead.copy(buildings = setOf(Building.MILL)))) }
@@ -179,5 +179,33 @@ class BuildingsTest {
         assertEquals("makes flour, bread", Buildings.effect(Building.MILL))
         assertEquals("15 wood + 10 stone", Buildings.itemsText(Buildings.spec(Building.MILL).cost))
         for (building in Building.entries) assertTrue(Buildings.effect(building).isNotEmpty(), "$building")
+    }
+
+    @Test
+    fun `the payment cycle survives a restart, neither skipping nor repeating a payment`() {
+        val settlement = homestead.copy(buildings = setOf(Building.MILL))
+        val every = Buildings.Tuning.UPKEEP_EVERY
+        val first = Upkeeper(inventory, prefs)
+        repeat(4) { first.tick(listOf(settlement)) }
+        val again = Upkeeper(inventory, prefs)
+        repeat(every - 5) { assertNull(again.tick(listOf(settlement))) }
+        assertTrue(again.tick(listOf(settlement)) != null, "the tenth tick since the last payment pays, across the restart")
+        again.clear()
+        assertEquals(0, prefs.getInteger("upkeep_ticks", 0))
+    }
+
+    @Test
+    fun `upkeep is told in words with its interval`() {
+        assertEquals("1 wood per 20 s", Buildings.upkeepText(Building.FARM))
+    }
+
+    @Test
+    fun `a built but idle building is named as idle, not as missing`() {
+        val crafter = Crafter(inventory)
+        val mill = Settlement(21, SettlementTier.HOMESTEAD, 5f, buildings = setOf(Building.MILL), idle = setOf(Building.MILL))
+        val flour = crafter.status(mill, listOf(mill), 1f).first { it.recipe.output == Product.FLOUR }
+        assertTrue(flour.unbuilt && flour.idleBuilding)
+        val bare = Settlement(21, SettlementTier.HOMESTEAD, 5f)
+        assertFalse(crafter.status(bare, listOf(bare), 1f).first { it.recipe.output == Product.FLOUR }.idleBuilding)
     }
 }

@@ -1,7 +1,7 @@
 package dev.joncbender.openworld
 
 /** How one recipe stands in a settlement: [perTick] batches' worth of output it would make now, and whether it is [enabled] and [ready] (inputs stocked, room for the output). */
-data class CraftStatus(val recipe: Recipe, val enabled: Boolean, val locked: Boolean, val ready: Boolean, val perTick: Float, val done: Boolean = false, val unbuilt: Boolean = false)
+data class CraftStatus(val recipe: Recipe, val enabled: Boolean, val locked: Boolean, val ready: Boolean, val perTick: Float, val done: Boolean = false, val unbuilt: Boolean = false, val idleBuilding: Boolean = false)
 
 /**
  * Crafting. Pure like [Gathering]: a recipe a settlement may work (its tier is high enough and the player has not
@@ -83,7 +83,7 @@ class Crafter(private val inventory: Inventory) {
     fun status(settlement: Settlement, settlements: Collection<Settlement>, output: Float): List<CraftStatus> {
         val capacity = Gathering.capacity(settlements)
         return Recipes.ALL.map { recipe ->
-            CraftStatus(recipe, recipe.output !in settlement.recipesOff, Crafting.locked(settlement, recipe), ready(recipe, capacity), Crafting.batches(settlement, recipe, output) * recipe.amount, done(recipe), Crafting.unbuilt(settlement, recipe))
+            CraftStatus(recipe, recipe.output !in settlement.recipesOff, Crafting.locked(settlement, recipe), ready(recipe, capacity), Crafting.batches(settlement, recipe, output) * recipe.amount, done(recipe), Crafting.unbuilt(settlement, recipe), recipe.requires in settlement.idle && recipe.requires in settlement.buildings)
         }
     }
 

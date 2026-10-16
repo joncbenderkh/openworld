@@ -271,6 +271,7 @@ class TilePanel(
     private var buildingsKey = ""
     private var buildingsScroll: ScrollView? = null
     private val buildingText = HashMap<Building, TextView>()
+    private val buildButton = HashMap<Building, View>()
 
     // The building whose Demolish was pressed once: a second press takes it down, as nothing is refunded.
     private var demolishing: Building? = null
@@ -291,10 +292,14 @@ class TilePanel(
             val scrolled = buildingsScroll?.scrollY ?: 0
             buildingsBox.removeAllViews()
             buildingText.clear()
+            buildButton.clear()
             buildingsScroll = null
             if (info.buildings.isNotEmpty()) buildBuildings(info.faceIndex, info.buildings, scrolled)
         }
-        info.buildings.forEach { buildingText[it.building]?.text = buildingLabel(it) }
+        info.buildings.forEach {
+            buildingText[it.building]?.text = buildingLabel(it)
+            buildButton[it.building]?.let { button -> styleBuild(button, it) }
+        }
     }
 
     private fun buildBuildings(tile: Int, buildings: List<BuildingStatus>, scrolled: Int) {
@@ -325,10 +330,9 @@ class TilePanel(
                     buildingsInfo?.let(::refreshLists)
                 }
                 else -> ink.textButton("Build") { onBuild(tile, status.building) }.apply {
-                    val blocked = status.now != BuildResult.OK && status.now != BuildResult.NO_STOCK
-                    isEnabled = !blocked
-                    alpha = if (blocked) DIMMED else 1f
                     contentDescription = "Build $name"
+                    buildButton[status.building] = this
+                    styleBuild(this, status)
                 }
             }
             rows.addView(
@@ -347,17 +351,23 @@ class TilePanel(
         scroll.post { scroll.scrollTo(0, scrolled) }
     }
 
+    // Build is live only when it would work now; stock changes on most ticks, so this is set in place, not by a rebuild.
+    private fun styleBuild(button: View, status: BuildingStatus) {
+        button.isEnabled = status.now == BuildResult.OK
+        button.alpha = if (button.isEnabled) 1f else DIMMED
+    }
+
     private fun buildingLabel(status: BuildingStatus): String {
         val spec = Buildings.spec(status.building)
         val head = "${status.building.name.toDisplayName()} · ${Buildings.effect(status.building)}"
         val state = when {
-            status.built && status.idle -> "idle: upkeep unpaid"
-            status.built -> "built"
+            status.built && status.idle -> "idle: needs ${Buildings.upkeepText(status.building)}"
+            status.built -> "built · upkeep ${Buildings.upkeepText(status.building)}"
             status.now == BuildResult.TIER -> "needs a ${spec.minTier.name.lowercase()}"
             status.now == BuildResult.FULL -> "no free slot"
             status.now == BuildResult.NO_SITE -> "needs ${spec.boosts.joinToString(" or ") { it.name.toDisplayName().lowercase() }} on its land"
-            status.now == BuildResult.NO_STOCK -> "needs ${Buildings.itemsText(spec.cost)}"
-            else -> "costs ${Buildings.itemsText(spec.cost)}"
+            status.now == BuildResult.NO_STOCK -> "needs ${Buildings.itemsText(spec.cost)} · upkeep ${Buildings.upkeepText(status.building)}"
+            else -> "costs ${Buildings.itemsText(spec.cost)} · upkeep ${Buildings.upkeepText(status.building)}"
         }
         return "$head · $state"
     }
@@ -433,6 +443,7 @@ class TilePanel(
         val needs = recipe.inputs.entries.joinToString(" + ") { (item, units) -> "$units ${item.displayName().lowercase()}" }
         val state = when {
             status.locked -> "needs a ${recipe.minTier.name.lowercase()}"
+            status.idleBuilding -> "${recipe.requires.name.toDisplayName().lowercase()} idle: upkeep unpaid"
             status.unbuilt -> "needs a ${recipe.requires.name.toDisplayName().lowercase()}"
             !status.enabled -> "off"
             status.done -> "enough made"
