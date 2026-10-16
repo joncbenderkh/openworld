@@ -90,12 +90,14 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         }
     }
 
-    /** Takes [building] down in the settlement on [tile]; nothing is refunded, and stock past the room left is lost with it. */
+    /** Takes [building] down in the settlement on [tile]; nothing is refunded, and a warehouse's stock past the room left is lost with it. */
     fun demolish(tile: Int, building: Building) {
         Gdx.app.postRunnable {
             if (!worldReady) return@postRunnable
-            settlements.demolish(tile, building)
-            inventory.trimTo(Gathering.capacity(settlements.all))
+            // A warehouse's stock goes with it: the building and the stockpile reach the one preferences store together (trimTo flushes).
+            val storage = building == Building.WAREHOUSE
+            settlements.demolish(tile, building, flush = !storage)
+            if (storage) inventory.trimTo(Gathering.capacity(settlements.all))
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }

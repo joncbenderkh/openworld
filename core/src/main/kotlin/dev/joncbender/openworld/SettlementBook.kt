@@ -114,12 +114,12 @@ class SettlementBook(private val preferences: Preferences) {
         preferences.flush()
     }
 
-    /** Takes [building] down; nothing is refunded. */
-    fun demolish(tile: Int, building: Building) {
+    /** Takes [building] down; nothing is refunded. [flush] false leaves saving to the caller, who changes the stockpile too. */
+    fun demolish(tile: Int, building: Building, flush: Boolean = true) {
         val settlement = byTile[tile] ?: return
         byTile[tile] = settlement.copy(buildings = settlement.buildings - building, idle = settlement.idle - building)
         write()
-        preferences.flush()
+        if (flush) preferences.flush()
     }
 
     /** Hands the settlement on [tile] back to the automatic split. */

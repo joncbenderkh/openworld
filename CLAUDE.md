@@ -186,7 +186,7 @@ Starts at `0.1.0` (`versionName` in `android/build.gradle`, mirrored in
 - Buildings (`Buildings.kt`): a settlement holds one of each of 12 `Building`s, in slots by tier (2/4/7/12). `Buildings.spec` is the data: a one-time
   cost from the stockpile, an upkeep paid every `UPKEEP_EVERY` ticks (`Upkeeper`: all or nothing per building, settlements in order; an unpaid one is idle,
   `Settlement.idle`, saved under `buildings_idle`, until the next payment; the cycle's place is kept under `upkeep_ticks`, so a restart neither skips nor repeats a payment nor revives an unpaid building) and the effect: the five gatherers raise their resources' yield (`GATHER_BONUS`) and need one on a
-  claimed tile; a recipe needs its building (`Recipe.requires`); a warehouse adds storage (demolishing one drops the stock past the room left, `Inventory.trimTo`), a working granary food units, a shrine and a market mood.
+  claimed tile; a recipe needs its building (`Recipe.requires`); a warehouse adds storage (demolishing one drops the stock past the room left, `Inventory.trimTo`; idling does not), a working granary food units, a shrine and a market mood.
   Effects read `Settlement.working()` (built minus idle). Built sets are saved like `recipes_off`, under `buildings` with the world seed. The Android panel opens
   one list at a time (assign, crafting, buildings); the desktop builds with V and shows what is built.
 - Inked-map tileset (`InkArt.kt`, `BiomeTextures.INK`): parchment tinted per biome with pen glyphs (peaks, trees, reeds,
