@@ -117,6 +117,15 @@ class SimulationTest {
     }
 
     @Test
+    fun `a store that allows only short steps still spends the whole time away`() {
+        val rig = Rig(world(mapOf(near to listOf(Resource.GRAIN, Resource.WOOD))))
+        rig.settlements.update { it.copy(buildings = setOf(Building.MILL, Building.FARM, Building.WORKSHOP, Building.QUARRY)) }
+        rig.simulation.away(7205)
+        // The upkeep cycle's place counts every tick applied: 7205 ticks leave it 5 into a cycle.
+        assertEquals(5, rig.prefs.getInteger("upkeep_ticks", -1))
+    }
+
+    @Test
     fun `people leaving fall as they would tick by tick, linearly below the base`() {
         val site = SettlementSite(IntArray(0), IntArray(Need.entries.size) { 1000 }, false, emptyList())
         val unrest = Happiness(0f, Mood.UNREST, emptyList(), 0f)

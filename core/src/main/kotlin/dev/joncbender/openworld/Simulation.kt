@@ -63,7 +63,7 @@ class Simulation(
             val now = minOf(step, longest, left, longestToPay())
             advance(now)
             left -= now
-            step *= 2
+            step = minOf(step * 2, longest)
         }
         val stockAfter = inventory.held()
         return AwayReport(
