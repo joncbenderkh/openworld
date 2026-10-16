@@ -502,6 +502,8 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         seed = request.before.seed
         // The menu may have set the density just before asking (see the refusal in regenerateWorld).
         request.before.loadedDensity?.let { resourceDensity = it }
+        // The time spent making the other world was not spent in this one: it is not time away.
+        offline.stamp(seed, catchUp)
         loadWorld()
         if (problem != null && worldReady) {
             // The old world is back, so what failed was only the new one.
@@ -887,8 +889,11 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     private fun tickSettlements(delta: Float) {
         if (!worldReady || settlements.all.isEmpty()) return
-        // The sheet holds the world still, a replay included.
-        if (clock.held) return
+        // The sheet holds the world still, a replay included, and the time it is up is not time away: the stamp keeps pace with it.
+        if (clock.held) {
+            offline.stamp(seed, catchUp)
+            return
+        }
         if (replayCatchUp()) return
         repeat(clock.advance(delta)) {
             simulation.tick()
