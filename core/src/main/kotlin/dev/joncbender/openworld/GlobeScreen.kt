@@ -54,7 +54,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     /** Stops the simulation while [on], for [reason] (the settings sheet); each reason must be released. */
     fun hold(reason: String, on: Boolean) {
-        Gdx.app.postRunnable { clock.hold(reason, on) }
+        Gdx.app?.postRunnable { clock.hold(reason, on) }
     }
 
     /** Grows the settlement on the selected tile into its next tier, if the rules allow, and reports the tile again. */

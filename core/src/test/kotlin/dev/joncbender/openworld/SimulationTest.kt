@@ -109,6 +109,14 @@ class SimulationTest {
     }
 
     @Test
+    fun `a building the income pays for stays working through four hours`() {
+        val rig = Rig(world(mapOf(near to listOf(Resource.GRAIN, Resource.WOOD))))
+        rig.settlements.update { it.copy(buildings = setOf(Building.MILL)) }
+        val report = rig.simulation.away(OfflineProgress.Tuning.CAP_TICKS)
+        assertTrue(report.idle.isEmpty(), "idle: ${report.idle}")
+    }
+
+    @Test
     fun `people leaving fall as they would tick by tick, linearly below the base`() {
         val site = SettlementSite(IntArray(0), IntArray(Need.entries.size) { 1000 }, false, emptyList())
         val unrest = Happiness(0f, Mood.UNREST, emptyList(), 0f)

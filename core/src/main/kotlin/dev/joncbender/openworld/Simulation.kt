@@ -50,7 +50,7 @@ class Simulation(
     /**
      * [ticks] ticks of time away, applied in steps with the moods, stores and idle buildings read again between them. The steps
      * double in size from one tick (growth and a filling store change fastest at the start, and a step uses the rates it begins with),
-     * up to an eighth of the time, so a few dozen steps at most, however long the absence.
+     * up to an eighth of the time and to what the store can pay in upkeep at once, so a few dozen steps at most for a store that holds plenty.
      */
     fun away(ticks: Int): AwayReport {
         val stockBefore = inventory.held()
@@ -60,7 +60,7 @@ class Simulation(
         var step = 1
         val longest = maxOf(1, ticks / LONGEST_SHARE)
         while (left > 0) {
-            val now = minOf(step, longest, left)
+            val now = minOf(step, longest, left, longestToPay())
             advance(now)
             left -= now
             step *= 2
@@ -72,6 +72,20 @@ class Simulation(
             settlements = settlements.all.map { SettlementChange(it.tile, peopleBefore[it.tile] ?: it.population, it.population) },
             idle = settlements.all.associate { it.tile to it.idle - idleBefore[it.tile].orEmpty() }.filterValues { it.isNotEmpty() },
         )
+    }
+
+    /**
+     * The longest step whose upkeep the store can hold at once: income past the store's room is lost, and a step pays all its cycles
+     * together, so a step owing more of an item than the store holds would idle buildings the income covers.
+     */
+    private fun longestToPay(): Int {
+        val perCycle = HashMap<Item, Int>()
+        for (settlement in settlements.all) for (building in settlement.buildings) {
+            for ((item, units) in Buildings.spec(building).upkeep) perCycle.merge(item, units, Int::plus)
+        }
+        val heaviest = perCycle.values.maxOrNull() ?: return Int.MAX_VALUE
+        val cycles = maxOf(1, Gathering.capacity(settlements.all) / heaviest)
+        return cycles * Buildings.Tuning.UPKEEP_EVERY
     }
 
     companion object {
