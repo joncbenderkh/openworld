@@ -60,12 +60,13 @@ class Crafter(private val inventory: Inventory) {
     private fun ready(recipe: Recipe, capacity: Int): Boolean =
         !done(recipe) && recipe.inputs.all { (item, units) -> spare(item) >= units } && inventory.count(recipe.output) + recipe.amount <= capacity
 
-    fun tick(settlements: Collection<Settlement>, outputOf: (Settlement) -> Float) {
+    /** [ticks] ticks of work at once: a recipe still makes only what its inputs, the target and the store allow. */
+    fun tick(settlements: Collection<Settlement>, ticks: Int = 1, outputOf: (Settlement) -> Float) {
         val capacity = Gathering.capacity(settlements)
         for (settlement in settlements) {
             val output = outputOf(settlement)
             for (recipe in Recipes.ALL) {
-                val rate = Crafting.batches(settlement, recipe, output)
+                val rate = Crafting.batches(settlement, recipe, output) * ticks
                 if (rate <= 0f) continue
                 val key = key(settlement, recipe)
                 var work = minOf(1f + rate, (carry[key] ?: 0f) + rate)

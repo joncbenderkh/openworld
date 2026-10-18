@@ -150,7 +150,7 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
     /** What each settlement takes this tick, and who works what, in order, with the shared room handed out first come first served. */
     private class Plan(val taken: List<Pair<Settlement, Gathering.Harvest>>, val shares: Map<Int, List<WorkShare>>)
 
-    private fun plan(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Plan {
+    private fun plan(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite, outputOf: ((Settlement) -> Float)?, withShares: Boolean, ticks: Int = 1): Plan {
         val room = FloatArray(Resource.entries.size) { Gathering.capacity(settlements) - inventory.count(Resource.entries[it]) - carry[it] }
         val held = HappinessModel.stocked(inventory.held())
         val taken = ArrayList<Pair<Settlement, Gathering.Harvest>>()
@@ -158,8 +158,9 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
         for (settlement in settlements) {
             val site = siteOf(settlement)
             // The same room test for the shares as for the harvest, before this settlement takes any.
-            shares[settlement.tile] = Gathering.shares(settlement, site, deposits) { room[it.ordinal] > 0f }
-            val output = HappinessModel.of(settlement, site, held).output
+            if (withShares) shares[settlement.tile] = Gathering.shares(settlement, site, deposits) { room[it.ordinal] > 0f }
+            // Output is linear in the yield, so [ticks] ticks at once is the output times ticks; a finite deposit still gives only what it holds.
+            val output = (outputOf?.invoke(settlement) ?: HappinessModel.of(settlement, site, held).output) * ticks
             for (harvest in Gathering.harvest(settlement, site, deposits, output, Gathering.toolsFactor(held)) { room[it.ordinal] > 0f }) {
                 val r = harvest.deposit.resource.ordinal
                 // Only what the store still has room for is taken, so no finite deposit is spent on units that are lost.
@@ -172,9 +173,10 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
         return Plan(taken, shares)
     }
 
-    fun tick(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite) {
+    /** [outputOf] hands in each settlement's happiness factor when the caller already has it (the tick reads it once for all); [ticks] ticks are gathered at once. */
+    fun tick(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite, outputOf: ((Settlement) -> Float)? = null, ticks: Int = 1) {
         val capacity = Gathering.capacity(settlements)
-        for ((_, harvest) in plan(settlements, siteOf).taken) {
+        for ((_, harvest) in plan(settlements, siteOf, outputOf, withShares = false, ticks = ticks).taken) {
             deposits.mine(harvest.deposit, harvest.amount)
             carry[harvest.deposit.resource.ordinal] += harvest.amount
         }
@@ -189,7 +191,7 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
 
     /** What [settlement] will take on the next tick, as [tick] hands out the room, plus the store and what is locked. */
     fun economy(settlement: Settlement, settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Economy {
-        val plan = plan(settlements, siteOf)
+        val plan = plan(settlements, siteOf, null, withShares = true)
         val income = Gathering.income(plan.taken.filter { it.first == settlement }.map { it.second })
         return Economy(income, inventory.held(), Gathering.capacity(settlements), Gathering.locked(settlement, siteOf(settlement)), plan.shares[settlement.tile].orEmpty())
     }
