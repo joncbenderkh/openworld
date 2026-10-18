@@ -281,8 +281,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     private var nearTerrain: TerrainLayer? = null
     private var nearStreamer: NearPatchStreamer? = null
     private var icons: ResourceIconLayer? = null
-    private var iconsActive = false
-    private var iconLastSeen = IntArray(0)
+    private var iconScheduler = IconScheduler(0)
     private var nearVisible = IntArray(0)
     private var nearPriority = FloatArray(0)
     private var nearActive = false
@@ -695,8 +694,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         nearTerrain = near
         val layer = ResourceIconLayer(near, world)
         icons = layer
-        iconsActive = false
-        iconLastSeen = IntArray(near.patchCount)
+        iconScheduler = IconScheduler(near.patchCount)
         nearStreamer = NearPatchStreamer(
             near.patchCount, options.maxNearPatches,
             { near.build(it) },
@@ -813,7 +811,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         else if (nearActive && distance > NEAR_EXIT_DISTANCE) {
             nearActive = false
             // drawIcons only runs while the near layer is drawn, so a jump out of range must drop them here.
-            iconsActive = false
+            iconScheduler.deactivate()
             icons?.releaseAll()
         }
 
@@ -991,29 +989,17 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
      */
     private fun drawIcons(near: TerrainLayer, visibleCount: Int) {
         val layer = icons ?: return
-        if (!iconsActive && distance < ICON_ENTER_DISTANCE) iconsActive = true
-        else if (iconsActive && distance > ICON_EXIT_DISTANCE) iconsActive = false
-        if (!iconsActive) {
+        if (!iconScheduler.update(distance)) {
             layer.releaseAll()
             return
         }
 
-        for (k in 0 until visibleCount) iconLastSeen[nearVisible[k]] = frameCount
+        iconScheduler.see(nearVisible, visibleCount, frameCount)
         // Build the patches closest to the middle of the view first.
-        repeat(ICON_BUILDS_PER_FRAME) {
-            var best = -1
-            for (k in 0 until visibleCount) {
-                val patch = nearVisible[k]
-                if (near.meshOrNull(patch) == null || layer.isBuilt(patch)) continue
-                if (best == -1 || nearPriority[patch] > nearPriority[best]) best = patch
-            }
-            if (best != -1) layer.build(best)
-        }
+        iconScheduler.build(nearVisible, visibleCount, nearPriority, { near.meshOrNull(it) != null }, { layer.isBuilt(it) }) { layer.build(it) }
         // A patch keeps its icons for a while after it leaves the view, so panning back is instant.
         if (layer.builtCount > 0) {
-            for (patch in 0 until near.patchCount) {
-                if (layer.meshOrNull(patch) != null && frameCount - iconLastSeen[patch] > ICON_KEEP_FRAMES) layer.release(patch)
-            }
+            iconScheduler.releaseStale(frameCount, near.patchCount, { layer.meshOrNull(it) != null }) { layer.release(it) }
         }
 
         iconTexture.bind(0)
@@ -1193,14 +1179,6 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         // Level of detail. The near layer switches on once a full-resolution tile is a few
         // pixels wide (at a 5x tile count, around this camera distance) and off again
         // slightly further out, so hovering at the threshold doesn't flicker.
-        // Resource glyphs show below ENTER and hide above EXIT (a gap, like the near layer's); a tile is then
-        // at least ~40 px wide. A few icon meshes are built per frame, each a quick pass over one patch's tiles.
-        private const val ICON_ENTER_DISTANCE = 1.25f
-        private const val ICON_EXIT_DISTANCE = 1.3f
-        private const val ICON_BUILDS_PER_FRAME = 2
-        // Frames a patch keeps its icons after leaving the view (~1.5 s at 60 fps).
-        private const val ICON_KEEP_FRAMES = 90
-
         private const val NEAR_ENTER_DISTANCE = 2.2f
         private const val NEAR_EXIT_DISTANCE = 2.4f
         // Frames out of use (3 s at 60 fps) before the near layer's patches are freed.
