@@ -58,7 +58,8 @@ class StockpileSheet(
 
     /** The newest list, from the game (any thread); ignored when the sheet is closed. */
     fun update(newLines: List<StockLine>) {
-        if (rows == null) return
+        // Nothing to redraw while every store is full or the list is otherwise unchanged, so a scroll is left alone.
+        if (rows == null || newLines == lines) return
         lines = newLines
         render()
     }
