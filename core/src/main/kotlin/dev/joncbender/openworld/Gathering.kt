@@ -196,5 +196,9 @@ class Gatherer(private val inventory: Inventory, private val deposits: Deposits)
         return Economy(income, inventory.held(), Gathering.capacity(settlements), Gathering.locked(settlement, siteOf(settlement)), plan.shares[settlement.tile].orEmpty())
     }
 
+    /** What all the settlements together take on the next tick, per resource: the stockpile's income. */
+    fun income(settlements: Collection<Settlement>, siteOf: (Settlement) -> SettlementSite): Map<Resource, Float> =
+        Gathering.income(plan(settlements, siteOf, null, withShares = false).taken.map { it.second })
+
     fun clear() = carry.fill(0f)
 }

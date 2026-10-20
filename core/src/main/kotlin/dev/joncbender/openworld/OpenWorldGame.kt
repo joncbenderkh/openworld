@@ -9,6 +9,12 @@ class OpenWorldGame(private val options: GameOptions = GameOptions()) : Game() {
     /** Set before initialize()/initializeForView() runs create() on the GL thread - see GlobeScreen.onTileSelected. */
     var onTileSelected: ((TileInfo) -> Unit)? = null
 
+    /** Same timing as [onTileSelected]; see [GlobeScreen.onAlerts]. */
+    var onAlerts: ((List<Alert>) -> Unit)? = null
+
+    /** Same timing as [onTileSelected]; see [GlobeScreen.onStockpile]. */
+    var onStockpile: ((List<StockLine>) -> Unit)? = null
+
     /** Same timing as [onTileSelected]; see [GlobeScreen.onWorldProblem]. */
     var onWorldProblem: ((WorldProblem, Long) -> Unit)? = null
 
@@ -21,6 +27,8 @@ class OpenWorldGame(private val options: GameOptions = GameOptions()) : Game() {
     override fun create() {
         globeScreen = GlobeScreen(options)
         globeScreen.onTileSelected = onTileSelected
+        globeScreen.onAlerts = onAlerts
+        globeScreen.onStockpile = onStockpile
         globeScreen.onWorldProblem = onWorldProblem
         globeScreen.onGenerationStage = onGenerationStage
         globeScreen.onGenerationProgress = onGenerationProgress

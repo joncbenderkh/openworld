@@ -31,9 +31,14 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
     private var selected: TileInfo? = null
     private var showHelp = true
     private var notice = ""
+    private var alerts: List<Alert> = emptyList()
+    private var stock: List<StockLine> = emptyList()
+    private var showStock = false
 
     override fun create() {
         game.onTileSelected = { selected = it }
+        game.onAlerts = { alerts = it }
+        game.onStockpile = { stock = it }
         game.onWorldProblem = { problem, _ -> notice = problem.message }
         game.create()
         batch = SpriteBatch()
@@ -71,6 +76,10 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
                 Input.Keys.U -> screen.upgradeSettlementOnSelection()
                 // No list here: V builds the first building the settlement can now afford, in the order of the panel.
                 Input.Keys.V -> selected?.let { info -> info.buildings.firstOrNull { it.now == BuildResult.OK }?.let { screen.build(info.faceIndex, it.building) } }
+                Input.Keys.S -> {
+                    showStock = !showStock
+                    screen.watchStockpile(showStock)
+                }
                 Input.Keys.C -> {
                     Gdx.app.clipboard.contents = screen.seed.toString()
                     notice = "Seed ${screen.seed} copied"
@@ -106,10 +115,19 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
         }
         if (showHelp) {
             text("drag: spin   wheel / + -: zoom   Q E: twist   click: inspect tile   X: clear   B: found a homestead   U: grow it   V: build")
-            text("R: reset view   F: flip drag   1 2 3: resource density   N: new world   C: copy seed   H: hide help   Esc: quit")
+            text("R: reset view   F: flip drag   1 2 3: resource density   N: new world   S: stockpile   C: copy seed   H: hide help   Esc: quit")
         }
         text("seed ${game.globeScreen.seed}")
         if (notice.isNotEmpty()) text(notice)
+        Alerts.line(alerts)?.let(::text)
+        if (showStock) {
+            text(if (stock.isEmpty()) "Stockpile: empty" else "Stockpile:")
+            // At most as many rows as leave room for the lines already listed and the tile's details below.
+            val room = ((Gdx.graphics.height - 2 * MARGIN) / LINE_HEIGHT).toInt() - lines.size - TILE_LINES
+            val shown = if (stock.size <= room) stock.size else (room - 1).coerceAtLeast(0)
+            Stockpile.text(stock).take(shown).forEach { text("  $it") }
+            if (shown < stock.size) text("  and ${stock.size - shown} more")
+        }
         selected?.let {
             text("Biome: ${it.biome.name.toDisplayName()}${if (it.isOpenOcean) " (open ocean)" else ""}")
             text(if (it.resources.isEmpty()) "Resources: none" else "Resources: ${it.resources.joinToString(", ") { r -> r.name.toDisplayName() }}")
@@ -180,6 +198,8 @@ class DesktopApp(private val options: LaunchOptions, private val dataDir: File) 
         const val LINE_HEIGHT = 18f
         const val PADDING = 8f
         const val PANEL_ALPHA = 0.7f
+        // Lines the tapped tile's details can take below the stockpile.
+        const val TILE_LINES = 12
         const val TWIST_DEGREES = 15f
         const val KEY_ZOOM_FACTOR = 1.15f
     }

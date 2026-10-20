@@ -26,6 +26,8 @@ class AndroidLauncher : AndroidApplication() {
         // Set before initializeForView() so it's already there by the time
         // create() runs on the GL thread and constructs globeScreen.
         game.onTileSelected = { info -> runOnUiThread { tilePanel.show(info) } }
+        game.onAlerts = { alerts -> runOnUiThread { alertStrip.show(alerts) } }
+        game.onStockpile = { lines -> runOnUiThread { stockpileSheet.update(lines) } }
         game.onGenerationStage = { stage -> runOnUiThread { newWorld.stage(stage) } }
         game.onGenerationProgress = { fraction, eta, cancellable ->
             runOnUiThread { newWorld.progress(fraction, eta, cancellable) }
@@ -42,6 +44,8 @@ class AndroidLauncher : AndroidApplication() {
         )
         root.addView(buildSettingsButton())
         root.addView(buildResetOrientationButton())
+        root.addView(buildStockpileButton())
+        root.addView(alertStrip.view)
         root.addView(tilePanel.view)
         root.addView(newWorld.screen)
         setContentView(root)
@@ -53,6 +57,14 @@ class AndroidLauncher : AndroidApplication() {
 
     private fun buildSettingsButton(): View =
         ink.medallion("⚙", "Settings") { settingsSheet.show() }.apply { layoutParams = cornerParams(Gravity.TOP or Gravity.END) }
+
+    /** Opens the stockpile, under the settings button. */
+    private fun buildStockpileButton(): View =
+        ink.medallion("▣", "Stockpile") { stockpileSheet.show() }.apply {
+            layoutParams = cornerParams(Gravity.TOP or Gravity.END).apply {
+                topMargin += ink.dp(InkPalette.MAP_BUTTON_DP) + ink.dp(8f)
+            }
+        }
 
     /** Spins the globe back to its starting orientation - a standalone button, not a settings option. */
     private fun buildResetOrientationButton(): View =
@@ -71,6 +83,12 @@ class AndroidLauncher : AndroidApplication() {
     }
 
     private val newWorld by lazy { NewWorldFlow(this, ink, game) }
+
+    private val stockpileSheet by lazy { StockpileSheet(this, ink, game) }
+
+    private val alertStrip by lazy {
+        AlertStrip(this, ink) { alert -> game.globeScreen.selectTile(alert.tiles.first()) }
+    }
 
     private val settingsSheet by lazy { SettingsSheet(this, ink, game, newWorld) }
 

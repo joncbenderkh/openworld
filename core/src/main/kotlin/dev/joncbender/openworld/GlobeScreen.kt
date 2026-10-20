@@ -63,6 +63,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             val tile = selectedTile
             if (tile < 0 || !worldReady) return@postRunnable
             settlements.upgrade(compact, tile)
+            publishStanding(everyTick = true)
             onTileSelected?.invoke(describe(tile))
         }
     }
@@ -79,6 +80,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             // Stamped first, so the settlement's own save carries the start time with it.
             if (settlements.all.isEmpty()) offline.stamp(seed)
             settlements.found(compact, tile)
+            publishStanding(everyTick = true)
             onTileSelected?.invoke(describe(tile))
         }
     }
@@ -88,6 +90,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app.postRunnable {
             if (!worldReady) return@postRunnable
             settlements.allocate(tile, resource, weight)
+            publishStanding(everyTick = true)
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
@@ -102,6 +105,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                 for ((item, units) in Buildings.spec(building).cost) inventory.take(item, units)
                 settlements.build(tile, building)
             }
+            publishStanding(everyTick = true)
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
@@ -114,6 +118,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             val storage = building == Building.WAREHOUSE
             settlements.demolish(tile, building, flush = !storage)
             if (storage) inventory.trimTo(Gathering.capacity(settlements.all))
+            publishStanding(everyTick = true)
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
@@ -123,6 +128,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app.postRunnable {
             if (!worldReady) return@postRunnable
             settlements.craft(tile, product, on)
+            publishStanding(everyTick = true)
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
@@ -132,6 +138,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         Gdx.app.postRunnable {
             if (!worldReady) return@postRunnable
             settlements.allocateAutomatically(tile)
+            publishStanding(everyTick = true)
             if (tile == selectedTile) onTileSelected?.invoke(describe(tile))
         }
     }
@@ -224,6 +231,72 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
 
     /** Fired from tap() with whatever tile was hit - set by the Android layer to pop up a detail dialog. */
     var onTileSelected: ((TileInfo) -> Unit)? = null
+
+    /** Fired on the GL thread with the current [Alerts] each time they change (and once when a world loads, possibly empty). */
+    var onAlerts: ((List<Alert>) -> Unit)? = null
+
+    /** Fired on the GL thread with the stockpile after every tick while [watchStockpile] is on, and once when it is switched on. */
+    var onStockpile: ((List<StockLine>) -> Unit)? = null
+
+    private var stockpileWatched = false
+
+    // Null until the first publication of a world, so a new world's empty list is announced and clears the old badges.
+    private var lastAlerts: List<Alert>? = null
+
+    /** Starts or stops [onStockpile]: the stockpile screen asks while it is open, so a closed one costs the tick nothing. */
+    fun watchStockpile(on: Boolean) {
+        Gdx.app.postRunnable {
+            stockpileWatched = on
+            if (on && worldReady) publishStockpile()
+        }
+    }
+
+    /** Selects [tile] as a tap would and reports it, so its panel opens, and turns the globe to face it (an alert's badge goes to its settlement). */
+    fun selectTile(tile: Int) {
+        Gdx.app.postRunnable {
+            if (!worldReady || tile < 0) return@postRunnable
+            val centers = compact.world.sphere.centers
+            rotation.set(Orientation.facing(rotation, centers[tile * 3], centers[tile * 3 + 1], centers[tile * 3 + 2]))
+            // A twist under way restores from its start orientation, which would undo the turn.
+            twistStartRotation = null
+            twistStartAngleDeg = null
+            selectedTile = tile
+            onTileSelected?.invoke(describe(tile))
+        }
+    }
+
+    // Alerts read every settlement's standing, including whether it may grow (a walk over its claim), so the tick re-derives them
+    // every few ticks only; the world loading and resuming do it at once.
+    private var ticksSinceAlerts = 0
+
+    private fun publishStanding(everyTick: Boolean = false) {
+        if (everyTick || ++ticksSinceAlerts >= ALERTS_EVERY_TICKS) {
+            ticksSinceAlerts = 0
+            publishAlerts()
+        }
+        if (stockpileWatched) publishStockpile()
+    }
+
+    private fun publishAlerts() {
+        val held = HappinessModel.stocked(inventory.held())
+        val statuses = settlements.all.map { PopulationModel.status(it, siteOf(it), SettlementRules.canUpgrade(compact, it, settlements.all), held) }
+        val alerts = Alerts.of(statuses)
+        if (alerts != lastAlerts) {
+            lastAlerts = alerts
+            onAlerts?.invoke(alerts)
+        }
+    }
+
+    // The world is going away or could not be made: its badges and numbers go with it.
+    private fun clearStanding() {
+        lastAlerts = emptyList()
+        onAlerts?.invoke(emptyList())
+        onStockpile?.invoke(emptyList())
+    }
+
+    private fun publishStockpile() {
+        onStockpile?.invoke(Stockpile.lines(inventory.held(), gatherer.income(settlements.all, ::siteOf), Gathering.capacity(settlements.all)))
+    }
 
     /**
      * Fired when the world cannot be made, with why and the seed that was being made (a retry with it gives the
@@ -373,6 +446,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         picker = null
         worldReady = false
         selectedTile = -1
+        clearStanding()
         compact = placeholderWorld()
         generating = true
         cancellable = keepOld
@@ -582,10 +656,13 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
             settlements.retainWithin(compact.fineCount)
             prepareTilePicker()
             applyAway()
+            lastAlerts = null
+            publishStanding(everyTick = true)
         }
         if (problem != null) {
             picker = null
             compact = placeholderWorld()
+            clearStanding()
             onWorldProblem?.invoke(problem, seed)
         }
         onGenerationStage?.invoke(null)
@@ -894,6 +971,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
                 flushSettlements()
             }
             refreshPanel()
+            publishStanding()
         }
     }
 
@@ -1136,7 +1214,10 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
     }
 
     override fun resume() {
-        if (worldReady) applyAway()
+        if (worldReady) {
+            applyAway()
+            publishStanding(everyTick = true)
+        }
     }
     override fun hide() = stopGeneration()
     private fun flushSettlements() {
@@ -1167,6 +1248,7 @@ class GlobeScreen(private val options: GameOptions = GameOptions()) : Screen, Ge
         private const val SETTLEMENT_HALF_WIDTH_DP = 1.2f
         private const val CLAIM_RING_SHARE = 0.6f
         private const val FLUSH_EVERY_TICKS = 5
+        private const val ALERTS_EVERY_TICKS = 5
         private const val CLAIM_RING_RELATIVE_WIDTH = 0.12f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_PIXELS = 2.5f
         private const val HIGHLIGHT_MIN_HALF_WIDTH_DP = 2.2f
